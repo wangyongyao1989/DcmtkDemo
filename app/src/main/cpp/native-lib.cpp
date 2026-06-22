@@ -154,6 +154,37 @@ static jboolean native_writeDicomFile(JNIEnv *env, jclass clazz, jstring raw_pat
         dataset->putAndInsertUint16(DCM_HighBit, 15);
         dataset->putAndInsertUint16(DCM_PixelRepresentation, 0);
 
+        // --- Calculate Optimal Window Center and Width (Min-Max algorithm) ---
+        double minVal = 65535.0;
+        double maxVal = 0.0;
+        Uint16 *ptr16 = (Uint16 *) pixelData;
+        size_t numPixels = size / 2;
+
+        if (numPixels > 0) {
+            for (size_t i = 0; i < numPixels; ++i) {
+                Uint16 val = ptr16[i];
+                if (val < minVal) minVal = val;
+                if (val > maxVal) maxVal = val;
+            }
+
+            double windowWidth = maxVal - minVal;
+            double windowCenter = minVal + (windowWidth / 2.0);
+
+            // Window Width must be at least 1.0 according to DICOM standard
+            if (windowWidth < 1.0) windowWidth = 1.0;
+
+            LOGD("native_writeDicomFile: Calculated Min=%f, Max=%f -> WC=%f, WW=%f",
+                 minVal, maxVal, windowCenter, windowWidth);
+
+            char wcStr[32], wwStr[32];
+            snprintf(wcStr, sizeof(wcStr), "%.2f", windowCenter);
+            snprintf(wwStr, sizeof(wwStr), "%.2f", windowWidth);
+
+            dataset->putAndInsertString(DCM_WindowCenter, wcStr);
+            dataset->putAndInsertString(DCM_WindowWidth, wwStr);
+        }
+        // ---------------------------------------------------------------------
+
         LOGD("native_writeDicomFile: Inserting pixel data...");
         if (size % 2 == 0) {
             dataset->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) pixelData,
