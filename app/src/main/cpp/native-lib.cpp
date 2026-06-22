@@ -62,7 +62,7 @@ Java_com_example_dcmtkdemo_DcmtkJni_stringFromJNI(JNIEnv *env, jobject thiz) {
 
 
 extern "C"
-JNIEXPORT jobject JNICALL
+JNIEXPORT void JNICALL
 Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
     const char *path = env->GetStringUTFChars(dict_path, nullptr);
 
@@ -72,11 +72,17 @@ Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring
     dict.loadDictionary(path);
     dcmDataDict.wrunlock();
 
-    DcmFileFormat fileformat;
-    // 注意：如果 dict_path 是字典文件，这里 loadFile 会失败。
-    // 如果该函数也用于加载 DICOM 文件，请确保传入的是 DICOM 文件路径。
-    OFCondition status = fileformat.loadFile(path);
     env->ReleaseStringUTFChars(dict_path, path);
+}
+
+extern "C"
+JNIEXPORT jobject JNICALL
+Java_com_example_dcmtkdemo_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz, jstring file_path) {
+    const char *path = env->GetStringUTFChars(file_path, nullptr);
+
+    DcmFileFormat fileformat;
+    OFCondition status = fileformat.loadFile(path);
+    env->ReleaseStringUTFChars(file_path, path);
 
     // 准备 Java 的 HashMap
     jclass mapClass = env->FindClass("java/util/HashMap");
@@ -86,8 +92,8 @@ Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring
                                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
 
     if (!status.good()) {
-        LOGE("Failed to load DICOM file or dictionary as file: %s", status.text());
-        return hashMap; // 返回空 Map 而不是 null，避免 Java 端 NPE
+        LOGE("Failed to load DICOM file: %s", status.text());
+        return hashMap;
     }
 
     DcmDataset *dataset = fileformat.getDataset();
@@ -107,7 +113,7 @@ Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring
                 element->getOFStringArray(valueStr);
 
                 const char* tagName = tag.getTagName();
-                LOGD("Tag: %s %s : %s", tagStr, tagName ? tagName : "Unknown", valueStr.c_str());
+                // LOGD("Tag: %s %s : %s", tagStr, tagName ? tagName : "Unknown", valueStr.c_str());
 
                 jstring key = env->NewStringUTF(tagStr);
                 jstring val = env->NewStringUTF(valueStr.c_str());

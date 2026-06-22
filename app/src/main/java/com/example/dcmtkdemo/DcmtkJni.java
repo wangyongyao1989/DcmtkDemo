@@ -19,10 +19,16 @@ public class DcmtkJni {
     public native String stringFromJNI();
 
     /**
-     * 初始化 DCMTK，传入 dicom.dic 字典文件的绝对路径
-     * @param dictPath 字典文件路径（通常是拷贝到内部存储后的路径）
-     * @return 初始化是否成功
+     * 初始化 DCMTK，加载字典文件
+     * @param dictPath 字典文件路径
      */
-    public static native HashMap<String, String> initDcmtk(String dictPath);
+    public static native void initDcmtk(String dictPath);
+
+    /**
+     * 加载 DICOM 文件并返回其标签信息
+     * @param filePath DICOM 文件的绝对路径
+     * @return 包含 Tag 和 Value 的 HashMap
+     */
+    public static native HashMap<String, String> loadDicomFileInfo(String filePath);
 
 }
