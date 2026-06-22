@@ -1,98 +1,70 @@
 #include <jni.h>
 #include <string>
-#include <cstdlib>
-#include <android/bitmap.h>
+#include <vector>
 #include <android/log.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
 
-// Stub for getlogin and getlogin_r which are missing in some Android NDK/API levels
-extern "C" char* getlogin() {
-    return (char*)"android";
-}
+// DCMTK Headers
+#include "dcmtk/dcmdata/dctk.h"
+#include "dcmtk/dcmdata/dcdict.h"
+#include "dcmtk/ofstd/ofcond.h"
 
+#define TAG "DcmtkJni"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// Stubs for missing NDK symbols
+extern "C" char* getlogin() { return (char*)"android"; }
 extern "C" int getlogin_r(char* buf, size_t bufsize) {
     const char* user = "android";
-    size_t len = strlen(user);
-    if (len >= bufsize) {
-        return ERANGE;
-    }
+    if (strlen(user) >= bufsize) return ERANGE;
     strcpy(buf, user);
     return 0;
 }
 
-// DCMTK 核心头文件
-#include "dcmtk/dcmdata/dctk.h"
-#include "dcmtk/dcmdata/dcdict.h" // 字典支持
-#include "dcmtk/ofstd/ofcond.h"
-#include "dcmtk/ofstd/ofstream.h"
-#include "dcmtk/dcmjpeg/djencode.h"
-#include "dcmtk/dcmdata/dcpxitem.h"
-#include "dcmtk/dcmdata/dcostrma.h"
-#include "dcmtk/dcmdata/dcspchrs.h"
-#include "dcmtk/dcmdata/dcvrcs.h"
-#include "dcmtk/dcmnet/scu.h"
-
-
-#define ENABLE_LOGGING
-#define TAG "dcmtk_android_jni"
-#ifdef ENABLE_LOGGING
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
-#define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, TAG, __VA_ARGS__)
-#else
-#define LOGD(...)
-#define LOGE(...)
-#define LOGI(...)
-#define LOGW(...)
-#define LOGV(...)
-#endif
-
-extern "C"
-JNIEXPORT jstring JNICALL
-Java_com_example_dcmtkdemo_DcmtkJni_stringFromJNI(JNIEnv *env, jobject thiz) {
-
-    std::string hello = "Hello from C++";
-    return env->NewStringUTF(hello.c_str());
+/**
+ * Native implementation for DcmtkJni.stringFromJNI()
+ */
+static jstring native_stringFromJNI(JNIEnv *env, jobject thiz) {
+    return env->NewStringUTF("Hello from DCMTK Native (Dynamic)");
 }
 
-
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
+/**
+ * Native implementation for DcmtkJni.initDcmtk(String dictPath)
+ */
+static void native_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
     const char *path = env->GetStringUTFChars(dict_path, nullptr);
-
-    // 加载 DICOM 字典
-    DcmDataDictionary& dict = dcmDataDict.wrlock();
-    dict.clear();
-    dict.loadDictionary(path);
-    dcmDataDict.wrunlock();
-
-    env->ReleaseStringUTFChars(dict_path, path);
+    if (path) {
+        DcmDataDictionary& dict = dcmDataDict.wrlock();
+        dict.clear();
+        dict.loadDictionary(path);
+        dcmDataDict.wrunlock();
+        env->ReleaseStringUTFChars(dict_path, path);
+        LOGD("DCMTK Dictionary initialized from: %s", path);
+    }
 }
 
-extern "C"
-JNIEXPORT jobject JNICALL
-Java_com_example_dcmtkdemo_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz, jstring file_path) {
+/**
+ * Native implementation for DcmtkJni.loadDicomFileInfo(String filePath)
+ */
+static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz, jstring file_path) {
     const char *path = env->GetStringUTFChars(file_path, nullptr);
+
+    jclass mapClass = env->FindClass("java/util/HashMap");
+    jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
+    jobject hashMap = env->NewObject(mapClass, mapInit);
+    jmethodID putMethod = env->GetMethodID(mapClass, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+
+    if (!path) return hashMap;
 
     DcmFileFormat fileformat;
     OFCondition status = fileformat.loadFile(path);
     env->ReleaseStringUTFChars(file_path, path);
 
-    // 准备 Java 的 HashMap
-    jclass mapClass = env->FindClass("java/util/HashMap");
-    jmethodID init = env->GetMethodID(mapClass, "<init>", "()V");
-    jobject hashMap = env->NewObject(mapClass, init);
-    jmethodID putMethod = env->GetMethodID(mapClass, "put",
-                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-
-    if (!status.good()) {
-        LOGE("Failed to load DICOM file: %s", status.text());
+    if (status.bad()) {
+        LOGE("Failed to load DICOM: %s", status.text());
         return hashMap;
     }
 
@@ -102,7 +74,7 @@ Java_com_example_dcmtkdemo_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz,
     DcmStack stack;
     while (dataset->nextObject(stack, OFTrue).good()) {
         DcmObject *obj = stack.top();
-        if (obj != nullptr && obj->isLeaf()) {
+        if (obj && obj->isLeaf()) {
             auto *element = dynamic_cast<DcmElement *>(obj);
             if (element) {
                 DcmTag tag = element->getTag();
@@ -112,14 +84,9 @@ Java_com_example_dcmtkdemo_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz,
                 OFString valueStr;
                 element->getOFStringArray(valueStr);
 
-                const char* tagName = tag.getTagName();
-                // LOGD("Tag: %s %s : %s", tagStr, tagName ? tagName : "Unknown", valueStr.c_str());
-
                 jstring key = env->NewStringUTF(tagStr);
                 jstring val = env->NewStringUTF(valueStr.c_str());
-
                 env->CallObjectMethod(hashMap, putMethod, key, val);
-
                 env->DeleteLocalRef(key);
                 env->DeleteLocalRef(val);
             }
@@ -129,3 +96,25 @@ Java_com_example_dcmtkdemo_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz,
     return hashMap;
 }
 
+// JNI Registration
+static const char* const kClassName = "com/example/dcmtkdemo/DcmtkJni";
+
+static const JNINativeMethod kMethods[] = {
+    {"stringFromJNI", "()Ljava/lang/String;", (void*)native_stringFromJNI},
+    {"initDcmtk", "(Ljava/lang/String;)V", (void*)native_initDcmtk},
+    {"loadDicomFileInfo", "(Ljava/lang/String;)Ljava/util/HashMap;", (void*)native_loadDicomFileInfo},
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+
+    jclass clazz = env->FindClass(kClassName);
+    if (clazz == nullptr) return JNI_ERR;
+
+    if (env->RegisterNatives(clazz, kMethods, sizeof(kMethods) / sizeof(kMethods[0])) < 0) {
+        return JNI_ERR;
+    }
+
+    return JNI_VERSION_1_6;
+}
