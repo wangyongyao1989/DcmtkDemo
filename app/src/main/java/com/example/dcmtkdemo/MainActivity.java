@@ -8,6 +8,7 @@ import android.widget.TextView;
 
 import com.example.dcmtkdemo.databinding.ActivityMainBinding;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,29 +28,82 @@ public class MainActivity extends AppCompatActivity {
 
         dcmtkJni = new DcmtkJni();
         
+        // 初始化字典 (写入和读取都需要)
+        new Thread(() -> {
+            try {
+                String dictPath = FileUtil.copyAssetToInternalStorage(this, "dicom.dic");
+                DcmtkJni.initDcmtk(dictPath);
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to init dictionary", e);
+            }
+        }).start();
+
         // 初始显示
         binding.sampleText.setText(dcmtkJni.stringFromJNI());
 
         // 设置按钮点击事件
         binding.btnLoadDicom.setOnClickListener(v -> {
-            loadAndDisplayDicomInfo();
+            // 默认加载生成的，如果没有则尝试加载资产里的
+            File outFile = new File(getExternalFilesDir(null), "generated.dcm");
+            if (outFile.exists()) {
+                loadAndDisplayDicomInfo(outFile.getAbsolutePath());
+            } else {
+                loadAndDisplayDicomInfo(null);
+            }
+        });
+
+        binding.btnWriteDicom.setOnClickListener(v -> {
+            writeRawToDicom();
         });
     }
 
-    private void loadAndDisplayDicomInfo() {
+    private void writeRawToDicom() {
+        TextView tv = binding.sampleText;
+        tv.setText("Writing DICOM...");
+
+        new Thread(() -> {
+            try {
+                // 1. 准备输入输出路径
+                String rawPath = FileUtil.copyAssetToInternalStorage(this, "Data610.bin");
+                File outFile = new File(getExternalFilesDir(null), "generated.dcm");
+                String dcmPath = outFile.getAbsolutePath();
+
+                // 2. 调用 JNI 写入 (根据 Data610.bin 大小 3,870,000 字节推测)
+                // 1935 * 1000 * 2 = 3,870,000
+                boolean success = DcmtkJni.writeDicomFile(rawPath, dcmPath, 1935, 1000);
+
+                runOnUiThread(() -> {
+                    if (success) {
+                        tv.setText("Successfully wrote DICOM to:\n" + dcmPath + 
+                                 "\n\nYou can now click 'Load DICOM' to view its info.");
+                        // 自动加载显示刚才生成的
+                        loadAndDisplayDicomInfo(dcmPath);
+                    } else {
+                        tv.setText("Failed to write DICOM file.");
+                    }
+                });
+            } catch (IOException e) {
+                Log.e(TAG, "Error writing DICOM", e);
+                runOnUiThread(() -> tv.setText("Error: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private void loadAndDisplayDicomInfo(String specificPath) {
         TextView tv = binding.sampleText;
         tv.setText("Processing...");
 
         new Thread(() -> {
             try {
-                // 1. 使用工具类拷贝必要文件
-                String dictPath = FileUtil.copyAssetToInternalStorage(this, "dicom.dic");
-                String dcmPath = FileUtil.copyAssetToInternalStorage(this, "CR2026060810120220260609162248FT17.dcm");
+                // 1. 获取 DICOM 文件路径
+                String dcmPath;
+                if (specificPath != null) {
+                    dcmPath = specificPath;
+                } else {
+                    dcmPath = FileUtil.copyAssetToInternalStorage(this, "CR2026060810120220260609162248FT17.dcm");
+                }
 
-                // 2. 初始化字典
-                DcmtkJni.initDcmtk(dictPath);
-
-                // 3. 加载 DICOM 文件信息
+                // 2. 加载 DICOM 文件信息
                 HashMap<String, String> info = DcmtkJni.loadDicomFileInfo(dcmPath);
 
                 // 4. 提取重要信息并展示
