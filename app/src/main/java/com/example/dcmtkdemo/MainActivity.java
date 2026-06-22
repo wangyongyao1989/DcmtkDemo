@@ -8,17 +8,12 @@ import android.widget.TextView;
 
 import com.example.dcmtkdemo.databinding.ActivityMainBinding;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
-
-
 
     private ActivityMainBinding binding;
     private DcmtkJni dcmtkJni;
@@ -31,15 +26,25 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         dcmtkJni = new DcmtkJni();
-        // Example of a call to a native method
+        
+        // 初始显示
+        binding.sampleText.setText(dcmtkJni.stringFromJNI());
+
+        // 设置按钮点击事件
+        binding.btnLoadDicom.setOnClickListener(v -> {
+            loadAndDisplayDicomInfo();
+        });
+    }
+
+    private void loadAndDisplayDicomInfo() {
         TextView tv = binding.sampleText;
-        tv.setText(dcmtkJni.stringFromJNI());
+        tv.setText("Processing...");
 
         new Thread(() -> {
             try {
-                // 1. 拷贝必要文件到私有目录 (DCMTK 需要绝对路径)
-                String dictPath = copyAssetToInternalStorage("dicom.dic");
-                String dcmPath = copyAssetToInternalStorage("CR2026060810120220260609162248FT17.dcm");
+                // 1. 使用工具类拷贝必要文件
+                String dictPath = FileUtil.copyAssetToInternalStorage(this, "dicom.dic");
+                String dcmPath = FileUtil.copyAssetToInternalStorage(this, "CR2026060810120220260609162248FT17.dcm");
 
                 // 2. 初始化字典
                 DcmtkJni.initDcmtk(dictPath);
@@ -47,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
                 // 3. 加载 DICOM 文件信息
                 HashMap<String, String> info = DcmtkJni.loadDicomFileInfo(dcmPath);
 
-                // 4. 提取重要信息
+                // 4. 提取重要信息并展示
                 StringBuilder sb = new StringBuilder();
                 sb.append("--- Important DICOM Info ---\n\n");
                 
@@ -74,49 +79,20 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                if (sb.length() < 40) { // If only header is present
-                    sb.append("No important tags found or file error.\n");
-                    // Optionally show all available tags if specific ones are missing
-                    sb.append("\n--- All Found Tags ---\n");
+                if (sb.length() < 40) {
+                    sb.append("No important tags found.\n\n--- All Tags ---\n");
                     for (Map.Entry<String, String> entry : info.entrySet()) {
                         sb.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
                     }
                 }
 
                 String resultText = sb.toString();
-                runOnUiThread(() -> {
-                    if (resultText.isEmpty()) {
-                        tv.setText("Failed to load DICOM info or file empty.");
-                    } else {
-                        tv.setText(resultText);
-                    }
-                });
+                runOnUiThread(() -> tv.setText(resultText));
 
             } catch (IOException e) {
-                Log.e(TAG, "Error handling assets", e);
+                Log.e(TAG, "Error handling files", e);
                 runOnUiThread(() -> tv.setText("Error: " + e.getMessage()));
             }
         }).start();
     }
-
-    private String copyAssetToInternalStorage(String assetName) throws IOException {
-        File file = new File(getFilesDir(), assetName);
-        if (!file.exists()) {
-            try (InputStream is = getAssets().open(assetName);
-                 FileOutputStream fos = new FileOutputStream(file)) {
-                byte[] buffer = new byte[1024];
-                int read;
-                while ((read = is.read(buffer)) != -1) {
-                    fos.write(buffer, 0, read);
-                }
-            }
-        }
-        return file.getAbsolutePath();
-    }
-
-
-
-
-
-
 }
