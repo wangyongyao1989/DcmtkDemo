@@ -67,7 +67,11 @@ public class MainActivity extends AppCompatActivity {
                     {"(0008,1030)", "Study Description"},
                     {"(0028,0010)", "Rows"},
                     {"(0028,0011)", "Columns"},
-                    {"(0028,0100)", "Bits Allocated"}
+                    {"(0028,0100)", "Bits Allocated"},
+                    {"(0028,1050)", "Window Center (Level)"},
+                    {"(0028,1051)", "Window Width"},
+                    {"(0028,1052)", "Rescale Intercept"},
+                    {"(0028,1053)", "Rescale Slope"}
                 };
 
                 for (String[] tagInfo : importantTags) {

@@ -96,6 +96,11 @@ static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz, jstring file_
     return hashMap;
 }
 
+
+//static jobject native_writeDicomFile(JNIEnv *env, jclass clazz, jstring file_path) {
+//
+//}
+
 // JNI Registration
 static const char* const kClassName = "com/example/dcmtkdemo/DcmtkJni";
 
@@ -103,7 +108,9 @@ static const JNINativeMethod kMethods[] = {
     {"stringFromJNI", "()Ljava/lang/String;", (void*)native_stringFromJNI},
     {"initDcmtk", "(Ljava/lang/String;)V", (void*)native_initDcmtk},
     {"loadDicomFileInfo", "(Ljava/lang/String;)Ljava/util/HashMap;", (void*)native_loadDicomFileInfo},
-};
+//    {"writeDicomFile", "(Ljava/lang/String;)Ljava/util/HashMap;", (void*)native_loadDicomFileInfo},
+
+    };
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     JNIEnv* env = nullptr;

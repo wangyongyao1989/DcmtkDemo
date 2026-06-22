@@ -31,4 +31,7 @@ public class DcmtkJni {
      */
     public static native HashMap<String, String> loadDicomFileInfo(String filePath);
 
+//    public static native HashMap<String, String> writeDicomFile(String filePath);
+
+
 }
