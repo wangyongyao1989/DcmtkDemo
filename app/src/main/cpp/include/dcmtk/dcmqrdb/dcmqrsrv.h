@@ -33,6 +33,7 @@ class DcmQueryRetrieveConfig;
 class DcmQueryRetrieveOptions;
 class DcmQueryRetrieveDatabaseHandle;
 class DcmQueryRetrieveDatabaseHandleFactory;
+class DcmTLSOptions;
 
 /// enumeration describing reasons for refusing an association request
 enum CTN_RefuseReason
@@ -61,12 +62,14 @@ public:
    *  @param config SCP configuration facility
    *  @param options SCP configuration options
    *  @param factory factory object used to create database handles
+   *  @param object managing the TLS options for network connections
    */
   DcmQueryRetrieveSCP(
     const DcmQueryRetrieveConfig& config,
     const DcmQueryRetrieveOptions& options,
     const DcmQueryRetrieveDatabaseHandleFactory& factory,
-    const DcmAssociationConfiguration& associationConfiguration);
+    const DcmAssociationConfiguration& associationConfiguration,
+    DcmTLSOptions& tlsOptions);
 
   /// destructor
   virtual ~DcmQueryRetrieveSCP() { }
@@ -169,6 +172,9 @@ private:
 
   /// Association configuration profiles read from configuration file
   const DcmAssociationConfiguration& associationConfiguration_;
+
+  /// reference to object managing the TLS options
+  DcmTLSOptions& tlsOptions_;
 };
 
 #endif

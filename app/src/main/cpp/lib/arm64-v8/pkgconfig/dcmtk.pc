@@ -1,0 +1,14 @@
+prefix="C:/Users/Fall/Desktop/dcmtk/install-android-arm64"
+exec_prefix="${prefix}"
+libdir="C:/Users/Fall/Desktop/dcmtk/install-android-arm64/lib"
+includedir="${prefix}/include/"
+
+Name: DCMTK
+Description: DICOM Toolkit (DCMTK)
+URL: https://dcmtk.org
+Version: 3.6.9
+Requires: 
+Requires.private:  zlib
+Cflags: -I"${includedir}"
+Libs: -L"${libdir}"  -lofstd -loflog -loficonv -ldcmdata -li2d -ldcmxml -ldcmimgle -ldcmimage -ldcmjpeg -lijg8 -lijg12 -lijg16 -ldcmjpls -ldcmtkcharls -ldcmtls -ldcmnet -ldcmsr -lcmr -ldcmdsig -ldcmwlm -ldcmqrdb -ldcmpstat -ldcmrt -ldcmiod -ldcmfg -ldcmseg -ldcmtract -ldcmpmap -ldcmect
+Libs.private: -L"${libdir}" 

@@ -1,12 +1,12 @@
 /*
  *
- *  Copyright (C) 2015-2023, J. Riesmeier, Oldenburg, Germany
+ *  Copyright (C) 2015-2024, J. Riesmeier, Oldenburg, Germany
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  Header file for class CID7445_DeviceParticipatingRole
  *
- *  Generated automatically from DICOM PS 3.16-2023a
- *  File created on 2023-02-02 17:56:54 by J. Riesmeier
+ *  Generated automatically from DICOM PS 3.16-2024d
+ *  File created on 2024-10-08 10:25:19 by J. Riesmeier
  *
  */
 

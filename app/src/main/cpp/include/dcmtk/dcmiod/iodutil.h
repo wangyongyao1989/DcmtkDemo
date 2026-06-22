@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 2015-2019, Open Connections GmbH
+ *  Copyright (C) 2015-2024, Open Connections GmbH
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation are maintained by
@@ -24,7 +24,6 @@
 
 #include "dcmtk/config/osconfig.h"
 #include "dcmtk/dcmdata/dcdatset.h"
-#include "dcmtk/dcmdata/dcdatutl.h"
 #include "dcmtk/dcmdata/dcelem.h"
 #include "dcmtk/dcmdata/dcsequen.h"
 #include "dcmtk/dcmiod/ioddef.h"
@@ -185,10 +184,14 @@ public:
      *          and therefore ownership is transferred to the dataset, or the
      *          element is deleted from memory if it could not be inserted.
      *  @param  rule  Rule describing parameters to be checked on element.
+     *  @param  checkValue If OFTrue, the value of the element is checked for
+     *          violations against VR, VM, charset and value length. If OFTrue,
+     *          an error is printed and an error is returned. Otherwise, a warning
+     *          is printed and EC_Normal is returned.
      *  @return Current value of 'result', EC_Normal if successful, an error code otherwise
      */
     static OFCondition
-    addElementToDataset(OFCondition& result, DcmItem& dataset, DcmElement* delem, const IODRule* rule);
+    addElementToDataset(OFCondition& result, DcmItem& dataset, DcmElement* delem, const IODRule* rule, const OFBool checkValue = OFTrue);
 
     /** Check element value for correct value multiplicity and type.
      *  @param  delem Pointer to DICOM element to be checked (might be NULL)
@@ -962,10 +965,10 @@ public:
     static Uint32 limitMaxFrames(const size_t numFramesPresent, const OFString& warning);
 
     /** Extracts Frame structures from the given pixel data element. Only
-     *  applicable for pixel data with Bits Allocated = 1. Within the pixel data element, all
-     *  frames are packed next to each other, with the end of one frame and the
-     *  beginning of the next frame packed bit by bit next to each other. The
-     *  resulting Frames are a bit-by-bit copy of their original counterpart.
+     *  applicable for pixel data with Bits Allocated = 1. Within the pixel data element,
+     *  all frames are packed next to each other, with the end of one frame and the
+     *  beginning of the next frame packed bit by bit next to each other (right to left!).
+     *  The resulting Frames are a bit-by-bit copy of their original counterpart.
      *  However, their first bit is aligned to the first bit/byte in the Frame,
      *  and the unused bits in the last byte (if any) are zeroed out.
      *  @param  pixData The pixel data to read from
@@ -980,24 +983,15 @@ public:
                                            const size_t bitsPerFrame,
                                            OFVector<DcmIODTypes::Frame*>& results);
 
-    /** Aligns 1 bit per pixel frame data starting at a given bit position in the
-     *  provided buffer with the start of that buffer. This is used to create
-     *  a frame structure where all the bytes (including the first one) only
-     *  contain data from the frame at hand.
-     *  Note that each byte is filled from the right, i.e. the first pixel will
-     *  represented by the bit at the very right of the first byte, and the 9th
-     *  pixel will be in the very right position of the following byte.
-     *  Example:
-     *    3 bytes input buffer: edcbaZYX mlkjihgf utsrqpon
-     *    Result after aligning 3 bits: fghedcba ponmlkji 000utsrq
-     *    The 000 are unused bits and therefore zeroed out in the last byte. Bits
-     *    ZYX will be shifted out which is ok since it does not belong to the
-     *    current frame. See also dcmseg/tests/tutils.cc for more examples.
-     *  @param  buf The address of the memory buffer to shift
-     *  @param  bufLen The length of the buf memory block in bytes
-     *  @param  numBits The number of bits to shift. Must be 0 <= numBits <= 7.
+    /** Resets the given condition to EC_Normal if checkValue is true and
+     *  prints a related message as a warning to the debug logger.
+     *  @param  result The condition to check. Only EC_ValueRepresentationViolated, EC_MaximumLengthViolated,
+     *          EC_InvalidCharacter and EC_ValueMultiplicityViolated are handled. Those codes
+     *          are reset to EC_Normal if the checkValue is OFFalse.
+     *  @param  checkValue If this value is false, the condition is reset to EC_Normal
+     *  @param  elem Used if the condition is reset to EC_Normal to print a warning
      */
-    static void alignFrameOnByteBoundary(Uint8* buf, const size_t bufLen, const Uint8 numBits);
+    static void resetConditionIfCheckDisabled(OFCondition& result, const OFBool checkValue, DcmElement& elem);
 
 private:
     // We only have static functions so we do not need an instance of

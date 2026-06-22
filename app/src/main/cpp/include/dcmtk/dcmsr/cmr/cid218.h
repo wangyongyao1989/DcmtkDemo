@@ -1,12 +1,12 @@
 /*
  *
- *  Copyright (C) 2015-2023, J. Riesmeier, Oldenburg, Germany
+ *  Copyright (C) 2015-2024, J. Riesmeier, Oldenburg, Germany
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  Header file for class CID218_QuantitativeImageFeature
  *
- *  Generated automatically from DICOM PS 3.16-2023a
- *  File created on 2023-02-02 17:56:46 by J. Riesmeier
+ *  Generated automatically from DICOM PS 3.16-2024d
+ *  File created on 2024-10-08 10:25:10 by J. Riesmeier
  *
  */
 
@@ -662,6 +662,10 @@ class DCMTK_CMR_EXPORT CID218_QuantitativeImageFeature
         VolumeOfMesh,
         /// (YEKZ,IBSI,"Volume from Voxel Summation"), included from CID 7472
         VolumeFromVoxelSummation,
+        /// (130922,DCM,"Number of pixels"), included from CID 7469
+        NumberOfPixels,
+        /// (130923,DCM,"Number of voxels"), included from CID 7469
+        NumberOfVoxels,
         /// (2PR5,IBSI,"Surface to Volume Ratio"), included from CID 7477
         SurfaceToVolumeRatio,
         /// (SKGS,IBSI,"Compactness 1"), included from CID 7477

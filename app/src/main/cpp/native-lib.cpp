@@ -2,10 +2,54 @@
 #include <string>
 #include <cstdlib>
 #include <android/bitmap.h>
+#include <android/log.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
+// Stub for getlogin and getlogin_r which are missing in some Android NDK/API levels
+extern "C" char* getlogin() {
+    return (char*)"android";
+}
+
+extern "C" int getlogin_r(char* buf, size_t bufsize) {
+    const char* user = "android";
+    size_t len = strlen(user);
+    if (len >= bufsize) {
+        return ERANGE;
+    }
+    strcpy(buf, user);
+    return 0;
+}
+
 // DCMTK 核心头文件
-#include <dcmtk/dcmdata/dctk.h>
-#include <dcmtk/dcmimgle/dcmimage.h>
-#include <dcmtk/ofstd/ofcond.h>
+#include "dcmtk/dcmdata/dctk.h"
+#include "dcmtk/dcmdata/dcdict.h" // 字典支持
+#include "dcmtk/ofstd/ofcond.h"
+#include "dcmtk/ofstd/ofstream.h"
+#include "dcmtk/dcmjpeg/djencode.h"
+#include "dcmtk/dcmdata/dcpxitem.h"
+#include "dcmtk/dcmdata/dcostrma.h"
+#include "dcmtk/dcmdata/dcspchrs.h"
+#include "dcmtk/dcmdata/dcvrcs.h"
+#include "dcmtk/dcmnet/scu.h"
+
+
+#define ENABLE_LOGGING
+#define TAG "dcmtk_android_jni"
+#ifdef ENABLE_LOGGING
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
+#define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, TAG, __VA_ARGS__)
+#else
+#define LOGD(...)
+#define LOGE(...)
+#define LOGI(...)
+#define LOGW(...)
+#define LOGV(...)
+#endif
 
 extern "C"
 JNIEXPORT jstring JNICALL
@@ -18,137 +62,64 @@ Java_com_example_dcmtkdemo_DcmtkJni_stringFromJNI(JNIEnv *env, jobject thiz) {
 
 
 extern "C"
-JNIEXPORT jboolean JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_example_dcmtkdemo_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
-    const char *dictPath = env->GetStringUTFChars(dict_path, nullptr);
-    if (dictPath == nullptr) {
-        return JNI_FALSE;
-    }
+    const char *path = env->GetStringUTFChars(dict_path, nullptr);
 
-    // 设置 DICOM 字典环境变量，DCMTK 运行时必须加载
-    setenv("DCMDICTPATH", dictPath, 1);
-    // 设置临时文件目录为 Android 应用私有缓存
-    // 实际使用时建议传入应用缓存目录，这里先使用系统默认临时目录
-    setenv("TMPDIR", "/data/local/tmp", 1);
+    // 加载 DICOM 字典
+    DcmDataDictionary& dict = dcmDataDict.wrlock();
+    dict.clear();
+    dict.loadDictionary(path);
+    dcmDataDict.wrunlock();
 
-    env->ReleaseStringUTFChars(dict_path, dictPath);
-    return JNI_TRUE;
+    DcmFileFormat fileformat;
+    // 注意：如果 dict_path 是字典文件，这里 loadFile 会失败。
+    // 如果该函数也用于加载 DICOM 文件，请确保传入的是 DICOM 文件路径。
+    OFCondition status = fileformat.loadFile(path);
+    env->ReleaseStringUTFChars(dict_path, path);
 
-}
-
-extern "C"
-JNIEXPORT jstring JNICALL
-Java_com_example_dcmtkdemo_DcmtkJni_getDicomInfo(JNIEnv *env, jclass clazz, jstring file_path) {
-
-    const char *filePath = env->GetStringUTFChars(file_path, nullptr);
-    if (filePath == nullptr) {
-        return env->NewStringUTF("文件路径为空");
-    }
-
-    // 打开 DICOM 文件
-    DcmFileFormat fileFormat;
-    OFCondition status = fileFormat.loadFile(filePath);
-    env->ReleaseStringUTFChars(file_path, filePath);
+    // 准备 Java 的 HashMap
+    jclass mapClass = env->FindClass("java/util/HashMap");
+    jmethodID init = env->GetMethodID(mapClass, "<init>", "()V");
+    jobject hashMap = env->NewObject(mapClass, init);
+    jmethodID putMethod = env->GetMethodID(mapClass, "put",
+                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
 
     if (!status.good()) {
-        std::string err = "打开文件失败: ";
-        err += status.text();
-        return env->NewStringUTF(err.c_str());
+        LOGE("Failed to load DICOM file or dictionary as file: %s", status.text());
+        return hashMap; // 返回空 Map 而不是 null，避免 Java 端 NPE
     }
 
-    DcmDataset *dataset = fileFormat.getDataset();
-    OFString value;
-    std::string result;
+    DcmDataset *dataset = fileformat.getDataset();
+    dataset->loadAllDataIntoMemory();
 
-    // 读取患者信息
-    dataset->findAndGetOFString(DCM_PatientName, value);
-    result += "患者姓名: " + std::string(value.c_str()) + "\n";
+    DcmStack stack;
+    while (dataset->nextObject(stack, OFTrue).good()) {
+        DcmObject *obj = stack.top();
+        if (obj != nullptr && obj->isLeaf()) {
+            auto *element = dynamic_cast<DcmElement *>(obj);
+            if (element) {
+                DcmTag tag = element->getTag();
+                char tagStr[32];
+                snprintf(tagStr, sizeof(tagStr), "(%04X,%04X)", tag.getGroup(), tag.getElement());
 
-    dataset->findAndGetOFString(DCM_PatientID, value);
-    result += "患者ID: " + std::string(value.c_str()) + "\n";
+                OFString valueStr;
+                element->getOFStringArray(valueStr);
 
-    dataset->findAndGetOFString(DCM_StudyDate, value);
-    result += "检查日期: " + std::string(value.c_str()) + "\n";
+                const char* tagName = tag.getTagName();
+                LOGD("Tag: %s %s : %s", tagStr, tagName ? tagName : "Unknown", valueStr.c_str());
 
-    dataset->findAndGetOFString(DCM_Modality, value);
-    result += "检查模态: " + std::string(value.c_str()) + "\n";
+                jstring key = env->NewStringUTF(tagStr);
+                jstring val = env->NewStringUTF(valueStr.c_str());
 
-    // 读取图像信息
-    Uint16 rows = 0, cols = 0;
-    dataset->findAndGetUint16(DCM_Rows, rows);
-    dataset->findAndGetUint16(DCM_Columns, cols);
-    result += "图像尺寸: " + std::to_string(cols) + " x " + std::to_string(rows) + "\n";
+                env->CallObjectMethod(hashMap, putMethod, key, val);
 
-    Uint16 bitsAllocated = 0;
-    dataset->findAndGetUint16(DCM_BitsAllocated, bitsAllocated);
-    result += "位深度: " + std::to_string(bitsAllocated) + " bit\n";
-
-    return env->NewStringUTF(result.c_str());
-}
-
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_com_example_dcmtkdemo_DcmtkJni_renderDicomToBitmap(JNIEnv *env, jclass clazz,
-                                                        jstring file_path, jobject bitmap) {
-
-    const char *filePath = env->GetStringUTFChars(file_path, nullptr);
-    if (filePath == nullptr) {
-        return JNI_FALSE;
-    }
-
-    // 创建 DICOM 图像对象，自动解析像素数据
-    DicomImage *dicomImage = new DicomImage(filePath);
-    env->ReleaseStringUTFChars(file_path, filePath);
-
-    if (dicomImage == nullptr || dicomImage->getStatus() != EIS_Normal) {
-        delete dicomImage;
-        return JNI_FALSE;
-    }
-
-    // 获取图像宽高
-    const int width = dicomImage->getWidth();
-    const int height = dicomImage->getHeight();
-
-    // 锁定 Bitmap，获取像素缓冲区
-    AndroidBitmapInfo bitmapInfo;
-    void *bitmapPixels;
-    int ret = AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
-    if (ret != 0 || bitmapInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        delete dicomImage;
-        return JNI_FALSE;
-    }
-
-    ret = AndroidBitmap_lockPixels(env, bitmap, &bitmapPixels);
-    if (ret != 0) {
-        delete dicomImage;
-        return JNI_FALSE;
-    }
-
-    // 设置默认窗宽窗位：使用全范围灰度
-    // 如需使用文件内置窗宽窗位，可替换为 dicomImage->setWindow(0) 调用第 0 组窗宽窗位
-    dicomImage->setMinMaxWindow();
-
-    // 获取 8 位灰度输出数据（0-255）
-    const Uint8 *pixelData = (const Uint8 *) dicomImage->getOutputData(8);
-    if (pixelData == nullptr) {
-        AndroidBitmap_unlockPixels(env, bitmap);
-        delete dicomImage;
-        return JNI_FALSE;
-    }
-
-    // 将灰度数据填充为 ARGB_8888 格式
-    auto *dst = (uint32_t *) bitmapPixels;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            Uint8 gray = pixelData[y * width + x];
-            // 灰度图 R=G=B，Alpha 设为 255 不透明
-            dst[y * width + x] = (0xFF << 24) | (gray << 16) | (gray << 8) | gray;
+                env->DeleteLocalRef(key);
+                env->DeleteLocalRef(val);
+            }
         }
     }
 
-    // 释放资源
-    AndroidBitmap_unlockPixels(env, bitmap);
-    delete dicomImage;
-
-    return JNI_TRUE;
+    return hashMap;
 }
+

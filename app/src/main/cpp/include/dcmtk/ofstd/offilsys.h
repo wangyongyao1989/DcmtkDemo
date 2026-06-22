@@ -18,15 +18,6 @@
  *  Purpose: Implementing the currently used subset of C++17' std::filesystem
  *
  */
- 
- #if defined(__ANDROID__)
-// 强制Android使用POSIX dirent实现，覆盖错误的配置检测结果
-#undef HAVE_DIRENT_H
-#define HAVE_DIRENT_H 1
-// 禁用Windows文件查找接口
-#undef HAVE__FINDDATA_T
-#undef HAVE__FINDFIRST
-#endif
 
 #ifndef OFFILSYS_H
 #define OFFILSYS_H

@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 2008-2023, OFFIS e.V.
+ *  Copyright (C) 2008-2024, OFFIS e.V.
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation were developed by
@@ -661,6 +661,11 @@ public:
      */
     void setPeerAETitle(const OFString& peerAETitle);
 
+    /** Set the IP protocol version
+     *  @param protocolVersion [in] The IP protocol version used by the SCP
+     */
+    void setProtocolVersion(T_ASC_ProtocolFamily protocolVersion);
+
     /** Set SCP's port number to connect to for association negotiation
      *  @param peerPort [in] The SCP's port number
      */
@@ -822,12 +827,20 @@ public:
     OFBool getProgressNotificationMode() const;
 
     /** Returns whether SCU is configured to create a TLS connection with the SCP
-     *  @return OFFalse for this class but may be overridden by derived classes
+     *  @return OFTrue if TLS mode has been enabled, OFFalse otherwise
      */
-    OFBool getTLSEnabled() const;
+    virtual OFBool getTLSEnabled() const;
 
     /** Deletes internal networking structures from memory */
     void freeNetwork();
+
+    /** Tells DcmSCU to use a secure TLS connection described by the given TLS layer.
+     *  The DcmSCU instance does not take ownership of the TLS layer object, i.e.
+     *  it is the caller's responsibility to delete it after its use has ended.
+     *  @param tlayer [in] The TLS transport layer including all TLS parameters
+     *  @return EC_Normal if given transport layer is ok, an error code otherwise
+     */
+    OFCondition useSecureConnection(DcmTransportLayer* tlayer);
 
 protected:
     /** Sends a DIMSE command and possibly also a dataset from a data object via network to
@@ -860,12 +873,6 @@ protected:
                                OFString& sopClassUID,
                                OFString& sopInstanceUID,
                                E_TransferSyntax& transferSyntax);
-
-    /** Tells DcmSCU to use a secure TLS connection described by the given TLS layer
-     *  @param tlayer [in] The TLS transport layer including all TLS parameters
-     *  @return EC_Normal if given transport layer is ok, an error code otherwise
-     */
-    OFCondition useSecureConnection(DcmTransportLayer* tlayer);
 
     /** Receive DIMSE command (excluding dataset!) over the currently open association
      *  @param presID       [out] Contains in the end the ID of the presentation context
@@ -1120,6 +1127,12 @@ private:
 
     /// Progress notification mode (default: enabled)
     OFBool m_progressNotificationMode;
+
+    /// Flag indicating whether secure mode has been enabled (default: disabled)
+    OFBool m_secureConnectionEnabled;
+
+    /// IP protocol version to be used
+    T_ASC_ProtocolFamily m_protocolVersion;
 };
 
 #endif // SCU_H

@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 2015-2019, Open Connections GmbH
+ *  Copyright (C) 2015-2024, Open Connections GmbH
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation are maintained by
@@ -24,10 +24,14 @@
 
 #include "dcmtk/config/osconfig.h"
 
+#include "dcmtk/dcmdata/dcdatset.h"
 #include "dcmtk/dcmfg/fgbase.h"
 #include "dcmtk/dcmiod/iodmacro.h"
 #include "dcmtk/ofstd/ofstring.h"
 #include "dcmtk/ofstd/ofvector.h"
+#include "dcmtk/dcmdata/dcvrst.h"
+
+class DcmDataset;
 
 /** Class representing a single item of the Source Image Sequence
  */
@@ -187,14 +191,15 @@ public:
      *  actually used. However, such information could be added to the source
      *  image item later by modifying the resulting item being handed back to the
      *  caller.
-     *  @param  dataset DICOM dataset that should be referenced by their UID
+     *  @param  dataset DICOM item that should be referenced by their UID,
+     *          must contain SOP Class UID and SOP Instance UID.
      *  @param  purposeOfReference Code representing the purpose of reference
      *          (Defined CID 7202)
      *  @param  resultSourceImageItem The created derivation image item if
      *          successful, NULL otherwise
      *  @return EC_Normal if adding works, error code otherwise
      */
-    virtual OFCondition addSourceImageItem(DcmDataset* dataset,
+    virtual OFCondition addSourceImageItem(DcmItem* dataset,
                                            const CodeSequenceMacro& purposeOfReference,
                                            SourceImageItem*& resultSourceImageItem);
 
@@ -222,7 +227,8 @@ public:
      *  set which frames or segments from those images have been actually used.
      *  However, such information could be added to the source image item later by
      *  modifying the resulting item handed back to the caller.
-     *  @param  datasets List of datasets that should be referenced by their UIDs.
+     *  @param  datasets DICOM items that should be referenced by their UID,
+     *          must contain SOP Class UID and SOP Instance UID.
      *  @param  purposeOfReference Code representing the purpose of reference
      *          (Defined CID 7202)
      *  @param  resultSourceImageItems The created derivation image items (one per
@@ -231,7 +237,7 @@ public:
      *          not lead to error.
      *  @return EC_Normal if adding works, error code otherwise
      */
-    virtual OFCondition addSourceImageItems(const OFVector<DcmDataset*>& datasets,
+    virtual OFCondition addSourceImageItems(const OFVector<DcmItem*>& datasets,
                                             const CodeSequenceMacro& purposeOfReference,
                                             OFVector<SourceImageItem*>& resultSourceImageItems,
                                             const OFBool skipErrors = OFFalse);
@@ -275,6 +281,17 @@ public:
      *  @return EC_Normal if writing was successful, error otherwise
      */
     virtual OFCondition write(DcmItem& itemOfDerivationImageSequence);
+
+    /** Get SOP Class and SOP Instance UID from given item
+     *  @param  dataset The item to read from
+     *  @param  sopClassUID The SOP Class UID found in the item
+     *  @param  sopInstanceUID The SOP Instance UID found in the item
+     *  @return EC_Normal if reading was successful and both attributes
+     *          have non-empty values, error otherwise
+     */
+    static OFCondition getSOPInfoFromItem(DcmItem *dataset,
+                                          OFString &sopClassUID,
+                                          OFString &sopInstanceUID);
 
 private:
     // DICOM attributes.
@@ -399,6 +416,7 @@ public:
     virtual OFCondition write(DcmItem& item);
 
 private:
+
     /// List of derivation image items making up the Derivation Image Sequence
     OFVector<DerivationImageItem*> m_DerivationImageItems;
 };

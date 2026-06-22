@@ -1,12 +1,12 @@
 /*
  *
- *  Copyright (C) 2015-2023, J. Riesmeier, Oldenburg, Germany
+ *  Copyright (C) 2015-2024, J. Riesmeier, Oldenburg, Germany
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  Header file with UMLS Code Definitions (Coding Scheme "UMLS")
  *
- *  Generated automatically from DICOM PS 3.16-2023c
- *  File created on 2023-07-14 12:40:30 by J. Riesmeier
+ *  Generated automatically from DICOM PS 3.16-2024e
+ *  File created on 2024-11-16 10:17:31 by J. Riesmeier
  *
  */
 
@@ -34,7 +34,7 @@
  *  code definitions  *
  *--------------------*/
 
-// total number of codes: 49
+// total number of codes: 51
 // - retired: 0
 // - no name: 0
 // - not unique: 0
@@ -82,6 +82,7 @@
 #define CODE_UMLS_Referring                                                DSRBasicCodedEntry("C1709880", "UMLS", "Referring")
 #define CODE_UMLS_Variance                                                 DSRBasicCodedEntry("C1711260", "UMLS", "Variance")
 #define CODE_UMLS_Sonographer                                              DSRBasicCodedEntry("C1954848", "UMLS", "Sonographer")
+#define CODE_UMLS_MobileSkinLesion                                         DSRBasicCodedEntry("C2071496", "UMLS", "Mobile skin lesion")
 #define CODE_UMLS_Neuroradiology                                           DSRBasicCodedEntry("C2183225", "UMLS", "Neuroradiology")
 #define CODE_UMLS_InverseRatioVentilation                                  DSRBasicCodedEntry("C2223982", "UMLS", "Inverse ratio ventilation")
 #define CODE_UMLS_RootMeanSquare                                           DSRBasicCodedEntry("C2347976", "UMLS", "Root Mean Square")
@@ -97,5 +98,6 @@
 #define CODE_UMLS_MK6240_F18                                               DSRBasicCodedEntry("C4506764", "UMLS", "MK-6240 F^18^")
 #define CODE_UMLS_UCBJ_C11                                                 DSRBasicCodedEntry("C4506788", "UMLS", "UCB-J C^11^")
 #define CODE_UMLS_THK5317_F18                                              DSRBasicCodedEntry("C4550127", "UMLS", "THK5317 F^18^")
+#define CODE_UMLS_MiddleEasternOrNorthAfrican                              DSRBasicCodedEntry("C5690844", "UMLS", "Middle Eastern or North African")
 
 #endif

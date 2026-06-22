@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 2015-2022, Open Connections GmbH
+ *  Copyright (C) 2015-2024, Open Connections GmbH
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation are maintained by
@@ -24,10 +24,9 @@
 
 #include "dcmtk/config/osconfig.h" // include OS configuration first
 
-#include "dcmtk/dcmdata/dcvrui.h"
+#include "dcmtk/dcmdata/dcfilefo.h"
 #include "dcmtk/dcmfg/concatenationcreator.h" // for writing concatenations
 #include "dcmtk/dcmfg/concatenationloader.h"  // for loading concatenations
-#include "dcmtk/dcmfg/fgfracon.h"             // for frame content functional group macro
 #include "dcmtk/dcmfg/fginterface.h"          // for multi-frame functional group interface
 #include "dcmtk/dcmiod/iodimage.h"            // common image IOD attribute access
 #include "dcmtk/dcmiod/iodmacro.h"
@@ -44,6 +43,7 @@
 class DcmSegment;
 class FGSegmentation;
 class FGDerivationImage;
+class DcmFileFormat;
 
 /** Class representing an object of the "Segmentation SOP Class".
  */
@@ -554,19 +554,6 @@ protected:
                                                 Uint16& cols,
                                                 Uint32& numberOfFrames,
                                                 OFString& colorModel);
-
-    /** This is the counterpart to the extractFrames() function. It takes a number
-     *  of frames that are in binary segmentation format (i.e. "bit-packed") and
-     *  concatenates them together so the resulting memory block fits the Pixel
-     *  Data format for binary segmentations. Thus method ensure that frames
-     *  are aligned bit for bit concatenated to each other with only (if
-     *  applicable) having unused bits after the last frame.
-     *  @param frames The source frames
-     *  @param pixData The pixel data element data to be filled. Size must be
-     *         at least bitsPerFrame * number of frames.
-     *  @param bitsPerFrame Bits required per frame, usually rows * columns
-     */
-    virtual void concatFrames(OFVector<DcmIODTypes::Frame*> frames, Uint8* pixData, const size_t bitsPerFrame);
 
     /** Add frame to segmentation object.
      *  @param  pixData Pixel data to be added. Length must be rows*columns bytes.

@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 1994-2022, OFFIS e.V.
+ *  Copyright (C) 1994-2024, OFFIS e.V.
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation were partly developed by
@@ -130,9 +130,9 @@ enum T_ASC_NetworkRole
 
 struct DCMTK_DCMNET_EXPORT T_ASC_Network
 {
-    T_ASC_NetworkRole   role;
+    T_ASC_NetworkRole role;
     int               acceptorPort;
-    DUL_NETWORKKEY      *network;
+    DUL_NETWORKKEY   *network;
 };
 
 
@@ -143,22 +143,23 @@ struct DCMTK_DCMNET_EXPORT T_ASC_Network
 
 
 /* not defined anywhere (I think) but a hard limitation for now.
- * DICOM (1998) defines 22 transfer syntaxes, this upper limit
- * should allow for sufficiently many private transfer syntaxes.
+ * DICOM (2024) defines more than 50 transfer syntaxes for network
+ * communication, so this upper limit should allow for sufficiently
+ * many private transfer syntaxes.
  */
-#define DICOM_MAXTRANSFERSYNTAXES 50
+#define DICOM_MAXTRANSFERSYNTAXES 128
 
 
 typedef DUL_PRESENTATIONCONTEXTID T_ASC_PresentationContextID;
 
 enum T_ASC_P_ResultReason
 { /* Part 8, pp 45. */
-    ASC_P_ACCEPTANCE              = 0,
-    ASC_P_USERREJECTION               = 1,
-    ASC_P_NOREASON                  = 2,
-    ASC_P_ABSTRACTSYNTAXNOTSUPPORTED    = 3,
-    ASC_P_TRANSFERSYNTAXESNOTSUPPORTED  = 4,
-    ASC_P_NOTYETNEGOTIATED              = 255
+    ASC_P_ACCEPTANCE                   = 0,
+    ASC_P_USERREJECTION                = 1,
+    ASC_P_NOREASON                     = 2,
+    ASC_P_ABSTRACTSYNTAXNOTSUPPORTED   = 3,
+    ASC_P_TRANSFERSYNTAXESNOTSUPPORTED = 4,
+    ASC_P_NOTYETNEGOTIATED             = 255
 };
 
 enum T_ASC_SC_ROLE
@@ -173,19 +174,19 @@ enum T_ASC_SC_ROLE
 struct DCMTK_DCMNET_EXPORT T_ASC_PresentationContext
 {
     T_ASC_PresentationContextID presentationContextID;
-    DIC_UI      abstractSyntax;
-    unsigned char     transferSyntaxCount;
-    DIC_UI    proposedTransferSyntaxes[DICOM_MAXTRANSFERSYNTAXES];
-    DIC_UI      acceptedTransferSyntax;
-    T_ASC_P_ResultReason  resultReason;
-    T_ASC_SC_ROLE     proposedRole;
-    T_ASC_SC_ROLE   acceptedRole;
+    DIC_UI abstractSyntax;
+    unsigned char transferSyntaxCount;
+    DIC_UI proposedTransferSyntaxes[DICOM_MAXTRANSFERSYNTAXES];
+    DIC_UI acceptedTransferSyntax;
+    T_ASC_P_ResultReason resultReason;
+    T_ASC_SC_ROLE proposedRole;
+    T_ASC_SC_ROLE acceptedRole;
 };
 
 enum T_ASC_RejectParametersResult
 {
-    ASC_RESULT_REJECTEDPERMANENT      = 1,
-    ASC_RESULT_REJECTEDTRANSIENT      = 2
+    ASC_RESULT_REJECTEDPERMANENT = 1,
+    ASC_RESULT_REJECTEDTRANSIENT = 2
 };
 
 enum T_ASC_RejectParametersSource
@@ -234,7 +235,6 @@ struct DCMTK_DCMNET_EXPORT T_ASC_Parameters
 
     long ourMaxPDUReceiveSize;    /* we say what we can receive */
     long theirMaxPDUReceiveSize;  /* they say what we can send */
-
 };
 
 /*
@@ -322,6 +322,12 @@ DCMTK_DCMNET_EXPORT OFCondition
 ASC_setTransportLayerType(
     T_ASC_Parameters * params,
     OFBool useSecureLayer);
+
+/* set IP protocol family */
+DCMTK_DCMNET_EXPORT OFCondition
+ASC_setProtocolFamily(
+    T_ASC_Parameters * params,
+    T_ASC_ProtocolFamily protocolFamily);
 
  /*
   * Copies the provided Application Titles in the association parameters.
@@ -726,6 +732,13 @@ ASC_closeTransportConnection(T_ASC_Association * association);
 
 DCMTK_DCMNET_EXPORT OFCondition
 ASC_destroyAssociation(T_ASC_Association ** association);
+
+/** this function sets a flag in the association that the current process
+ *  is the parent process after a fork() operation and that the association
+ *  will be handled by the child process. In the case of TLS connections,
+ *  this prevents the destructor from calling SSL_shutdown().
+ */
+DCMTK_DCMNET_EXPORT void ASC_setParentProcessMode(T_ASC_Association *association);
 
 /// @deprecated Please use OFString& ASC_printRejectParameters(OFString&, T_ASC_RejectParameters*) instead.
 OFdeprecated DCMTK_DCMNET_EXPORT void

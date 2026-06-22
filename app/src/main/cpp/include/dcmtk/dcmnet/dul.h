@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 1994-2022, OFFIS e.V.
+ *  Copyright (C) 1994-2024, OFFIS e.V.
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation were partly developed by
@@ -176,6 +176,15 @@ public:
   virtual void callback(unsigned long mode) = 0;
 };
 
+enum T_ASC_ProtocolFamily
+{
+  ASC_AF_Default,
+  ASC_AF_INET,
+  ASC_AF_INET6,
+  ASC_AF_UNSPEC
+};
+
+
 typedef struct {
     char applicationContextName[DUL_LEN_NAME + 1];
     char callingAPTitle[DUL_LEN_TITLE + 1];
@@ -203,6 +212,7 @@ typedef struct {
 
     OFBool useSecureLayer;
     Sint32 tcpConnectTimeout;
+    T_ASC_ProtocolFamily protocol_family;
 }   DUL_ASSOCIATESERVICEPARAMETERS;
 
 /** Enum describing the possible role settings for role negotiation sub items.
@@ -406,7 +416,7 @@ typedef enum {
 */
 
 #define DUL_DULCOMPAT     2768240730UL
-#define DUL_DIMSECOMPAT   1114095UL
+#define DUL_DIMSECOMPAT   1245184UL
 #define DUL_MAXPDUCOMPAT  4278190335UL
 
 /* Define the function prototypes for this facility.
@@ -566,6 +576,12 @@ DCMTK_DCMNET_EXPORT OFCondition DUL_readSocketHandleAsForkedChild();
  */
 DCMTK_DCMNET_EXPORT void DUL_requestForkOnTransportConnectionReceipt(int argc, char *argv[]);
 
+/** this function sets a flag in the association that the current process
+ *  is the parent process after a fork() operation and that the association
+ *  will be handled by the child process. In the case of TLS connections,
+ *  this prevents the destructor from calling SSL_shutdown().
+ */
+DCMTK_DCMNET_EXPORT void DUL_setParentProcessMode(DUL_ASSOCIATIONKEY *callerAssociation);
 
 /// @deprecated Use OFString& DUL_DumpParams(OFString&, DUL_ASSOCIATESERVICEPARAMETERS) instead.
 OFdeprecated DCMTK_DCMNET_EXPORT void DUL_DumpParams(DUL_ASSOCIATESERVICEPARAMETERS * params);

@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (C) 1994-2023, OFFIS e.V.
+ *  Copyright (C) 1994-2024, OFFIS e.V.
  *  All rights reserved.  See COPYRIGHT file for details.
  *
  *  This software and supporting documentation were developed by
@@ -25,6 +25,7 @@
 #include "dcmtk/config/osconfig.h"    /* make sure OS specific configuration is included first */
 #include "dcmtk/dcmdata/dctagkey.h"
 #include "dcmtk/dcmdata/dcvr.h"
+#include <cstring>
 
 /// constant describing an unlimited VM
 #define DcmVariableVM   -1
@@ -159,7 +160,8 @@ public:
         return valueMultiplicityMin;
     }
 
-    /// returns upper limit for VM (value multiplicity), DcmVariableVM for unlimited
+    /// returns upper limit for VM (value multiplicity), DcmVariableVM for
+    /// unlimited
     int getVMMax() const
     {
         return valueMultiplicityMax;
@@ -329,8 +331,8 @@ public:
 
     /* set relations */
 
-    /** checks if this entry describes a true subset of tag range
-     *  described by the given entry.
+    /** checks if this entry describes a true subset of tag range described by
+     *  the given entry.
      *  @param e entry to compare with
      *  @return true if this object is subset of e
      */
