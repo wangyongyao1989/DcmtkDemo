@@ -20,12 +20,14 @@ public class DcmtkJni {
 
     /**
      * 初始化 DCMTK，加载字典文件
+     *
      * @param dictPath 字典文件路径
      */
     public static native void initDcmtk(String dictPath);
 
     /**
      * 加载 DICOM 文件并返回其标签信息
+     *
      * @param filePath DICOM 文件的绝对路径
      * @return 包含 Tag 和 Value 的 HashMap
      */
@@ -33,5 +35,6 @@ public class DcmtkJni {
 
     public static native boolean writeDicomFile(String rawDataPath, String destDcmPath, int width, int height);
 
+    public static native boolean connectPACS(String host, int port, String localAET, String remoteAET);
 
 }

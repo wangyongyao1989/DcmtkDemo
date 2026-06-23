@@ -55,6 +55,36 @@ public class MainActivity extends AppCompatActivity {
         binding.btnWriteDicom.setOnClickListener(v -> {
             writeRawToDicom();
         });
+
+        binding.btnConnectPacs.setOnClickListener(v -> {
+            connectToPacs();
+        });
+    }
+
+    private void connectToPacs() {
+        String host = binding.etHost.getText().toString().trim();
+        String portStr = binding.etPort.getText().toString().trim();
+        String localAet = binding.etLocalAet.getText().toString().trim();
+        String remoteAet = binding.etRemoteAet.getText().toString().trim();
+
+        if (host.isEmpty() || portStr.isEmpty() || localAet.isEmpty() || remoteAet.isEmpty()) {
+            binding.sampleText.setText("Please fill in all PACS connection fields.");
+            return;
+        }
+
+        int port = Integer.parseInt(portStr);
+        binding.sampleText.setText("Connecting to PACS: " + host + ":" + port + "...");
+
+        new Thread(() -> {
+            boolean success = DcmtkJni.connectPACS(host, port, localAet, remoteAet);
+            runOnUiThread(() -> {
+                if (success) {
+                    binding.sampleText.setText("PACS Connection/Association successful!");
+                } else {
+                    binding.sampleText.setText("PACS Connection/Association failed.\nCheck Logcat (DcmtkJni) for details.");
+                }
+            });
+        }).start();
     }
 
     private void writeRawToDicom() {

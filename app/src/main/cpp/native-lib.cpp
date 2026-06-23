@@ -10,6 +10,8 @@
 #include "dcmtk/dcmdata/dctk.h"
 #include "dcmtk/dcmdata/dcdict.h"
 #include "dcmtk/ofstd/ofcond.h"
+#include "dcmtk/dcmnet/assoc.h"
+#include "dcmtk/dcmnet/dimse.h"
 
 #define TAG "DcmtkJni"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
@@ -214,6 +216,89 @@ static jboolean native_writeDicomFile(JNIEnv *env, jclass clazz, jstring raw_pat
     return success;
 }
 
+
+static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                   jstring local_aet, jstring remote_aet) {
+    const char *c_host = env->GetStringUTFChars(host, nullptr);
+    const char *c_local_aet = env->GetStringUTFChars(local_aet, nullptr);
+    const char *c_remote_aet = env->GetStringUTFChars(remote_aet, nullptr);
+
+    LOGD("native_connectPACS: Attempting to connect to %s:%d (Local: %s, Remote: %s)",
+         c_host, port, c_local_aet, c_remote_aet);
+
+    T_ASC_Network *net = nullptr;
+    T_ASC_Parameters *params = nullptr;
+    T_ASC_Association *assoc = nullptr;
+    OFCondition cond = EC_Normal;
+
+    // 1. Initialize Network
+    cond = ASC_initializeNetwork(NET_REQUESTOR, 0, 30, &net);
+    if (cond.bad()) {
+        LOGE("native_connectPACS: Failed to initialize network: %s", cond.text());
+        goto cleanup;
+    }
+
+    // 2. Create Association Parameters
+    cond = ASC_createAssociationParameters(&params,
+                                           ASC_DEFAULTMAXPDU,30);
+    if (cond.bad()) {
+        LOGE("native_connectPACS: Failed to create association parameters: %s", cond.text());
+        goto cleanup;
+    }
+
+    // 3. Set Association Parameters
+    ASC_setAPTitles(params, c_local_aet, c_remote_aet, nullptr);
+    {
+        char peer_addr[256];
+        snprintf(peer_addr, sizeof(peer_addr), "%s:%d", c_host, (int) port);
+        ASC_setPresentationAddresses(params, "localhost", peer_addr);
+    }
+
+    // Add a presentation context (e.g., Verification SOP Class / C-ECHO)
+    {
+        const char *transferSyntaxes[] = {UID_LittleEndianExplicitTransferSyntax};
+        cond = ASC_addPresentationContext(params, 1, UID_VerificationSOPClass,
+                                          transferSyntaxes, 1);
+        if (cond.bad()) {
+            LOGE("native_connectPACS: Failed to add presentation context: %s", cond.text());
+            goto cleanup;
+        }
+    }
+
+    // 4. Request Association
+    LOGD("native_connectPACS: Requesting Association...");
+    cond = ASC_requestAssociation(net, params, &assoc);
+    if (cond.bad()) {
+        if (cond == DUL_ASSOCIATIONREJECTED) {
+            T_ASC_RejectParameters rej;
+            ASC_getRejectParameters(params, &rej);
+            LOGE("native_connectPACS: Association Rejected: %s", cond.text());
+        } else {
+            LOGE("native_connectPACS: Association Failed: %s", cond.text());
+        }
+        goto cleanup;
+    }
+
+    LOGD("native_connectPACS: Association Established successfully!");
+
+    // 5. Release Association (since we're just testing connection)
+    LOGD("native_connectPACS: Releasing Association...");
+    cond = ASC_releaseAssociation(assoc);
+    if (cond.bad()) {
+        LOGE("native_connectPACS: Failed to release association: %s", cond.text());
+    }
+    ASC_destroyAssociation(&assoc);
+
+cleanup:
+    if (net) ASC_dropNetwork(&net);
+
+    env->ReleaseStringUTFChars(host, c_host);
+    env->ReleaseStringUTFChars(local_aet, c_local_aet);
+    env->ReleaseStringUTFChars(remote_aet, c_remote_aet);
+
+    return (cond.good()) ? JNI_TRUE : JNI_FALSE;
+}
+
 // JNI Registration
 static const char *const kClassName = "com/example/dcmtkdemo/DcmtkJni";
 
@@ -226,6 +311,8 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_loadDicomFileInfo},
         {"writeDicomFile",    "(Ljava/lang/String;Ljava/lang/String;II)Z",
                 (void *) native_writeDicomFile},
+        {"connectPACS",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
+                (void *) native_connectPACS},
 
 };
 
@@ -242,3 +329,4 @@ extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_6;
 }
+
