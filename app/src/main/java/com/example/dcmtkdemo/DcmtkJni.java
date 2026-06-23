@@ -37,4 +37,18 @@ public class DcmtkJni {
 
     public static native boolean connectPACS(String host, int port, String localAET, String remoteAET);
 
+    public static native boolean cEcho(String host, int port, String localAET, String remoteAET);
+
+    public static native boolean cStore(String host, int port, String localAET, String remoteAET
+            , String dcmPath);
+
+    /**
+     * @return A list of strings, each being a summary of a found record
+     */
+    public static native String[] cFind(String host, int port, String localAET, String remoteAET
+            , String patientName);
+
+    public static native boolean cMove(String host, int port, String localAET, String remoteAET
+            , String patientID, String destAET);
+
 }

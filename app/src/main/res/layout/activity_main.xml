@@ -66,7 +66,78 @@
                 android:id="@+id/btn_connect_pacs"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Connect"
+                android:text="Test Conn"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_cecho"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="C-ECHO"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_cstore"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="C-STORE"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_cfind"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="C-FIND"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_cmove"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="C-MOVE"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/et_query_pat_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Query PatName"
+                android:text="*"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/et_move_pat_id"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Move PatID"
+                android:text="12345678"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/et_dest_aet"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Dest AET"
+                android:text="STORESCP"
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>

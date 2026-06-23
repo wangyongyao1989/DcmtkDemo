@@ -59,6 +59,71 @@ public class MainActivity extends AppCompatActivity {
         binding.btnConnectPacs.setOnClickListener(v -> {
             connectToPacs();
         });
+
+        binding.btnCecho.setOnClickListener(v -> {
+            executePacsCommand("C-ECHO", () -> {
+                String host = binding.etHost.getText().toString().trim();
+                int port = Integer.parseInt(binding.etPort.getText().toString().trim());
+                String localAet = binding.etLocalAet.getText().toString().trim();
+                String remoteAet = binding.etRemoteAet.getText().toString().trim();
+                return DcmtkJni.cEcho(host, port, localAet, remoteAet) ? "Success" : "Failed";
+            });
+        });
+
+        binding.btnCstore.setOnClickListener(v -> {
+            executePacsCommand("C-STORE", () -> {
+                String host = binding.etHost.getText().toString().trim();
+                int port = Integer.parseInt(binding.etPort.getText().toString().trim());
+                String localAet = binding.etLocalAet.getText().toString().trim();
+                String remoteAet = binding.etRemoteAet.getText().toString().trim();
+                File outFile = new File(getExternalFilesDir(null), "generated.dcm");
+                if (!outFile.exists()) return "Error: generated.dcm not found. Please click 'Write DICOM' first.";
+                return DcmtkJni.cStore(host, port, localAet, remoteAet, outFile.getAbsolutePath()) ? "Success" : "Failed";
+            });
+        });
+
+        binding.btnCfind.setOnClickListener(v -> {
+            executePacsCommand("C-FIND", () -> {
+                String host = binding.etHost.getText().toString().trim();
+                int port = Integer.parseInt(binding.etPort.getText().toString().trim());
+                String localAet = binding.etLocalAet.getText().toString().trim();
+                String remoteAet = binding.etRemoteAet.getText().toString().trim();
+                String patName = binding.etQueryPatName.getText().toString().trim();
+                String[] results = DcmtkJni.cFind(host, port, localAet, remoteAet, patName);
+                if (results == null || results.length == 0) return "No results found.";
+                StringBuilder sb = new StringBuilder("Found ").append(results.length).append(" records:\n");
+                for (String res : results) sb.append("- ").append(res).append("\n");
+                return sb.toString();
+            });
+        });
+
+        binding.btnCmove.setOnClickListener(v -> {
+            executePacsCommand("C-MOVE", () -> {
+                String host = binding.etHost.getText().toString().trim();
+                int port = Integer.parseInt(binding.etPort.getText().toString().trim());
+                String localAet = binding.etLocalAet.getText().toString().trim();
+                String remoteAet = binding.etRemoteAet.getText().toString().trim();
+                String patId = binding.etMovePatId.getText().toString().trim();
+                String destAet = binding.etDestAet.getText().toString().trim();
+                return DcmtkJni.cMove(host, port, localAet, remoteAet, patId, destAet) ? "Success" : "Failed";
+            });
+        });
+    }
+
+    private interface PacsCommand {
+        String run();
+    }
+
+    private void executePacsCommand(String name, PacsCommand command) {
+        binding.sampleText.setText("Executing " + name + "...");
+        new Thread(() -> {
+            try {
+                String result = command.run();
+                runOnUiThread(() -> binding.sampleText.setText(name + " Result:\n" + result));
+            } catch (Exception e) {
+                runOnUiThread(() -> binding.sampleText.setText(name + " Error:\n" + e.getMessage()));
+            }
+        }).start();
     }
 
     private void connectToPacs() {
