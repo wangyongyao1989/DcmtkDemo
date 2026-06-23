@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <memory>
 
 // DCMTK Headers
 #include "dcmtk/dcmdata/dctk.h"
@@ -18,6 +19,30 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// RAII helper for JNI strings
+class JniString {
+public:
+    JniString(JNIEnv *env, jstring str) : env_(env), jstr_(str), c_str_(nullptr) {
+        if (jstr_) c_str_ = env_->GetStringUTFChars(jstr_, nullptr);
+    }
+    ~JniString() {
+        if (c_str_) env_->ReleaseStringUTFChars(jstr_, c_str_);
+    }
+    const char* c_str() const { return c_str_; }
+    operator const char*() const { return c_str_; }
+private:
+    JNIEnv *env_;
+    jstring jstr_;
+    const char *c_str_;
+};
+
+// Common Transfer Syntaxes helper
+static void addCommonTransferSyntaxes(OFList<OFString> &ts) {
+    ts.push_back(UID_LittleEndianExplicitTransferSyntax);
+    ts.push_back(UID_BigEndianExplicitTransferSyntax);
+    ts.push_back(UID_LittleEndianImplicitTransferSyntax);
+}
 
 // Stubs for missing NDK symbols
 extern "C" char *getlogin() { return (char *) "android"; }
@@ -302,115 +327,102 @@ cleanup:
 
 static jboolean native_cEcho(JNIEnv *env, jclass clazz, jstring host, jint port,
                              jstring local_aet, jstring remote_aet) {
-    const char *c_host = env->GetStringUTFChars(host, nullptr);
-    const char *c_local_aet = env->GetStringUTFChars(local_aet, nullptr);
-    const char *c_remote_aet = env->GetStringUTFChars(remote_aet, nullptr);
+    JniString c_host(env, host);
+    JniString c_local_aet(env, local_aet);
+    JniString c_remote_aet(env, remote_aet);
 
-    LOGD("native_cEcho: %s:%d (L:%s, R:%s)", c_host, port, c_local_aet, c_remote_aet);
+    LOGD("native_cEcho: %s:%d (L:%s, R:%s)", c_host.c_str(), port, c_local_aet.c_str(), c_remote_aet.c_str());
 
     DcmSCU scu;
-    scu.setPeerHostName(c_host);
+    scu.setPeerHostName(c_host.c_str());
     scu.setPeerPort(port);
-    scu.setAETitle(c_local_aet);
-    scu.setPeerAETitle(c_remote_aet);
+    scu.setAETitle(c_local_aet.c_str());
+    scu.setPeerAETitle(c_remote_aet.c_str());
 
-    // Add Verification SOP Class
     OFList<OFString> ts;
-    ts.push_back(UID_LittleEndianExplicitTransferSyntax);
-    ts.push_back(UID_BigEndianExplicitTransferSyntax);
-    ts.push_back(UID_LittleEndianImplicitTransferSyntax);
+    addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_VerificationSOPClass, ts);
 
     OFCondition cond = scu.initNetwork();
     if (cond.good()) {
         cond = scu.negotiateAssociation();
         if (cond.good()) {
-            cond = scu.sendECHORequest(0); // 0 is the index of the pres context
+            cond = scu.sendECHORequest(0);
             scu.releaseAssociation();
         }
     }
 
     LOGD("native_cEcho result: %s", cond.text());
-
-    env->ReleaseStringUTFChars(host, c_host);
-    env->ReleaseStringUTFChars(local_aet, c_local_aet);
-    env->ReleaseStringUTFChars(remote_aet, c_remote_aet);
     return cond.good() ? JNI_TRUE : JNI_FALSE;
 }
 
 static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port,
                               jstring local_aet, jstring remote_aet, jstring dcm_path) {
-    const char *c_host = env->GetStringUTFChars(host, nullptr);
-    const char *c_local_aet = env->GetStringUTFChars(local_aet, nullptr);
-    const char *c_remote_aet = env->GetStringUTFChars(remote_aet, nullptr);
-    const char *c_dcm_path = env->GetStringUTFChars(dcm_path, nullptr);
+    JniString c_host(env, host);
+    JniString c_local_aet(env, local_aet);
+    JniString c_remote_aet(env, remote_aet);
+    JniString c_dcm_path(env, dcm_path);
 
-    LOGD("native_cStore: Sending %s to %s:%d", c_dcm_path, c_host, port);
+    LOGD("native_cStore: Sending %s to %s:%d", c_dcm_path.c_str(), c_host.c_str(), port);
 
     DcmFileFormat dfile;
-    OFCondition cond = dfile.loadFile(c_dcm_path);
+    OFCondition cond = dfile.loadFile(c_dcm_path.c_str());
     if (cond.bad()) {
         LOGE("native_cStore: Failed to load file: %s", cond.text());
-        goto cleanup;
+        return JNI_FALSE;
     }
 
-    {
-        DcmSCU scu;
-        scu.setPeerHostName(c_host);
-        scu.setPeerPort(port);
-        scu.setAETitle(c_local_aet);
-        scu.setPeerAETitle(c_remote_aet);
+    OFString sopClass;
+    dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass);
 
-        OFString sopClass, sopInstance;
-        dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass);
+    DcmSCU scu;
+    scu.setPeerHostName(c_host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(c_local_aet.c_str());
+    scu.setPeerAETitle(c_remote_aet.c_str());
 
-        OFList<OFString> ts;
-        ts.push_back(UID_LittleEndianExplicitTransferSyntax);
-        scu.addPresentationContext(sopClass.c_str(), ts);
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+    scu.addPresentationContext(sopClass.c_str(), ts);
 
-        cond = scu.initNetwork();
+    cond = scu.initNetwork();
+    if (cond.good()) {
+        cond = scu.negotiateAssociation();
         if (cond.good()) {
-            cond = scu.negotiateAssociation();
-            if (cond.good()) {
-                T_ASC_PresentationContextID presId = scu.findPresentationContextID(sopClass.c_str(), UID_LittleEndianExplicitTransferSyntax);
-                if (presId > 0) {
-                    Uint16 rspStatus = 0;
-                    cond = scu.sendSTORERequest(presId, c_dcm_path, nullptr, rspStatus);
-                } else {
-                    LOGE("native_cStore: No suitable presentation context found");
-                    cond = EC_TagNotFound;
-                }
-                scu.releaseAssociation();
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(sopClass.c_str(), "");
+            if (presId > 0) {
+                Uint16 rspStatus = 0;
+                cond = scu.sendSTORERequest(presId, c_dcm_path.c_str(), nullptr, rspStatus);
+                LOGD("native_cStore: STORE RSP Status: 0x%04X", rspStatus);
+            } else {
+                LOGE("native_cStore: No suitable presentation context found for %s", sopClass.c_str());
+                cond = EC_TagNotFound;
             }
+            scu.releaseAssociation();
         }
     }
 
-cleanup:
     LOGD("native_cStore result: %s", cond.text());
-    env->ReleaseStringUTFChars(host, c_host);
-    env->ReleaseStringUTFChars(local_aet, c_local_aet);
-    env->ReleaseStringUTFChars(remote_aet, c_remote_aet);
-    env->ReleaseStringUTFChars(dcm_path, c_dcm_path);
     return cond.good() ? JNI_TRUE : JNI_FALSE;
 }
 
 static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint port,
                                  jstring local_aet, jstring remote_aet, jstring patient_name) {
-    const char *c_host = env->GetStringUTFChars(host, nullptr);
-    const char *c_local_aet = env->GetStringUTFChars(local_aet, nullptr);
-    const char *c_remote_aet = env->GetStringUTFChars(remote_aet, nullptr);
-    const char *c_pat_name = env->GetStringUTFChars(patient_name, nullptr);
+    JniString c_host(env, host);
+    JniString c_local_aet(env, local_aet);
+    JniString c_remote_aet(env, remote_aet);
+    JniString c_pat_name(env, patient_name);
 
-    LOGD("native_cFind: Query for PatientName=%s", c_pat_name);
+    LOGD("native_cFind: Query for PatientName=%s", c_pat_name.c_str());
 
     DcmSCU scu;
-    scu.setPeerHostName(c_host);
+    scu.setPeerHostName(c_host.c_str());
     scu.setPeerPort(port);
-    scu.setAETitle(c_local_aet);
-    scu.setPeerAETitle(c_remote_aet);
+    scu.setAETitle(c_local_aet.c_str());
+    scu.setPeerAETitle(c_remote_aet.c_str());
 
     OFList<OFString> ts;
-    ts.push_back(UID_LittleEndianExplicitTransferSyntax);
+    addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_FINDPatientRootQueryRetrieveInformationModel, ts);
 
     std::vector<std::string> results;
@@ -420,8 +432,10 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
         if (cond.good()) {
             DcmDataset query;
             query.putAndInsertString(DCM_QueryRetrieveLevel, "PATIENT");
-            query.putAndInsertString(DCM_PatientName, c_pat_name);
+            query.putAndInsertString(DCM_PatientName, c_pat_name.c_str());
             query.putAndInsertString(DCM_PatientID, "");
+            query.putAndInsertString(DCM_PatientSex, "");
+            query.putAndInsertString(DCM_PatientBirthDate, "");
 
             T_ASC_PresentationContextID presId = scu.findPresentationContextID(UID_FINDPatientRootQueryRetrieveInformationModel, "");
             if (presId > 0) {
@@ -431,10 +445,16 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            OFString name, id;
+                            OFString name, id, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
-                            results.push_back(std::string(name.c_str()) + " | " + id.c_str());
+                            ds->findAndGetOFString(DCM_PatientSex, sex);
+                            ds->findAndGetOFString(DCM_PatientBirthDate, birth);
+
+                            std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
+                            if (!sex.empty()) res += " | " + std::string(sex.c_str());
+                            if (!birth.empty()) res += " | " + std::string(birth.c_str());
+                            results.push_back(res);
                         }
                     }
                 }
@@ -443,43 +463,37 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
                 LOGE("native_cFind: No suitable presentation context found");
                 cond = EC_TagNotFound;
             }
-
             scu.releaseAssociation();
         }
     }
 
-    LOGD("native_cFind finished, found %zu results", results.size());
+    LOGD("native_cFind finished, found %zu results, status: %s", results.size(), cond.text());
 
     jobjectArray ret = (jobjectArray)env->NewObjectArray(results.size(), env->FindClass("java/lang/String"), env->NewStringUTF(""));
     for (size_t i = 0; i < results.size(); ++i) {
         env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
     }
-
-    env->ReleaseStringUTFChars(host, c_host);
-    env->ReleaseStringUTFChars(local_aet, c_local_aet);
-    env->ReleaseStringUTFChars(remote_aet, c_remote_aet);
-    env->ReleaseStringUTFChars(patient_name, c_pat_name);
     return ret;
 }
 
 static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
                              jstring local_aet, jstring remote_aet, jstring patient_id, jstring dest_aet) {
-    const char *c_host = env->GetStringUTFChars(host, nullptr);
-    const char *c_local_aet = env->GetStringUTFChars(local_aet, nullptr);
-    const char *c_remote_aet = env->GetStringUTFChars(remote_aet, nullptr);
-    const char *c_pat_id = env->GetStringUTFChars(patient_id, nullptr);
-    const char *c_dest_aet = env->GetStringUTFChars(dest_aet, nullptr);
+    JniString c_host(env, host);
+    JniString c_local_aet(env, local_aet);
+    JniString c_remote_aet(env, remote_aet);
+    JniString c_pat_id(env, patient_id);
+    JniString c_dest_aet(env, dest_aet);
 
-    LOGD("native_cMove: Requesting move of PatID=%s to %s", c_pat_id, c_dest_aet);
+    LOGD("native_cMove: Requesting move of PatID=%s to %s", c_pat_id.c_str(), c_dest_aet.c_str());
 
     DcmSCU scu;
-    scu.setPeerHostName(c_host);
+    scu.setPeerHostName(c_host.c_str());
     scu.setPeerPort(port);
-    scu.setAETitle(c_local_aet);
-    scu.setPeerAETitle(c_remote_aet);
+    scu.setAETitle(c_local_aet.c_str());
+    scu.setPeerAETitle(c_remote_aet.c_str());
 
     OFList<OFString> ts;
-    ts.push_back(UID_LittleEndianExplicitTransferSyntax);
+    addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_MOVEPatientRootQueryRetrieveInformationModel, ts);
 
     OFCondition cond = scu.initNetwork();
@@ -488,11 +502,11 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
         if (cond.good()) {
             DcmDataset query;
             query.putAndInsertString(DCM_QueryRetrieveLevel, "PATIENT");
-            query.putAndInsertString(DCM_PatientID, c_pat_id);
+            query.putAndInsertString(DCM_PatientID, c_pat_id.c_str());
 
             T_ASC_PresentationContextID presId = scu.findPresentationContextID(UID_MOVEPatientRootQueryRetrieveInformationModel, "");
             if (presId > 0) {
-                cond = scu.sendMOVERequest(presId, c_dest_aet, &query, nullptr);
+                cond = scu.sendMOVERequest(presId, c_dest_aet.c_str(), &query, nullptr);
             } else {
                 LOGE("native_cMove: No suitable presentation context found");
                 cond = EC_TagNotFound;
@@ -502,12 +516,6 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
     }
 
     LOGD("native_cMove result: %s", cond.text());
-
-    env->ReleaseStringUTFChars(host, c_host);
-    env->ReleaseStringUTFChars(local_aet, c_local_aet);
-    env->ReleaseStringUTFChars(remote_aet, c_remote_aet);
-    env->ReleaseStringUTFChars(patient_id, c_pat_id);
-    env->ReleaseStringUTFChars(dest_aet, c_dest_aet);
     return cond.good() ? JNI_TRUE : JNI_FALSE;
 }
 
