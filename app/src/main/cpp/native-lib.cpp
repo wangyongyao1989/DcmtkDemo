@@ -26,11 +26,15 @@ public:
     JniString(JNIEnv *env, jstring str) : env_(env), jstr_(str), c_str_(nullptr) {
         if (jstr_) c_str_ = env_->GetStringUTFChars(jstr_, nullptr);
     }
+
     ~JniString() {
         if (c_str_) env_->ReleaseStringUTFChars(jstr_, c_str_);
     }
-    const char* c_str() const { return c_str_; }
-    operator const char*() const { return c_str_; }
+
+    const char *c_str() const { return c_str_; }
+
+    operator const char *() const { return c_str_; }
+
 private:
     JNIEnv *env_;
     jstring jstr_;
@@ -266,7 +270,7 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
 
     // 2. Create Association Parameters
     cond = ASC_createAssociationParameters(&params,
-                                           ASC_DEFAULTMAXPDU,30);
+                                           ASC_DEFAULTMAXPDU, 30);
     if (cond.bad()) {
         LOGE("native_connectPACS: Failed to create association parameters: %s", cond.text());
         goto cleanup;
@@ -283,7 +287,8 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
     // Add a presentation context (e.g., Verification SOP Class / C-ECHO)
     {
         const char *transferSyntaxes[] = {UID_LittleEndianExplicitTransferSyntax};
-        cond = ASC_addPresentationContext(params, 1, UID_VerificationSOPClass,
+        cond = ASC_addPresentationContext(params,
+                                          1,UID_VerificationSOPClass,
                                           transferSyntaxes, 1);
         if (cond.bad()) {
             LOGE("native_connectPACS: Failed to add presentation context: %s", cond.text());
@@ -319,7 +324,7 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
     }
     ASC_destroyAssociation(&assoc);
 
-cleanup:
+    cleanup:
     if (net) ASC_dropNetwork(&net);
 
     env->ReleaseStringUTFChars(host, c_host);
@@ -335,7 +340,8 @@ static jboolean native_cEcho(JNIEnv *env, jclass clazz, jstring host, jint port,
     JniString c_local_aet(env, local_aet);
     JniString c_remote_aet(env, remote_aet);
 
-    LOGD("native_cEcho: %s:%d (L:%s, R:%s)", c_host.c_str(), port, c_local_aet.c_str(), c_remote_aet.c_str());
+    LOGD("native_cEcho: %s:%d (L:%s, R:%s)", c_host.c_str(), port, c_local_aet.c_str(),
+         c_remote_aet.c_str());
 
     DcmSCU scu;
     scu.setPeerHostName(c_host.c_str());
@@ -393,13 +399,16 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
     if (cond.good()) {
         cond = scu.negotiateAssociation();
         if (cond.good()) {
-            T_ASC_PresentationContextID presId = scu.findPresentationContextID(sopClass.c_str(), "");
+            T_ASC_PresentationContextID presId =
+                    scu.findPresentationContextID(sopClass.c_str(),"");
             if (presId > 0) {
                 Uint16 rspStatus = 0;
-                cond = scu.sendSTORERequest(presId, c_dcm_path.c_str(), nullptr, rspStatus);
+                cond = scu.sendSTORERequest(presId, c_dcm_path.c_str(), nullptr,
+                                            rspStatus);
                 LOGD("native_cStore: STORE RSP Status: 0x%04X", rspStatus);
             } else {
-                LOGE("native_cStore: No suitable presentation context found for %s", sopClass.c_str());
+                LOGE("native_cStore: No suitable presentation context found for %s",
+                     sopClass.c_str());
                 cond = EC_TagNotFound;
             }
             scu.releaseAssociation();
@@ -441,9 +450,10 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
             query.putAndInsertString(DCM_PatientSex, "");
             query.putAndInsertString(DCM_PatientBirthDate, "");
 
-            T_ASC_PresentationContextID presId = scu.findPresentationContextID(UID_FINDPatientRootQueryRetrieveInformationModel, "");
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+                    UID_FINDPatientRootQueryRetrieveInformationModel, "");
             if (presId > 0) {
-                OFList<QRResponse*> responses;
+                OFList<QRResponse *> responses;
                 cond = scu.sendFINDRequest(presId, &query, &responses);
                 if (cond.good()) {
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
@@ -473,7 +483,9 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
 
     LOGD("native_cFind finished, found %zu results, status: %s", results.size(), cond.text());
 
-    jobjectArray ret = (jobjectArray)env->NewObjectArray(results.size(), env->FindClass("java/lang/String"), env->NewStringUTF(""));
+    jobjectArray ret = (jobjectArray) env->NewObjectArray(results.size(),
+                                                          env->FindClass("java/lang/String"),
+                                                          env->NewStringUTF(""));
     for (size_t i = 0; i < results.size(); ++i) {
         env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
     }
@@ -481,7 +493,8 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
 }
 
 static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
-                             jstring local_aet, jstring remote_aet, jstring patient_id, jstring dest_aet) {
+                             jstring local_aet, jstring remote_aet, jstring patient_id,
+                             jstring dest_aet) {
     JniString c_host(env, host);
     JniString c_local_aet(env, local_aet);
     JniString c_remote_aet(env, remote_aet);
@@ -508,7 +521,8 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
             query.putAndInsertString(DCM_QueryRetrieveLevel, "PATIENT");
             query.putAndInsertString(DCM_PatientID, c_pat_id.c_str());
 
-            T_ASC_PresentationContextID presId = scu.findPresentationContextID(UID_MOVEPatientRootQueryRetrieveInformationModel, "");
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+                    UID_MOVEPatientRootQueryRetrieveInformationModel, "");
             if (presId > 0) {
                 cond = scu.sendMOVERequest(presId, c_dest_aet.c_str(), &query, nullptr);
             } else {
@@ -527,23 +541,32 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
 static const char *const kClassName = "com/example/dcmtkdemo/DcmtkJni";
 
 static const JNINativeMethod kMethods[] = {
-        {"stringFromJNI",     "()Ljava/lang/String;",
+        {"stringFromJNI",
+                "()Ljava/lang/String;",
                 (void *) native_stringFromJNI},
-        {"initDcmtk",         "(Ljava/lang/String;)V",
+        {"initDcmtk",
+                "(Ljava/lang/String;)V",
                 (void *) native_initDcmtk},
-        {"loadDicomFileInfo", "(Ljava/lang/String;)Ljava/util/HashMap;",
+        {"loadDicomFileInfo",
+                "(Ljava/lang/String;)Ljava/util/HashMap;",
                 (void *) native_loadDicomFileInfo},
-        {"writeDicomFile",    "(Ljava/lang/String;Ljava/lang/String;II)Z",
+        {"writeDicomFile",
+                "(Ljava/lang/String;Ljava/lang/String;II)Z",
                 (void *) native_writeDicomFile},
-        {"connectPACS",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
+        {"connectPACS",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_connectPACS},
-        {"cEcho",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
+        {"cEcho",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cEcho},
-        {"cStore",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+        {"cStore",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cStore},
-        {"cFind",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
+        {"cFind",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
                 (void *) native_cFind},
-        {"cMove",    "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+        {"cMove",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cMove},
 
 };
