@@ -299,6 +299,10 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
             T_ASC_RejectParameters rej;
             ASC_getRejectParameters(params, &rej);
             LOGE("native_connectPACS: Association Rejected: %s", cond.text());
+            LOGE("Result: %d, Source: %d, Reason: %d", rej.result, rej.source, rej.reason);
+            // Reason 对应含义:
+            // 1 - Calling AE Title Not Recognized (Local AET 错了)
+            // 3 - Called AE Title Not Recognized  (Remote AET 错了)
         } else {
             LOGE("native_connectPACS: Association Failed: %s", cond.text());
         }

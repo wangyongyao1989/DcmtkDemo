@@ -27,7 +27,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         dcmtkJni = new DcmtkJni();
-        
+
         // 初始化字典 (写入和读取都需要)
         new Thread(() -> {
             try {
@@ -76,8 +76,12 @@ public class MainActivity extends AppCompatActivity {
                 int port = Integer.parseInt(binding.etPort.getText().toString().trim());
                 String localAet = binding.etLocalAet.getText().toString().trim();
                 String remoteAet = binding.etRemoteAet.getText().toString().trim();
-                File outFile = new File(getExternalFilesDir(null), "generated.dcm");
-                if (!outFile.exists()) return "Error: generated.dcm not found. Please click 'Write DICOM' first.";
+//                File outFile = new File(getExternalFilesDir(null), "generated.dcm");
+                String outFileString = FileUtil.copyAssetToInternalStorage(this,
+                        "CR2026060810120220260609162248FT17.dcm");
+                File outFile = new File(outFileString);
+                if (!outFile.exists())
+                    return "Error: generated.dcm not found. Please click 'Write DICOM' first.";
                 return DcmtkJni.cStore(host, port, localAet, remoteAet, outFile.getAbsolutePath()) ? "Success" : "Failed";
             });
         });
@@ -111,7 +115,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private interface PacsCommand {
-        String run();
+        String run() throws IOException;
     }
 
     private void executePacsCommand(String name, PacsCommand command) {
@@ -169,8 +173,8 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> {
                     if (success) {
-                        tv.setText("Successfully wrote DICOM to:\n" + dcmPath + 
-                                 "\n\nYou can now click 'Load DICOM' to view its info.");
+                        tv.setText("Successfully wrote DICOM to:\n" + dcmPath +
+                                "\n\nYou can now click 'Load DICOM' to view its info.");
                         // 自动加载显示刚才生成的
                         loadAndDisplayDicomInfo(dcmPath);
                     } else {
@@ -204,23 +208,23 @@ public class MainActivity extends AppCompatActivity {
                 // 4. 提取重要信息并展示
                 StringBuilder sb = new StringBuilder();
                 sb.append("--- Important DICOM Info ---\n\n");
-                
+
                 String[][] importantTags = {
-                    {"(0010,0010)", "Patient Name"},
-                    {"(0010,0020)", "Patient ID"},
-                    {"(0010,0040)", "Patient Sex"},
-                    {"(0010,0030)", "Patient BirthDate"},
-                    {"(0008,0020)", "Study Date"},
-                    {"(0008,0060)", "Modality"},
-                    {"(0008,0070)", "Manufacturer"},
-                    {"(0008,1030)", "Study Description"},
-                    {"(0028,0010)", "Rows"},
-                    {"(0028,0011)", "Columns"},
-                    {"(0028,0100)", "Bits Allocated"},
-                    {"(0028,1050)", "Window Center (Level)"},
-                    {"(0028,1051)", "Window Width"},
-                    {"(0028,1052)", "Rescale Intercept"},
-                    {"(0028,1053)", "Rescale Slope"}
+                        {"(0010,0010)", "Patient Name"},
+                        {"(0010,0020)", "Patient ID"},
+                        {"(0010,0040)", "Patient Sex"},
+                        {"(0010,0030)", "Patient BirthDate"},
+                        {"(0008,0020)", "Study Date"},
+                        {"(0008,0060)", "Modality"},
+                        {"(0008,0070)", "Manufacturer"},
+                        {"(0008,1030)", "Study Description"},
+                        {"(0028,0010)", "Rows"},
+                        {"(0028,0011)", "Columns"},
+                        {"(0028,0100)", "Bits Allocated"},
+                        {"(0028,1050)", "Window Center (Level)"},
+                        {"(0028,1051)", "Window Width"},
+                        {"(0028,1052)", "Rescale Intercept"},
+                        {"(0028,1053)", "Rescale Slope"}
                 };
 
                 for (String[] tagInfo : importantTags) {
