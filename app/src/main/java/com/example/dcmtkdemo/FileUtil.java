@@ -17,15 +17,29 @@ public class FileUtil {
     public static String copyAssetToInternalStorage(Context context, String assetName) throws IOException {
         File file = new File(context.getFilesDir(), assetName);
         if (!file.exists()) {
-            try (InputStream is = context.getAssets().open(assetName);
-                 FileOutputStream fos = new FileOutputStream(file)) {
-                byte[] buffer = new byte[1024];
-                int read;
-                while ((read = is.read(buffer)) != -1) {
-                    fos.write(buffer, 0, read);
-                }
-            }
+            copyAsset(context, assetName, file);
         }
         return file.getAbsolutePath();
+    }
+
+    public static String copyAssetToExternalStorage(Context context, String assetName, String targetName) throws IOException {
+        File dir = context.getExternalFilesDir(null);
+        if (dir == null) throw new IOException("External storage not available");
+        File file = new File(dir, targetName);
+        if (!file.exists()) {
+            copyAsset(context, assetName, file);
+        }
+        return file.getAbsolutePath();
+    }
+
+    private static void copyAsset(Context context, String assetName, File targetFile) throws IOException {
+        try (InputStream is = context.getAssets().open(assetName);
+             FileOutputStream fos = new FileOutputStream(targetFile)) {
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
+            }
+        }
     }
 }
