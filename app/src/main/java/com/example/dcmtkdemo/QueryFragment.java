@@ -10,6 +10,8 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import androidx.recyclerview.widget.LinearLayoutManager;
+
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
 
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ public class QueryFragment extends Fragment {
 
     private FragmentQueryBinding binding;
     private PacsViewModel viewModel;
+    private PatientAdapter adapter;
 
     @Nullable
     @Override
@@ -33,14 +36,32 @@ public class QueryFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
         viewModel = new ViewModelProvider(requireActivity()).get(PacsViewModel.class);
 
+        setupRecyclerView();
+
         binding.btnQuery.setOnClickListener(v -> {
             String patName = binding.etQueryPatName.getText().toString().trim();
             executeQuery(patName);
         });
+
+        viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {
+            adapter.updateData(records);
+        });
+    }
+
+    private void setupRecyclerView() {
+        adapter = new PatientAdapter(new ArrayList<>(), record -> {
+            // Optional: Click to do something in Query tab? 
+            // The requirement didn't specify, but Retrieve tab handles retrieval.
+        });
+        binding.rvQueryResults.setLayoutManager(new LinearLayoutManager(getContext()));
+        binding.rvQueryResults.setAdapter(adapter);
     }
 
     private void executeQuery(String patName) {
         binding.tvQueryResults.setText("Querying for: " + patName + "...");
+        binding.progressBar.setVisibility(View.VISIBLE);
+        binding.btnQuery.setEnabled(false);
+
         new Thread(() -> {
             String[] results = DcmtkJni.cFind(
                     viewModel.host.getValue(),
@@ -51,6 +72,9 @@ public class QueryFragment extends Fragment {
             );
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.btnQuery.setEnabled(true);
+
                 List<PatientRecord> records = new ArrayList<>();
                 if (results != null) {
                     for (String res : results) {
@@ -69,7 +93,7 @@ public class QueryFragment extends Fragment {
                     binding.tvQueryResults.setText("No results found.");
                 } else {
                     binding.tvQueryResults.setText("Found " + records.size()
-                            + " records. Switch to Retrieve tab to download.");
+                            + " records. Details shown below.");
                 }
             });
         }).start();

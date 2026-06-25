@@ -77,6 +77,9 @@ public class RetrieveFragment extends Fragment {
         Log.d(TAG, "executeDownload tempDir: " + tempDir.getAbsolutePath());
 
         binding.tvMoveStatus.setText("Downloading PatientID: " + patId + "...");
+        binding.progressBar.setVisibility(View.VISIBLE);
+        binding.rvPatients.setEnabled(false); // Disable interaction during download
+
         new Thread(() -> {
             // 使用新实现的 C-GET 接口
             boolean success = DcmtkJni.cGet(
@@ -89,6 +92,8 @@ public class RetrieveFragment extends Fragment {
             );
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.rvPatients.setEnabled(true);
                 binding.tvMoveStatus.setText("Download Result: " + (success ? "Success" : "Failed"));
                 if (success) {
                     Toast.makeText(getContext(), "Download successful", Toast.LENGTH_SHORT).show();

@@ -73,6 +73,8 @@ public class UploadFragment extends Fragment {
 
     private void uploadDicom(String path) {
         binding.tvUploadStatus.setText("Uploading " + path + "...");
+        binding.progressBar.setVisibility(View.VISIBLE);
+        binding.btnUpload.setEnabled(false);
         new Thread(() -> {
             boolean success = DcmtkJni.cStore(
                     viewModel.host.getValue(),
@@ -81,8 +83,16 @@ public class UploadFragment extends Fragment {
                     viewModel.remoteAet.getValue(),
                     path
             );
+            if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.btnUpload.setEnabled(true);
                 binding.tvUploadStatus.setText("C-STORE Result: " + (success ? "Success" : "Failed"));
+                if (success) {
+                    Toast.makeText(getContext(), "Upload successful", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(getContext(), "Upload failed", Toast.LENGTH_SHORT).show();
+                }
             });
         }).start();
     }
