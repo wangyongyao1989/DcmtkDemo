@@ -537,6 +537,61 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
     return cond.good() ? JNI_TRUE : JNI_FALSE;
 }
 
+static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
+                             jstring local_aet, jstring remote_aet, jstring patient_id,
+                             jstring save_dir) {
+    JniString c_host(env, host);
+    JniString c_local_aet(env, local_aet);
+    JniString c_remote_aet(env, remote_aet);
+    JniString c_pat_id(env, patient_id);
+    JniString c_save_dir(env, save_dir);
+
+    LOGD("native_cGet: Requesting GET of PatID=%s to %s", c_pat_id.c_str(), c_save_dir.c_str());
+
+    DcmSCU scu;
+    scu.setPeerHostName(c_host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(c_local_aet.c_str());
+    scu.setPeerAETitle(c_remote_aet.c_str());
+
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+
+    // C-GET requires Move/Get model
+    scu.addPresentationContext(UID_GETPatientRootQueryRetrieveInformationModel, ts);
+
+    // Also need to add storage presentation contexts for what we expect to receive
+    // (Secondary Capture is common in this demo)
+    scu.addPresentationContext(UID_SecondaryCaptureImageStorage, ts, ASC_SC_ROLE_SCP);
+
+    OFCondition cond = scu.initNetwork();
+    if (cond.good()) {
+        cond = scu.negotiateAssociation();
+        if (cond.good()) {
+            DcmDataset query;
+            query.putAndInsertString(DCM_QueryRetrieveLevel, "PATIENT");
+            query.putAndInsertString(DCM_PatientID, c_pat_id.c_str());
+
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+                    UID_GETPatientRootQueryRetrieveInformationModel, "");
+
+            if (presId > 0) {
+                scu.setStorageDir(c_save_dir.c_str());
+                scu.setStorageMode(DCMSCU_STORAGE_DISK);
+                OFList<RetrieveResponse *> responses;
+                cond = scu.sendCGETRequest(presId, &query, &responses);
+                for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+            } else {
+                cond = EC_TagNotFound;
+            }
+            scu.releaseAssociation();
+        }
+    }
+
+    LOGD("native_cGet result: %s", cond.text());
+    return cond.good() ? JNI_TRUE : JNI_FALSE;
+}
+
 // JNI Registration
 static const char *const kClassName = "com/example/dcmtkdemo/DcmtkJni";
 
@@ -568,6 +623,9 @@ static const JNINativeMethod kMethods[] = {
         {"cMove",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cMove},
+        {"cGet",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+                (void *) native_cGet},
 
 };
 

@@ -12,6 +12,9 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class QueryFragment extends Fragment {
 
     private FragmentQueryBinding binding;
@@ -46,16 +49,27 @@ public class QueryFragment extends Fragment {
                     viewModel.remoteAet.getValue(),
                     patName
             );
+            if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
-                if (results == null || results.length == 0) {
+                List<PatientRecord> records = new ArrayList<>();
+                if (results != null) {
+                    for (String res : results) {
+                        // JNI Format: "name | ID:id | sex | birth"
+                        String[] parts = res.split(" \\| ");
+                        String name = parts.length > 0 ? parts[0] : "N/A";
+                        String id = parts.length > 1 ? parts[1].replace("ID:", "") : "N/A";
+                        String sex = parts.length > 2 ? parts[2] : "N/A";
+                        String birth = parts.length > 3 ? parts[3] : "N/A";
+                        records.add(new PatientRecord(name, id, sex, birth));
+                    }
+                }
+                viewModel.queryResults.setValue(records);
+
+                if (records.isEmpty()) {
                     binding.tvQueryResults.setText("No results found.");
                 } else {
-                    StringBuilder sb = new StringBuilder("Found ")
-                            .append(results.length).append(" records:\n\n");
-                    for (String res : results) {
-                        sb.append(res).append("\n---\n");
-                    }
-                    binding.tvQueryResults.setText(sb.toString());
+                    binding.tvQueryResults.setText("Found " + records.size()
+                            + " records. Switch to Retrieve tab to download.");
                 }
             });
         }).start();

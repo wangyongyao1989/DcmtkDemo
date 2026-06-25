@@ -51,4 +51,10 @@ public class DcmtkJni {
     public static native boolean cMove(String host, int port, String localAET, String remoteAET
             , String patientID, String destAET);
 
+    /**
+     * C-GET: Download DICOM files directly to a folder
+     */
+    public static native boolean cGet(String host, int port, String localAET, String remoteAET
+            , String patientID, String saveDir);
+
 }

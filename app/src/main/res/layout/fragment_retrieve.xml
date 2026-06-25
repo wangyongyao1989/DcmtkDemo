@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -8,16 +9,8 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Retrieve DICOM (C-MOVE)"
+        android:text="Select Patient to Retrieve (C-MOVE)"
         android:textStyle="bold" />
-
-    <EditText
-        android:id="@+id/et_move_pat_id"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:hint="Patient ID"
-        android:text="12345678" />
 
     <EditText
         android:id="@+id/et_dest_aet"
@@ -25,14 +18,24 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:hint="Destination AET"
-        android:text="STORESCP" />
+        android:text="ANDROID_SCU" />
 
-    <Button
-        android:id="@+id/btn_retrieve"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_patients"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_marginTop="8dp"
+        android:background="#FAFAFA"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+    <TextView
+        android:id="@+id/tv_move_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Retrieve to Temp" />
+        android:layout_marginTop="8dp"
+        android:text="Select an item above to retrieve"
+        android:textColor="#666666"
+        android:textSize="12sp" />
 
     <TextView
         android:layout_width="wrap_content"
