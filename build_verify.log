@@ -1,0 +1,21 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+.\gradlew.bat : 
+At line:15 char:3305
++ ...  $env:PATH; .\gradlew.bat :app:assembleDebug --console=plain --no-dae ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Unable to download toolchain matching the requirements ({languageVersion=21, vendor=any vendor, implementation=vendor-s
+pecific, nativeImageCapable=false}) from 'https://api.foojay.io/disco/v3.0/ids/39701d92e1756bb2f141eb67cd4c660e/redirec
+t', due to: C:\Users\admin\.gradle\.tmp\jdks\OpenJDK21U-jdk_x64_windows_hotspot_21-any-vendor-2114710934171303931679.tm
+p\jdk-21.0.7+6 -> C:\Users\admin\.gradle\jdks\eclipse_adoptium-21-amd64-windows.2
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
