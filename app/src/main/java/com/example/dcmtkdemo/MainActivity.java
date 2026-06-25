@@ -108,6 +108,8 @@ public class MainActivity extends AppCompatActivity {
                 fragment = new QueryFragment();
             } else if (itemId == R.id.nav_retrieve) {
                 fragment = new RetrieveFragment();
+            } else if (itemId == R.id.nav_show) {
+                fragment = new DcmShowFragment();
             }
 
             if (fragment != null) {

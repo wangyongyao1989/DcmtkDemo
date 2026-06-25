@@ -7,6 +7,7 @@
 #include <string.h>
 #include <memory>
 #include <dirent.h>
+#include <sys/stat.h>
 
 // DCMTK Headers
 #include "dcmtk/dcmdata/dctk.h"
@@ -15,6 +16,9 @@
 #include "dcmtk/dcmnet/assoc.h"
 #include "dcmtk/dcmnet/dimse.h"
 #include "dcmtk/dcmnet/scu.h"
+#include "dcmtk/dcmimgle/dcmimage.h"
+#include "dcmtk/dcmjpeg/dipijpeg.h"
+#include "dcmtk/dcmjpeg/djdecode.h"
 
 #define TAG "DcmtkJni"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
@@ -656,6 +660,89 @@ static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
     return cond.good() ? JNI_TRUE : JNI_FALSE;
 }
 
+/**
+ * Native implementation for DcmtkJni.dcmToJpg(String dir)
+ * 将 dir 目录下的所有 DICOM 文件转换为 JPG 图片，输出到 dir/jpg/ 子目录。
+ * 转换方式：使用 DicomImage 加载并渲染像素数据（对单色图应用 min/max 窗宽窗位），
+ *           再通过 DiJPEGPlugin 写出 JPEG 文件。
+ * @return 成功转换的文件数量
+ */
+static jint native_dcmToJpg(JNIEnv *env, jclass clazz, jstring dir_path) {
+    JniString c_dir(env, dir_path);
+    if (!c_dir.c_str()) {
+        LOGE("native_dcmToJpg: dir is null");
+        return 0;
+    }
+    LOGD("native_dcmToJpg: converting files in %s", c_dir.c_str());
+
+    // 注册 JPEG 解码器，使 DicomImage 能够读取 JPEG 压缩的 DICOM 文件。
+    // 注册为全局操作，仅需执行一次。
+    static bool codecsRegistered = false;
+    if (!codecsRegistered) {
+        DJDecoderRegistration::registerCodecs();
+        codecsRegistered = true;
+        LOGD("native_dcmToJpg: JPEG decoders registered");
+    }
+
+    // 创建输出子目录 dir/jpg
+    std::string jpgDir = std::string(c_dir.c_str()) + "/jpg";
+    if (mkdir(jpgDir.c_str(), 0777) != 0 && errno != EEXIST) {
+        LOGE("native_dcmToJpg: failed to create %s: %s", jpgDir.c_str(), strerror(errno));
+        return 0;
+    }
+
+    DIR *dir = opendir(c_dir.c_str());
+    if (!dir) {
+        LOGE("native_dcmToJpg: opendir failed for %s: %s", c_dir.c_str(), strerror(errno));
+        return 0;
+    }
+
+    int converted = 0;
+    int failed = 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != nullptr) {
+        // 仅处理普通文件，跳过子目录（含 jpg 输出目录）
+        if (ent->d_type != DT_REG) continue;
+
+        std::string name = ent->d_name;
+        // 跳过已经是 jpg 的文件
+        if (name.size() >= 4 &&
+            name.compare(name.size() - 4, 4, ".jpg") == 0) {
+            continue;
+        }
+
+        std::string inPath = std::string(c_dir.c_str()) + "/" + name;
+        std::string outPath = jpgDir + "/" + name + ".jpg";
+
+        DicomImage img(inPath.c_str());
+        if (img.getStatus() != EIS_Normal) {
+            LOGW("native_dcmToJpg: failed to load %s: %s", inPath.c_str(),
+                 DicomImage::getString(img.getStatus()));
+            failed++;
+            continue;
+        }
+
+        // 单色图像应用自动 min/max 窗宽窗位，改善对比度
+        if (img.isMonochrome()) {
+            img.setMinMaxWindow();
+        }
+
+        DiJPEGPlugin plugin;
+        plugin.setQuality(90);
+        if (img.writePluginFormat(&plugin, outPath.c_str())) {
+            converted++;
+            LOGD("native_dcmToJpg: %s -> %s", inPath.c_str(), outPath.c_str());
+        } else {
+            LOGE("native_dcmToJpg: writePluginFormat failed for %s", inPath.c_str());
+            failed++;
+        }
+    }
+    closedir(dir);
+
+    LOGD("native_dcmToJpg: done, converted=%d, failed=%d", converted, failed);
+    return converted;
+}
+
 // JNI Registration
 static const char *const kClassName = "com/example/dcmtkdemo/DcmtkJni";
 
@@ -690,6 +777,9 @@ static const JNINativeMethod kMethods[] = {
         {"cGet",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cGet},
+        {"dcmToJpg",
+                "(Ljava/lang/String;)I",
+                (void *) native_dcmToJpg},
 
 };
 

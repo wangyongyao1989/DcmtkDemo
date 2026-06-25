@@ -31,7 +31,10 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         # DCMTK 静态库
+        # 使用 --start-group/--end-group 解决 dcmjpeg/dcmimage/dcmimgle/ijg* 之间的循环依赖
+        -Wl,--start-group
         ${DCMTK_STATIC_LIBS}
+        -Wl,--end-group
 
         # Android 系统依赖
         log

@@ -57,4 +57,13 @@ public class DcmtkJni {
     public static native boolean cGet(String host, int port, String localAET, String remoteAET
             , String patientID, String saveDir);
 
+    /**
+     * 将指定目录下的所有 DICOM 文件转换为 JPG 图片。
+     * 转换结果输出到该目录下的 jpg/ 子目录，每个源文件生成一个 <name>.jpg。
+     *
+     * @param dir 存放 DICOM 文件的目录（即 ../temp）
+     * @return 成功转换的文件数量
+     */
+    public static native int dcmToJpg(String dir);
+
 }
