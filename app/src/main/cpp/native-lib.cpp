@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <memory>
+#include <dirent.h>
 
 // DCMTK Headers
 #include "dcmtk/dcmdata/dctk.h"
@@ -288,7 +289,7 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
     {
         const char *transferSyntaxes[] = {UID_LittleEndianExplicitTransferSyntax};
         cond = ASC_addPresentationContext(params,
-                                          1,UID_VerificationSOPClass,
+                                          1, UID_VerificationSOPClass,
                                           transferSyntaxes, 1);
         if (cond.bad()) {
             LOGE("native_connectPACS: Failed to add presentation context: %s", cond.text());
@@ -400,7 +401,7 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
         cond = scu.negotiateAssociation();
         if (cond.good()) {
             T_ASC_PresentationContextID presId =
-                    scu.findPresentationContextID(sopClass.c_str(),"");
+                    scu.findPresentationContextID(sopClass.c_str(), "");
             if (presId > 0) {
                 Uint16 rspStatus = 0;
                 cond = scu.sendSTORERequest(presId, c_dcm_path.c_str(), nullptr,
@@ -538,8 +539,8 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
 }
 
 static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
-                             jstring local_aet, jstring remote_aet, jstring patient_id,
-                             jstring save_dir) {
+                            jstring local_aet, jstring remote_aet, jstring patient_id,
+                            jstring save_dir) {
     JniString c_host(env, host);
     JniString c_local_aet(env, local_aet);
     JniString c_remote_aet(env, remote_aet);
@@ -547,6 +548,20 @@ static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
     JniString c_save_dir(env, save_dir);
 
     LOGD("native_cGet: Requesting GET of PatID=%s to %s", c_pat_id.c_str(), c_save_dir.c_str());
+
+    // 统计下载前 save_dir 中的文件数，用于后续计算实际接收的文件数
+    int fileCountBefore = 0;
+    {
+        DIR *dir = opendir(c_save_dir.c_str());
+        if (dir) {
+            struct dirent *ent;
+            while ((ent = readdir(dir)) != nullptr) {
+                if (ent->d_type == DT_REG) fileCountBefore++;
+            }
+            closedir(dir);
+        }
+    }
+    LOGD("native_cGet: Files in save_dir before C-GET: %d", fileCountBefore);
 
     DcmSCU scu;
     scu.setPeerHostName(c_host.c_str());
@@ -560,9 +575,25 @@ static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
     // C-GET requires Move/Get model
     scu.addPresentationContext(UID_GETPatientRootQueryRetrieveInformationModel, ts);
 
-    // Also need to add storage presentation contexts for what we expect to receive
-    // (Secondary Capture is common in this demo)
-    scu.addPresentationContext(UID_SecondaryCaptureImageStorage, ts, ASC_SC_ROLE_SCP);
+    // Also need to add storage presentation contexts for what we expect to receive.
+    // In C-GET, the SCU acts as an SCP for storage on the same association.
+    // We add common storage SOP classes.
+    scu.addPresentationContext(UID_SecondaryCaptureImageStorage,
+                               ts, ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_ComputedRadiographyImageStorage,
+                               ts, ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_CTImageStorage, ts,
+                               ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_MRImageStorage, ts,
+                               ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_UltrasoundImageStorage, ts,
+                               ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_DigitalXRayImageStorageForPresentation, ts,
+                               ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_DigitalXRayImageStorageForProcessing, ts,
+                               ASC_SC_ROLE_SCP);
+    scu.addPresentationContext(UID_PositronEmissionTomographyImageStorage, ts,
+                               ASC_SC_ROLE_SCP);
 
     OFCondition cond = scu.initNetwork();
     if (cond.good()) {
@@ -580,13 +611,46 @@ static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
                 scu.setStorageMode(DCMSCU_STORAGE_DISK);
                 OFList<RetrieveResponse *> responses;
                 cond = scu.sendCGETRequest(presId, &query, &responses);
-                for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+
+                // 打印每个 C-GET 响应的详细信息
+                LOGD("native_cGet: Received %zu C-GET responses", responses.size());
+                for (auto it = responses.begin(); it != responses.end(); ++it) {
+                    RetrieveResponse *rsp = *it;
+                    LOGD("native_cGet: RSP status=0x%04X, completed=%d, failed=%d, "
+                         "warning=%d, remaining=%d",
+                         rsp->m_status,
+                         rsp->m_numberOfCompletedSubops,
+                         rsp->m_numberOfFailedSubops,
+                         rsp->m_numberOfWarningSubops,
+                         rsp->m_numberOfRemainingSubops);
+                    delete rsp;
+                }
             } else {
+                LOGE("native_cGet: No suitable presentation context found for C-GET");
                 cond = EC_TagNotFound;
             }
             scu.releaseAssociation();
+        } else {
+            LOGE("native_cGet: Failed to negotiate association: %s", cond.text());
+        }
+    } else {
+        LOGE("native_cGet: Failed to init network: %s", cond.text());
+    }
+
+    // 统计下载后 save_dir 中的文件数
+    int fileCountAfter = 0;
+    {
+        DIR *dir = opendir(c_save_dir.c_str());
+        if (dir) {
+            struct dirent *ent;
+            while ((ent = readdir(dir)) != nullptr) {
+                if (ent->d_type == DT_REG) fileCountAfter++;
+            }
+            closedir(dir);
         }
     }
+    LOGD("native_cGet: Files in save_dir after C-GET: %d (received %d new files)",
+         fileCountAfter, fileCountAfter - fileCountBefore);
 
     LOGD("native_cGet result: %s", cond.text());
     return cond.good() ? JNI_TRUE : JNI_FALSE;
