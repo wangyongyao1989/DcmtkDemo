@@ -40,7 +40,7 @@ public class DcmtkJni {
     public static native boolean cEcho(String host, int port, String localAET, String remoteAET);
 
     public static native boolean cStore(String host, int port, String localAET, String remoteAET
-            , String dcmPath);
+            , String dcmPath, ProgressCallback callback);
 
     /**
      * @return A list of strings, each being a summary of a found record

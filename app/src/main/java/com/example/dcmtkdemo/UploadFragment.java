@@ -85,16 +85,33 @@ public class UploadFragment extends Fragment {
     }
 
     private void uploadDicom(String path) {
-        binding.tvUploadStatus.setText("Uploading " + path + "...");
+        File file = new File(path);
+        long totalBytes = file.length();
+        binding.tvUploadStatus.setText("Uploading " + path + "\n" + formatBytes(0) + " / "
+                + formatBytes(totalBytes) + " (0%)");
+        binding.progressBar.setMax(100);
+        binding.progressBar.setProgress(0);
         binding.progressBar.setVisibility(View.VISIBLE);
         binding.btnUpload.setEnabled(false);
         new Thread(() -> {
+            ProgressCallback callback = (sent, total) -> {
+                if (getActivity() == null) return;
+                getActivity().runOnUiThread(() -> {
+                    int percent = total > 0 ? (int) (sent * 100 / total) : 0;
+                    if (percent > 100) percent = 100;
+                    binding.progressBar.setProgress(percent);
+                    binding.tvUploadStatus.setText("Uploading " + path + "\n"
+                            + formatBytes(sent) + " / " + formatBytes(total)
+                            + " (" + percent + "%)");
+                });
+            };
             boolean success = DcmtkJni.cStore(
                     viewModel.host.getValue(),
                     viewModel.port.getValue(),
                     viewModel.localAet.getValue(),
                     viewModel.remoteAet.getValue(),
-                    path
+                    path,
+                    callback
             );
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
@@ -108,6 +125,12 @@ public class UploadFragment extends Fragment {
                 }
             });
         }).start();
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
     }
 
     @Override

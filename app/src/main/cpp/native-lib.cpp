@@ -53,6 +53,34 @@ static void addCommonTransferSyntaxes(OFList<OFString> &ts) {
     ts.push_back(UID_LittleEndianImplicitTransferSyntax);
 }
 
+// DcmSCU subclass that reports send progress back to Java via JNI.
+// The JNIEnv* and jobject are valid for the duration of the synchronous
+// sendSTORERequest() call (same thread), so no global ref is needed.
+class ProgressSCU : public DcmSCU {
+public:
+    ProgressSCU() : DcmSCU(), m_env(nullptr), m_callback(nullptr), m_totalBytes(0) {}
+
+    JNIEnv *m_env;
+    jobject m_callback;
+    unsigned long m_totalBytes;
+
+protected:
+    void notifySENDProgress(const unsigned long byteCount) override {
+        if (m_env && m_callback) {
+            jclass cls = m_env->GetObjectClass(m_callback);
+            if (cls) {
+                jmethodID mid = m_env->GetMethodID(cls, "onProgress", "(JJ)V");
+                if (mid) {
+                    m_env->CallVoidMethod(m_callback, mid,
+                                          (jlong) byteCount, (jlong) m_totalBytes);
+                }
+                m_env->DeleteLocalRef(cls);
+            }
+        }
+        DcmSCU::notifySENDProgress(byteCount);
+    }
+};
+
 // Stubs for missing NDK symbols
 extern "C" char *getlogin() { return (char *) "android"; }
 extern "C" int getlogin_r(char *buf, size_t bufsize) {
@@ -372,7 +400,8 @@ static jboolean native_cEcho(JNIEnv *env, jclass clazz, jstring host, jint port,
 }
 
 static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port,
-                              jstring local_aet, jstring remote_aet, jstring dcm_path) {
+                              jstring local_aet, jstring remote_aet, jstring dcm_path,
+                              jobject callback) {
     JniString c_host(env, host);
     JniString c_local_aet(env, local_aet);
     JniString c_remote_aet(env, remote_aet);
@@ -390,11 +419,20 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
     OFString sopClass;
     dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass);
 
-    DcmSCU scu;
+    ProgressSCU scu;
     scu.setPeerHostName(c_host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(c_local_aet.c_str());
     scu.setPeerAETitle(c_remote_aet.c_str());
+
+    if (callback != nullptr) {
+        struct stat st;
+        if (stat(c_dcm_path.c_str(), &st) == 0) {
+            scu.m_totalBytes = (unsigned long) st.st_size;
+        }
+        scu.m_env = env;
+        scu.m_callback = callback;
+    }
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -771,7 +809,7 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cEcho},
         {"cStore",
-                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtkdemo/ProgressCallback;)Z",
                 (void *) native_cStore},
         {"cFind",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
