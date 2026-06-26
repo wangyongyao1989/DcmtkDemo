@@ -407,9 +407,14 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
             T_ASC_PresentationContextID presId =
                     scu.findPresentationContextID(sopClass.c_str(), "");
             if (presId > 0) {
+                // 启用自动传输语法转换（DCMTK 会根据协商结果自动转换 dataset）
+                scu.setDatasetConversionMode(OFTrue);
+
+                DcmDataset *dataset = dfile.getDataset();
                 Uint16 rspStatus = 0;
-                cond = scu.sendSTORERequest(presId, c_dcm_path.c_str(), nullptr,
-                                            rspStatus);
+                // 注意：这里改用发送 dataset 指针，而不是文件路径，以确保发送内存数据
+                // 第二个参数是文件名，传空表示直接发送 dataset
+                cond = scu.sendSTORERequest(presId, "", dataset, rspStatus);
                 LOGD("native_cStore: STORE RSP Status: 0x%04X", rspStatus);
             } else {
                 LOGE("native_cStore: No suitable presentation context found for %s",

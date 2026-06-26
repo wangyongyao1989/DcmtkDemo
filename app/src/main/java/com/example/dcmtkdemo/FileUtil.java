@@ -32,6 +32,18 @@ public class FileUtil {
         return file.getAbsolutePath();
     }
 
+    public static void copyDcmAssetsToExternal(Context context) throws IOException {
+        String[] assets = context.getAssets().list("");
+        if (assets != null) {
+            for (String asset : assets) {
+                if (asset.toLowerCase().endsWith(".dcm")) {
+                    android.util.Log.d("FileUtil", "Copying asset: " + asset);
+                    copyAssetToExternalStorage(context, asset, asset);
+                }
+            }
+        }
+    }
+
     private static void copyAsset(Context context, String assetName, File targetFile) throws IOException {
         try (InputStream is = context.getAssets().open(assetName);
              FileOutputStream fos = new FileOutputStream(targetFile)) {

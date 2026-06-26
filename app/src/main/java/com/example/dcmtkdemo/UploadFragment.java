@@ -38,6 +38,13 @@ public class UploadFragment extends Fragment {
 
         refreshFileList();
 
+        // 监听资产拷贝完成的信号，一旦完成就刷新列表
+        viewModel.assetsReady.observe(getViewLifecycleOwner(), ready -> {
+            if (ready) {
+                refreshFileList();
+            }
+        });
+
         binding.btnUpload.setOnClickListener(v -> {
             String selectedFile = (String) binding.spinnerDcmFiles.getSelectedItem();
             if (selectedFile == null) {
@@ -48,6 +55,12 @@ public class UploadFragment extends Fragment {
             File file = new File(requireContext().getExternalFilesDir(null), selectedFile);
             uploadDicom(file.getAbsolutePath());
         });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        refreshFileList();
     }
 
     private void refreshFileList() {

@@ -35,12 +35,12 @@ public class MainActivity extends AppCompatActivity {
                 String dictPath = FileUtil.copyAssetToInternalStorage(this
                         , "dicom.dic");
                 DcmtkJni.initDcmtk(dictPath);
-                // Also copy sample files if they don't exist in external storage for testing
-                FileUtil.copyAssetToExternalStorage(this
-                        , "CR2026060810120220260609162248FT17.dcm"
-                        , "sample.dcm");
+
+                // 将 assets 目录下的 .dcm 文件都拷贝到 getExternalFilesDir 下
+                FileUtil.copyDcmAssetsToExternal(this);
+                viewModel.assetsReady.postValue(true);
             } catch (IOException e) {
-                Log.e(TAG, "Failed to init dictionary", e);
+                Log.e(TAG, "Failed to init dictionary or copy assets", e);
             }
         }).start();
 
