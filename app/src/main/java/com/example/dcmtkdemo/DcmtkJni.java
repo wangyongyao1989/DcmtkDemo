@@ -55,7 +55,7 @@ public class DcmtkJni {
      * C-GET: Download DICOM files directly to a folder
      */
     public static native boolean cGet(String host, int port, String localAET, String remoteAET
-            , String patientID, String saveDir);
+            , String patientID, String saveDir, ProgressCallback callback);
 
     /**
      * 将指定目录下的所有 DICOM 文件转换为 JPG 图片。

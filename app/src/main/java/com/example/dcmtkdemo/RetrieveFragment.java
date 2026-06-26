@@ -28,7 +28,8 @@ public class RetrieveFragment extends Fragment {
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container
+            , @Nullable Bundle savedInstanceState) {
         binding = FragmentRetrieveBinding.inflate(inflater, container, false);
         return binding.getRoot();
     }
@@ -76,11 +77,18 @@ public class RetrieveFragment extends Fragment {
         if (!tempDir.exists()) tempDir.mkdirs();
         Log.d(TAG, "executeDownload tempDir: " + tempDir.getAbsolutePath());
 
-        binding.tvMoveStatus.setText("Downloading PatientID: " + patId + "...");
+        binding.tvMoveStatus.setText("Downloading PatientID: " + patId + "\nReceived: 0 B");
         binding.progressBar.setVisibility(View.VISIBLE);
         binding.rvPatients.setEnabled(false); // Disable interaction during download
 
         new Thread(() -> {
+            ProgressCallback callback = (sent, total) -> {
+                if (getActivity() == null) return;
+                getActivity().runOnUiThread(() -> {
+                    binding.tvMoveStatus.setText("Downloading PatientID: " + patId
+                            + "\nReceived: " + formatBytes(sent));
+                });
+            };
             // 使用新实现的 C-GET 接口
             boolean success = DcmtkJni.cGet(
                     viewModel.host.getValue(),
@@ -88,7 +96,8 @@ public class RetrieveFragment extends Fragment {
                     viewModel.localAet.getValue(),
                     viewModel.remoteAet.getValue(),
                     patId,
-                    tempDir.getAbsolutePath()
+                    tempDir.getAbsolutePath(),
+                    callback
             );
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
@@ -104,6 +113,12 @@ public class RetrieveFragment extends Fragment {
                 }
             });
         }).start();
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
     }
 
     private void refreshTempFiles() {

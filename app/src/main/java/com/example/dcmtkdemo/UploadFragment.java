@@ -1,5 +1,6 @@
 package com.example.dcmtkdemo;
 
+import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -84,6 +85,7 @@ public class UploadFragment extends Fragment {
         binding.spinnerDcmFiles.setAdapter(adapter);
     }
 
+    @SuppressLint("SetTextI18n")
     private void uploadDicom(String path) {
         File file = new File(path);
         long totalBytes = file.length();
