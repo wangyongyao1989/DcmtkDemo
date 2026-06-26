@@ -1,6 +1,8 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.jni;
 
 import android.graphics.Bitmap;
+
+import com.example.dcmtkdemo.callback.ProgressCallback;
 
 import java.util.HashMap;
 

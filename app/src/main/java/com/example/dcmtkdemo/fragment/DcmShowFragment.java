@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.fragment;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -12,7 +12,11 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
+import com.example.dcmtkdemo.activity.DetailActivity;
+import com.example.dcmtkdemo.adapter.DcmImageAdapter;
 import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding;
+import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtkdemo.model.DicomImageRecord;
 
 import java.io.File;
 import java.util.ArrayList;

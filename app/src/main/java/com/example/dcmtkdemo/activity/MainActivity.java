@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.activity;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
@@ -10,7 +10,15 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.databinding.ActivityMainBinding;
+import com.example.dcmtkdemo.fragment.DcmShowFragment;
+import com.example.dcmtkdemo.fragment.QueryFragment;
+import com.example.dcmtkdemo.fragment.RetrieveFragment;
+import com.example.dcmtkdemo.fragment.UploadFragment;
+import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtkdemo.utils.FileUtil;
+import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.IOException;
 

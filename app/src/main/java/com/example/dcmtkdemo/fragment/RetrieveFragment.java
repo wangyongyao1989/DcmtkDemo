@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.fragment;
 
 import android.os.Bundle;
 import android.util.Log;
@@ -13,7 +13,11 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
+import com.example.dcmtkdemo.adapter.PatientAdapter;
+import com.example.dcmtkdemo.callback.ProgressCallback;
 import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding;
+import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.File;
 import java.util.ArrayList;

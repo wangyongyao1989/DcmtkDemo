@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.fragment;
 
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -12,7 +12,11 @@ import androidx.lifecycle.ViewModelProvider;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 
+import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
+import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.util.ArrayList;
 import java.util.List;

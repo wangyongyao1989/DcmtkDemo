@@ -25,7 +25,10 @@ file(GLOB DCMTK_STATIC_LIBS
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
-        native-lib.cpp)
+        native-lib.cpp
+        ProgressScu.cpp
+        PacsClient.cpp
+        DicomFileIO.cpp)
 
 
 target_link_libraries(${CMAKE_PROJECT_NAME}

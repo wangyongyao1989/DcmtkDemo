@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.model;
 
 import java.io.File;
 

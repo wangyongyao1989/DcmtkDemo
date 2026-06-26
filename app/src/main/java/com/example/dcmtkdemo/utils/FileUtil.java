@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.utils;
 
 import android.content.Context;
 import java.io.File;

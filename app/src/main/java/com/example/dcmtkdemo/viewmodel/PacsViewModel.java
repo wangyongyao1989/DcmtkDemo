@@ -1,7 +1,9 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.viewmodel;
 
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
+
+import com.example.dcmtkdemo.model.PatientRecord;
 
 import java.util.ArrayList;
 import java.util.List;

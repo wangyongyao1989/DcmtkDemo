@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo;
+package com.example.dcmtkdemo.fragment;
 
 import android.annotation.SuppressLint;
 import android.os.Bundle;
@@ -13,7 +13,11 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import com.example.dcmtkdemo.R;
+import com.example.dcmtkdemo.callback.ProgressCallback;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
+import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.File;
 import java.util.ArrayList;

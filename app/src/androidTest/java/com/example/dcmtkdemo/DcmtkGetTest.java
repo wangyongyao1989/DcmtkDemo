@@ -78,7 +78,7 @@ public class DcmtkGetTest {
         boolean cgetSuccess = false;
         try {
             cgetSuccess = DcmtkJni.cGet(host, port, localAET, remoteAET,
-                    patientID, tempDir.getAbsolutePath());
+                    patientID, tempDir.getAbsolutePath(),null);
         } catch (Exception e) {
             Log.w(TAG, "C-GET threw exception (expected if no PACS): " + e.getMessage());
         }
