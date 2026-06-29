@@ -9,6 +9,7 @@
 
 #include <string>
 #include <vector>
+#include <chrono>
 
 #include "dcmtk/dcmdata/dctk.h"
 #include "dcmtk/dcmnet/assoc.h"
@@ -23,6 +24,9 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// Increase PDU size from default 16KB to 64KB for better performance on Android
+#define MAX_PDU_SIZE 65536
 
 namespace {
 // Adds the three transfer syntaxes we accept for every presentation context.
@@ -55,7 +59,7 @@ bool PacsClient::connectPACS(const std::string &host, int port,
     }
 
     // 2. Create Association Parameters
-    cond = ASC_createAssociationParameters(&params, ASC_DEFAULTMAXPDU, 30);
+    cond = ASC_createAssociationParameters(&params, MAX_PDU_SIZE, 30);
     if (cond.bad()) {
         LOGE("native_connectPACS: Failed to create association parameters: %s", cond.text());
         goto cleanup;
@@ -124,6 +128,7 @@ bool PacsClient::cEcho(const std::string &host, int port,
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -145,7 +150,8 @@ bool PacsClient::cEcho(const std::string &host, int port,
 bool PacsClient::cStore(const std::string &host, int port,
                         const std::string &localAet, const std::string &remoteAet,
                         const std::string &dcmPath, ProgressCallback callback) {
-    LOGD("native_cStore: Sending %s to %s:%d", dcmPath.c_str(), host.c_str(), port);
+    auto startTime = std::chrono::steady_clock::now();
+    LOGD("native_cStore: [START] Sending %s to %s:%d", dcmPath.c_str(), host.c_str(), port);
 
     DcmFileFormat dfile;
     OFCondition cond = dfile.loadFile(dcmPath.c_str());
@@ -162,11 +168,14 @@ bool PacsClient::cStore(const std::string &host, int port,
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
+    unsigned long fileSize = 0;
     if (callback) {
         struct stat st;
         if (stat(dcmPath.c_str(), &st) == 0) {
-            scu.setTotalBytes((unsigned long) st.st_size);
+            fileSize = (unsigned long) st.st_size;
+            scu.setTotalBytes(fileSize);
         }
         scu.setProgressCallback(std::move(callback));
     }
@@ -177,30 +186,54 @@ bool PacsClient::cStore(const std::string &host, int port,
 
     cond = scu.initNetwork();
     if (cond.good()) {
+        LOGD("native_cStore: Network initialized, negotiating association...");
         cond = scu.negotiateAssociation();
         if (cond.good()) {
+            LOGD("native_cStore: Association established.");
             T_ASC_PresentationContextID presId =
                     scu.findPresentationContextID(sopClass.c_str(), "");
             if (presId > 0) {
-                // 启用自动传输语法转换（DCMTK 会根据协商结果自动转换 dataset）
                 scu.setDatasetConversionMode(OFTrue);
-
                 DcmDataset *dataset = dfile.getDataset();
                 Uint16 rspStatus = 0;
-                // 注意：这里改用发送 dataset 指针，而不是文件路径，以确保发送内存数据
-                // 第二个参数是文件名，传空表示直接发送 dataset
+
+                LOGD("native_cStore: [SEND_START] Starting C-STORE request (%lu bytes)", fileSize);
+                auto storeStart = std::chrono::steady_clock::now();
+
                 cond = scu.sendSTORERequest(presId, "", dataset, rspStatus);
-                LOGD("native_cStore: STORE RSP Status: 0x%04X", rspStatus);
+
+                auto storeEnd = std::chrono::steady_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::seconds>(storeEnd - storeStart).count();
+                LOGD("native_cStore: [SEND_END] Finished in %llds, Status: 0x%04X, Cond: %s",
+                     (long long)duration, rspStatus, cond.text());
+
+                if (duration > 30) {
+                    LOGW("native_cStore: WARNING: Transmission took %llds (unusually slow)", (long long)duration);
+                }
             } else {
                 LOGE("native_cStore: No suitable presentation context found for %s",
                      sopClass.c_str());
                 cond = EC_TagNotFound;
             }
-            scu.releaseAssociation();
+
+            LOGD("native_cStore: Releasing association...");
+            OFCondition relCond = scu.releaseAssociation();
+            if (relCond.bad()) {
+                LOGE("native_cStore: Association release failed: %s (Check network/timeout)", relCond.text());
+                // 如果传输已成功完成，我们可能不希望因为最后一步释放失败而返回 false
+                // 但这里保持原样，仅增加日志。
+            }
+        } else {
+            LOGE("native_cStore: Association negotiation failed: %s", cond.text());
         }
+    } else {
+        LOGE("native_cStore: Network init failed: %s", cond.text());
     }
 
-    LOGD("native_cStore result: %s", cond.text());
+    auto totalEndTime = std::chrono::steady_clock::now();
+    auto totalDuration = std::chrono::duration_cast<std::chrono::seconds>(totalEndTime - startTime).count();
+    LOGD("native_cStore: [DONE] Total time: %llds, final status: %s", (long long)totalDuration, cond.text());
+
     return cond.good();
 }
 
@@ -215,6 +248,7 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -277,6 +311,7 @@ bool PacsClient::cMove(const std::string &host, int port,
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -331,6 +366,7 @@ bool PacsClient::cGet(const std::string &host, int port,
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
     if (callback) {
         scu.setProgressCallback(std::move(callback));
