@@ -1,5 +1,7 @@
 package com.example.dcmtkdemo.adapter;
 
+import android.annotation.SuppressLint;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -34,6 +36,7 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
         return new ViewHolder(view);
     }
 
+    @SuppressLint("SetTextI18n")
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         DicomImageRecord record = records.get(position);
@@ -55,6 +58,12 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
             record.setSelected(!record.isSelected());
             notifyItemChanged(position);
         });
+
+        holder.cbSelect.setOnClickListener(v -> {
+            record.setSelected(!record.isSelected());
+            notifyItemChanged(position);
+        });
+
     }
 
     @Override
@@ -62,6 +71,7 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
         return records.size();
     }
 
+    @SuppressLint("NotifyDataSetChanged")
     public void updateData(List<DicomImageRecord> newRecords) {
         this.records = newRecords;
         notifyDataSetChanged();

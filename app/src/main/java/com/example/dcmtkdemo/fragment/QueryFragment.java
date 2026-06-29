@@ -46,7 +46,17 @@ public class QueryFragment extends Fragment {
 
         binding.btnQuery.setOnClickListener(v -> {
             String patName = binding.etQueryPatName.getText().toString().trim();
-            executeQuery(patName);
+            executeQuery(patName, 0);
+        });
+
+        binding.btnQueryAccession.setOnClickListener(v -> {
+            String accession = binding.etQueryAccession.getText().toString().trim();
+            executeQuery(accession, 1);
+        });
+
+        binding.btnQueryMwl.setOnClickListener(v -> {
+            // Use modality from input or default to '*'
+            executeQuery("*", 2);
         });
 
         viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {
@@ -64,34 +74,70 @@ public class QueryFragment extends Fragment {
     }
 
     @SuppressLint("SetTextI18n")
-    private void executeQuery(String patName) {
-        binding.tvQueryResults.setText("Querying for: " + patName + "...");
+    private void executeQuery(String queryVal, int queryType) {
+        String label = "Query";
+        if (queryType == 0) label = "Name";
+        else if (queryType == 1) label = "Accession";
+        else if (queryType == 2) label = "MWL";
+
+        binding.tvQueryResults.setText("Querying " + label + ": " + queryVal + "...");
         binding.progressBar.setVisibility(View.VISIBLE);
-        binding.btnQuery.setEnabled(false);
+        setButtonsEnabled(false);
 
         new Thread(() -> {
-            String[] results = DcmtkJni.cFind(
-                    viewModel.host.getValue(),
-                    viewModel.port.getValue(),
-                    viewModel.localAet.getValue(),
-                    viewModel.remoteAet.getValue(),
-                    patName
-            );
+            String[] results;
+            switch (queryType) {
+                case 1:
+                    results = DcmtkJni.cFindByAccession(
+                            viewModel.host.getValue(),
+                            viewModel.port.getValue(),
+                            viewModel.localAet.getValue(),
+                            viewModel.remoteAet.getValue(),
+                            queryVal
+                    );
+                    break;
+                case 2:
+                    results = DcmtkJni.cFindMWL(
+                            viewModel.host.getValue(),
+                            viewModel.port.getValue(),
+                            viewModel.localAet.getValue(),
+                            viewModel.remoteAet.getValue(),
+                            queryVal // Modality
+                    );
+                    break;
+                case 0:
+                default:
+                    results = DcmtkJni.cFind(
+                            viewModel.host.getValue(),
+                            viewModel.port.getValue(),
+                            viewModel.localAet.getValue(),
+                            viewModel.remoteAet.getValue(),
+                            queryVal
+                    );
+                    break;
+            }
+
             if (getActivity() == null) return;
             getActivity().runOnUiThread(() -> {
                 binding.progressBar.setVisibility(View.GONE);
-                binding.btnQuery.setEnabled(true);
+                setButtonsEnabled(true);
 
                 List<PatientRecord> records = new ArrayList<>();
                 if (results != null) {
                     for (String res : results) {
-                        // JNI Format: "name | ID:id | sex | birth"
+                        // Basic parsing logic: Split by " | " and look for prefixes
                         String[] parts = res.split(" \\| ");
-                        String name = parts.length > 0 ? parts[0] : "N/A";
-                        String id = parts.length > 1 ? parts[1].replace("ID:", "") : "N/A";
-                        String sex = parts.length > 2 ? parts[2] : "N/A";
-                        String birth = parts.length > 3 ? parts[3] : "N/A";
-                        records.add(new PatientRecord(name, id, sex, birth));
+                        String name = "N/A", id = "N/A", sex = "N/A", birth = "N/A", acc = "", mod = "";
+
+                        if (parts.length > 0) name = parts[0];
+                        for (String p : parts) {
+                            if (p.startsWith("ID:")) id = p.substring(3);
+                            else if (p.startsWith("Acc:")) acc = p.substring(4);
+                            else if (p.startsWith("Mod:")) mod = p.substring(4);
+                            else if (p.equals("M") || p.equals("F") || p.equals("O")) sex = p;
+                            else if (p.length() == 8 && p.matches("\\d+")) birth = p; // Simple date check
+                        }
+                        records.add(new PatientRecord(name, id, sex, birth, acc, mod));
                     }
                 }
                 viewModel.queryResults.setValue(records);
@@ -104,6 +150,12 @@ public class QueryFragment extends Fragment {
                 }
             });
         }).start();
+    }
+
+    private void setButtonsEnabled(boolean enabled) {
+        binding.btnQuery.setEnabled(enabled);
+        binding.btnQueryAccession.setEnabled(enabled);
+        binding.btnQueryMwl.setEnabled(enabled);
     }
 
     @Override

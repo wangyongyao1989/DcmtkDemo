@@ -33,6 +33,18 @@ public:
                                           const std::string &remoteAet,
                                           const std::string &patientName);
 
+    // C-FIND by accession number.
+    static std::vector<std::string> cFindByAccession(const std::string &host, int port,
+                                                     const std::string &localAet,
+                                                     const std::string &remoteAet,
+                                                     const std::string &accessionNumber);
+
+    // C-FIND Modality Worklist (MWL). Returns summary of scheduled procedures.
+    static std::vector<std::string> cFindMWL(const std::string &host, int port,
+                                             const std::string &localAet,
+                                             const std::string &remoteAet,
+                                             const std::string &modality);
+
     // C-MOVE: ask the PACS to push matching instances to `destAet`.
     static bool cMove(const std::string &host, int port,
                       const std::string &localAet, const std::string &remoteAet,

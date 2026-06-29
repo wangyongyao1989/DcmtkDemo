@@ -50,6 +50,12 @@ public class DcmtkJni {
     public static native String[] cFind(String host, int port, String localAET, String remoteAET
             , String patientName);
 
+    public static native String[] cFindByAccession(String host, int port, String localAET, String remoteAET
+            , String accessionNumber);
+
+    public static native String[] cFindMWL(String host, int port, String localAET, String remoteAET
+            , String modality);
+
     public static native boolean cMove(String host, int port, String localAET, String remoteAET
             , String patientID, String destAET);
 

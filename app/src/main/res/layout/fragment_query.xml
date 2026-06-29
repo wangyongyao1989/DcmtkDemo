@@ -28,8 +28,29 @@
             android:id="@+id/btn_query"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Execute Name Query" />
+
+        <EditText
+            android:id="@+id/et_query_accession"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Execute Query" />
+            android:hint="Accession Number (检查单号)" />
+
+        <Button
+            android:id="@+id/btn_query_accession"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Query by Accession" />
+
+        <Button
+            android:id="@+id/btn_query_mwl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Query Modality Worklist (MWL)" />
 
         <TextView
             android:id="@+id/tv_query_results"

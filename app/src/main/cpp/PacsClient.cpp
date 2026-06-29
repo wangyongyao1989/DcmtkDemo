@@ -275,13 +275,15 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            OFString name, id, sex, birth;
+                            OFString name, id, acc, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
+                            ds->findAndGetOFString(DCM_AccessionNumber, acc);
                             ds->findAndGetOFString(DCM_PatientSex, sex);
                             ds->findAndGetOFString(DCM_PatientBirthDate, birth);
 
                             std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
+                            if (!acc.empty()) res += " | Acc:" + std::string(acc.c_str());
                             if (!sex.empty()) res += " | " + std::string(sex.c_str());
                             if (!birth.empty()) res += " | " + std::string(birth.c_str());
                             results.push_back(res);
@@ -298,6 +300,152 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
     }
 
     LOGD("native_cFind finished, found %zu results, status: %s", results.size(), cond.text());
+    return results;
+}
+
+std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, int port,
+                                                      const std::string &localAet,
+                                                      const std::string &remoteAet,
+                                                      const std::string &accessionNumber) {
+    LOGD("native_cFindByAccession: Query for AccessionNumber=%s", accessionNumber.c_str());
+
+    DcmSCU scu;
+    scu.setPeerHostName(host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(localAet.c_str());
+    scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+    // Use Study Root for Accession Number query as it's more common for that level
+    scu.addPresentationContext(UID_FINDStudyRootQueryRetrieveInformationModel, ts);
+
+    std::vector<std::string> results;
+    OFCondition cond = scu.initNetwork();
+    if (cond.good()) {
+        cond = scu.negotiateAssociation();
+        if (cond.good()) {
+            DcmDataset query;
+            query.putAndInsertString(DCM_QueryRetrieveLevel, "STUDY");
+            query.putAndInsertString(DCM_AccessionNumber, accessionNumber.c_str());
+            query.putAndInsertString(DCM_PatientName, "");
+            query.putAndInsertString(DCM_PatientID, "");
+            query.putAndInsertString(DCM_PatientSex, "");
+            query.putAndInsertString(DCM_PatientBirthDate, "");
+
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+                    UID_FINDStudyRootQueryRetrieveInformationModel, "");
+            if (presId > 0) {
+                OFList<QRResponse *> responses;
+                cond = scu.sendFINDRequest(presId, &query, &responses);
+                if (cond.good()) {
+                    for (auto it = responses.begin(); it != responses.end(); ++it) {
+                        DcmDataset *ds = (*it)->m_dataset;
+                        if (ds) {
+                            OFString name, id, acc, sex, birth;
+                            ds->findAndGetOFString(DCM_PatientName, name);
+                            ds->findAndGetOFString(DCM_PatientID, id);
+                            ds->findAndGetOFString(DCM_AccessionNumber, acc);
+                            ds->findAndGetOFString(DCM_PatientSex, sex);
+                            ds->findAndGetOFString(DCM_PatientBirthDate, birth);
+
+                            std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
+                            if (!acc.empty()) res += " | Acc:" + std::string(acc.c_str());
+                            if (!sex.empty()) res += " | " + std::string(sex.c_str());
+                            if (!birth.empty()) res += " | " + std::string(birth.c_str());
+                            results.push_back(res);
+                        }
+                    }
+                }
+                for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+            } else {
+                LOGE("native_cFindByAccession: No suitable presentation context found");
+                cond = EC_TagNotFound;
+            }
+            scu.releaseAssociation();
+        }
+    }
+
+    LOGD("native_cFindByAccession finished, found %zu results, status: %s", results.size(), cond.text());
+    return results;
+}
+
+std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
+                                              const std::string &localAet,
+                                              const std::string &remoteAet,
+                                              const std::string &modality) {
+    LOGD("native_cFindMWL: Query for Modality=%s", modality.c_str());
+
+    DcmSCU scu;
+    scu.setPeerHostName(host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(localAet.c_str());
+    scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+    scu.addPresentationContext(UID_FINDModalityWorklistInformationModel, ts);
+
+    std::vector<std::string> results;
+    OFCondition cond = scu.initNetwork();
+    if (cond.good()) {
+        cond = scu.negotiateAssociation();
+        if (cond.good()) {
+            DcmDataset query;
+            // Accession Number at top level in MWL
+            query.putAndInsertString(DCM_AccessionNumber, "");
+            query.putAndInsertString(DCM_PatientName, "");
+            query.putAndInsertString(DCM_PatientID, "");
+
+            // MWL requires ScheduledProcedureStepSequence
+            DcmItem *spssItem = nullptr;
+            query.findOrCreateSequenceItem(DCM_ScheduledProcedureStepSequence, spssItem);
+            if (spssItem) {
+                spssItem->putAndInsertString(DCM_Modality, modality.empty() ? "*" : modality.c_str());
+                spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartDate, "");
+                spssItem->putAndInsertString(DCM_ScheduledStationAETitle, "");
+            }
+
+            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+                    UID_FINDModalityWorklistInformationModel, "");
+            if (presId > 0) {
+                OFList<QRResponse *> responses;
+                cond = scu.sendFINDRequest(presId, &query, &responses);
+                if (cond.good()) {
+                    for (auto it = responses.begin(); it != responses.end(); ++it) {
+                        DcmDataset *ds = (*it)->m_dataset;
+                        if (ds) {
+                            OFString name, id, acc, mod;
+                            ds->findAndGetOFString(DCM_PatientName, name);
+                            ds->findAndGetOFString(DCM_PatientID, id);
+                            ds->findAndGetOFString(DCM_AccessionNumber, acc);
+
+                            // Modality is inside the sequence
+                            DcmItem *item = nullptr;
+                            if (ds->findAndGetSequenceItem(DCM_ScheduledProcedureStepSequence, item, 0).good()) {
+                                item->findAndGetOFString(DCM_Modality, mod);
+                            }
+
+                            // Format: "Name | ID:id | Acc:acc | Mod:mod"
+                            std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
+                            if (!acc.empty()) res += " | Acc:" + std::string(acc.c_str());
+                            if (!mod.empty()) res += " | Mod:" + std::string(mod.c_str());
+                            results.push_back(res);
+                        }
+                    }
+                }
+                for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+            } else {
+                LOGE("native_cFindMWL: No suitable presentation context found");
+                cond = EC_TagNotFound;
+            }
+            scu.releaseAssociation();
+        }
+    }
+
+    LOGD("native_cFindMWL finished, found %zu results, status: %s", results.size(), cond.text());
     return results;
 }
 
