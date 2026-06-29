@@ -26,11 +26,11 @@
 
 namespace {
 // Adds the three transfer syntaxes we accept for every presentation context.
-void addCommonTransferSyntaxes(OFList<OFString> &ts) {
-    ts.push_back(UID_LittleEndianExplicitTransferSyntax);
-    ts.push_back(UID_BigEndianExplicitTransferSyntax);
-    ts.push_back(UID_LittleEndianImplicitTransferSyntax);
-}
+    void addCommonTransferSyntaxes(OFList<OFString> &ts) {
+        ts.push_back(UID_LittleEndianExplicitTransferSyntax);
+        ts.push_back(UID_BigEndianExplicitTransferSyntax);
+        ts.push_back(UID_LittleEndianImplicitTransferSyntax);
+    }
 }  // namespace
 
 bool PacsClient::connectPACS(const std::string &host, int port,
