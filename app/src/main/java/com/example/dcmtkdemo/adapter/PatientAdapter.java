@@ -3,6 +3,8 @@ package com.example.dcmtkdemo.adapter;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CheckBox;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -11,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.model.PatientRecord;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class PatientAdapter extends RecyclerView.Adapter<PatientAdapter.ViewHolder> {
@@ -41,7 +44,20 @@ public class PatientAdapter extends RecyclerView.Adapter<PatientAdapter.ViewHold
         holder.tvId.setText("ID: " + record.getId());
         holder.tvSex.setText("Sex: " + record.getSex());
         holder.tvBirth.setText("Birth: " + record.getBirthDate());
-        holder.itemView.setOnClickListener(v -> listener.onItemClick(record));
+        
+        holder.cbSelect.setOnCheckedChangeListener(null);
+        holder.cbSelect.setChecked(record.isSelected());
+        holder.cbSelect.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            record.setSelected(isChecked);
+        });
+
+        holder.ivDownloaded.setVisibility(record.isDownloaded() ? View.VISIBLE : View.GONE);
+
+        holder.itemView.setOnClickListener(v -> {
+            if (listener != null) {
+                listener.onItemClick(record);
+            }
+        });
     }
 
     @Override
@@ -54,8 +70,20 @@ public class PatientAdapter extends RecyclerView.Adapter<PatientAdapter.ViewHold
         notifyDataSetChanged();
     }
 
+    public List<PatientRecord> getSelectedRecords() {
+        List<PatientRecord> selected = new ArrayList<>();
+        for (PatientRecord r : records) {
+            if (r.isSelected()) {
+                selected.add(r);
+            }
+        }
+        return selected;
+    }
+
     static class ViewHolder extends RecyclerView.ViewHolder {
         TextView tvName, tvId, tvSex, tvBirth;
+        CheckBox cbSelect;
+        ImageView ivDownloaded;
 
         ViewHolder(View view) {
             super(view);
@@ -63,6 +91,8 @@ public class PatientAdapter extends RecyclerView.Adapter<PatientAdapter.ViewHold
             tvId = view.findViewById(R.id.tv_patient_id);
             tvSex = view.findViewById(R.id.tv_patient_sex);
             tvBirth = view.findViewById(R.id.tv_patient_birth);
+            cbSelect = view.findViewById(R.id.cb_select);
+            ivDownloaded = view.findViewById(R.id.iv_downloaded);
         }
     }
 }

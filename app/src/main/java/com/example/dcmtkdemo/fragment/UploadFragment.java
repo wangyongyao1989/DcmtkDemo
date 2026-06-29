@@ -74,6 +74,7 @@ public class UploadFragment extends Fragment {
         refreshFileList();
     }
 
+    @SuppressLint("SetTextI18n")
     private void refreshFileList() {
         File dir = requireContext().getExternalFilesDir(null);
         if (dir == null) return;
@@ -131,7 +132,7 @@ public class UploadFragment extends Fragment {
         return (val != null && !val.isEmpty()) ? val : "N/A";
     }
 
-    @SuppressLint("SetTextI18n")
+    @SuppressLint({"SetTextI18n", "DefaultLocale"})
     private void uploadDicomList(List<DicomImageRecord> records) {
         binding.progressBar.setMax(100);
         binding.progressBar.setProgress(0);
@@ -148,7 +149,7 @@ public class UploadFragment extends Fragment {
                 final String path = record.getDcmPath();
 
                 // 进度回调更新当前文件的进度
-                ProgressCallback callback = (sent, total) -> {
+                @SuppressLint("DefaultLocale") ProgressCallback callback = (sent, total) -> {
                     if (getActivity() == null) return;
                     getActivity().runOnUiThread(() -> {
                         int percent = total > 0 ? (int) (sent * 100 / total) : 0;
@@ -187,6 +188,7 @@ public class UploadFragment extends Fragment {
         }).start();
     }
 
+    @SuppressLint("DefaultLocale")
     private static String formatBytes(long bytes) {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);

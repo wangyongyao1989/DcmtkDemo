@@ -5,6 +5,8 @@ public class PatientRecord {
     private String id;
     private String sex;
     private String birthDate;
+    private boolean isSelected = false;
+    private boolean isDownloaded = false;
 
     public PatientRecord(String name, String id, String sex, String birthDate) {
         this.name = name;
@@ -17,4 +19,10 @@ public class PatientRecord {
     public String getId() { return id; }
     public String getSex() { return sex; }
     public String getBirthDate() { return birthDate; }
+
+    public boolean isSelected() { return isSelected; }
+    public void setSelected(boolean selected) { isSelected = selected; }
+
+    public boolean isDownloaded() { return isDownloaded; }
+    public void setDownloaded(boolean downloaded) { isDownloaded = downloaded; }
 }

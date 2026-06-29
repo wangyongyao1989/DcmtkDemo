@@ -13,25 +13,43 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Select Patient to Retrieve (C-GET)"
+            android:text="Select Patients to Retrieve"
             android:textStyle="bold" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_patients"
             android:layout_width="match_parent"
-            android:layout_height="200dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:background="#FAFAFA"
+            android:orientation="horizontal"
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+        <Button
+            android:id="@+id/btn_download_selected"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Download Selected" />
 
         <TextView
             android:id="@+id/tv_move_status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Select an item above to retrieve"
+            android:text="Select items and click download"
             android:textColor="#666666"
-            android:textSize="12sp" />
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tv_download_stats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Speed: 0 KB/s | Progress: 0/0"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:visibility="gone" />
 
         <ProgressBar
             android:id="@+id/progress_bar"
@@ -39,30 +57,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:indeterminate="true"
+            android:indeterminate="false"
             android:visibility="gone" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Files in temp/ folder:"
-            android:textStyle="italic" />
-
-        <ScrollView
+        <View
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="8dp">
+            android:layout_weight="1" />
 
-            <TextView
-                android:id="@+id/tv_retrieve_info"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:fontFamily="monospace"
-                android:text="Wait for retrieval..." />
-        </ScrollView>
     </LinearLayout>
 
 </FrameLayout>
-

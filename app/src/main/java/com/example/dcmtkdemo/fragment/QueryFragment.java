@@ -1,5 +1,6 @@
 package com.example.dcmtkdemo.fragment;
 
+import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -10,6 +11,7 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.example.dcmtkdemo.adapter.PatientAdapter;
@@ -57,10 +59,11 @@ public class QueryFragment extends Fragment {
             // Optional: Click to do something in Query tab? 
             // The requirement didn't specify, but Retrieve tab handles retrieval.
         });
-        binding.rvQueryResults.setLayoutManager(new LinearLayoutManager(getContext()));
+        binding.rvQueryResults.setLayoutManager(new GridLayoutManager(getContext(), 5));
         binding.rvQueryResults.setAdapter(adapter);
     }
 
+    @SuppressLint("SetTextI18n")
     private void executeQuery(String patName) {
         binding.tvQueryResults.setText("Querying for: " + patName + "...");
         binding.progressBar.setVisibility(View.VISIBLE);

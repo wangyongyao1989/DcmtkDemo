@@ -1,52 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+    android:layout_width="120dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="8dp"
-    android:background="?attr/selectableItemBackground">
+    android:layout_margin="4dp"
+    android:background="@android:color/white"
+    android:elevation="2dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <CheckBox
+            android:id="@+id/cb_select"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start" />
+
+        <ImageView
+            android:id="@+id/iv_downloaded"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="top|end"
+            android:src="@android:drawable/stat_sys_download_done"
+            android:visibility="gone"
+            android:contentDescription="Downloaded" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/tv_patient_name"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textStyle="bold"
-        android:textSize="16sp" />
+        android:textSize="14sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
 
-    <LinearLayout
+    <TextView
+        android:id="@+id/tv_patient_id"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="4dp">
+        android:textSize="10sp"
+        android:text="ID: 123"
+        android:ellipsize="end"
+        android:maxLines="1" />
 
-        <TextView
-            android:id="@+id/tv_patient_id"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="ID: 123" />
-
-        <TextView
-            android:id="@+id/tv_patient_sex"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="Sex: M" />
-
-        <TextView
-            android:id="@+id/tv_patient_birth"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="12sp"
-            android:text="Birth: 2000" />
-    </LinearLayout>
-
-    <View
+    <TextView
+        android:id="@+id/tv_patient_sex"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#DDDDDD"
-        android:layout_marginTop="8dp" />
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:text="Sex: M" />
+
+    <TextView
+        android:id="@+id/tv_patient_birth"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:text="Birth: 2000" />
+
 </LinearLayout>
