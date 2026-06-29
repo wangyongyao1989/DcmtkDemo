@@ -22,7 +22,8 @@
             android:id="@+id/cb_select"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|end" />
+            android:layout_gravity="top|end"
+            android:visibility="gone" />
     </FrameLayout>
 
     <TextView

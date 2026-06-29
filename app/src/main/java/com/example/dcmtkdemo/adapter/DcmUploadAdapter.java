@@ -38,7 +38,8 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         DicomImageRecord record = records.get(position);
         holder.tvName.setText(record.getName());
-        holder.tvId.setText(record.getId());
+        holder.tvId.setText("ID: " + record.getId());
+        holder.tvSex.setText("Sex: " + record.getSex());
         
         holder.cbSelect.setVisibility(View.VISIBLE);
         holder.cbSelect.setChecked(record.isSelected());
@@ -76,7 +77,7 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
 
     static class ViewHolder extends RecyclerView.ViewHolder {
         ImageView ivThumb;
-        TextView tvName, tvId;
+        TextView tvName, tvId, tvSex;
         CheckBox cbSelect;
 
         ViewHolder(View view) {
@@ -84,6 +85,7 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
             ivThumb = view.findViewById(R.id.iv_dcm_thumb);
             tvName = view.findViewById(R.id.tv_dcm_name);
             tvId = view.findViewById(R.id.tv_dcm_id);
+            tvSex = view.findViewById(R.id.tv_dcm_sex);
             cbSelect = view.findViewById(R.id.cb_select);
         }
     }

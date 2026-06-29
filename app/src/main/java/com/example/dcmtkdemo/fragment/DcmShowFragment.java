@@ -10,7 +10,7 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.activity.DetailActivity;
 import com.example.dcmtkdemo.adapter.DcmImageAdapter;
@@ -50,7 +50,7 @@ public class DcmShowFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
 
         adapter = new DcmImageAdapter(new ArrayList<>(), this::openDetail);
-        binding.rvDcmImages.setLayoutManager(new LinearLayoutManager(getContext()));
+        binding.rvDcmImages.setLayoutManager(new GridLayoutManager(getContext(), 5));
         binding.rvDcmImages.setAdapter(adapter);
 
         loadAndConvert();
