@@ -14,6 +14,7 @@ public class DicomImageRecord {
     private final String studyDesc;
     private final String dcmPath;
     private final String jpgPath;
+    private boolean selected = false;
 
     public DicomImageRecord(String name, String id, String sex, String studyDate,
                             String studyDesc, String dcmPath, String jpgPath) {
@@ -33,6 +34,9 @@ public class DicomImageRecord {
     public String getStudyDesc() { return studyDesc; }
     public String getDcmPath() { return dcmPath; }
     public String getJpgPath() { return jpgPath; }
+
+    public boolean isSelected() { return selected; }
+    public void setSelected(boolean selected) { this.selected = selected; }
 
     /** 转换后的 jpg 是否已存在（可用于决定是否需要触发批量转换） */
     public boolean hasJpg() {

@@ -12,13 +12,14 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Select DICOM to Upload (C-STORE)"
+            android:text="Select DICOMs to Upload (C-STORE)"
             android:textStyle="bold" />
 
-        <Spinner
-            android:id="@+id/spinner_dcm_files"
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_dcm_files"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:layout_marginTop="8dp" />
 
         <Button
@@ -26,7 +27,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Upload to PACS" />
+            android:text="Upload Selected to PACS" />
 
         <ProgressBar
             android:id="@+id/progress_bar"
@@ -38,19 +39,13 @@
             android:progress="0"
             android:visibility="gone" />
 
-        <ScrollView
+        <TextView
+            android:id="@+id/tv_upload_status"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="16dp">
-
-            <TextView
-                android:id="@+id/tv_upload_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:fontFamily="monospace"
-                android:text="Status..." />
-        </ScrollView>
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:text="Status..." />
     </LinearLayout>
 
 </FrameLayout>
