@@ -2,6 +2,7 @@ package com.example.dcmtkdemo.fragment;
 
 import android.annotation.SuppressLint;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,8 +19,10 @@ import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
 import com.example.dcmtkdemo.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +62,10 @@ public class QueryFragment extends Fragment {
             executeQuery("*", 2);
         });
 
+        binding.btnQueryMwlTemplate.setOnClickListener(v -> {
+            executeMwlQueryByTemplate("wlistqry1.wl");
+        });
+
         viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {
             adapter.updateData(records);
         });
@@ -80,66 +87,91 @@ public class QueryFragment extends Fragment {
         else if (queryType == 1) label = "Accession";
         else if (queryType == 2) label = "MWL";
 
+        Log.d("QueryFragment", "executeQuery: [START] Type=" + label
+                + ", Value=" + queryVal);
         binding.tvQueryResults.setText("Querying " + label + ": " + queryVal + "...");
         binding.progressBar.setVisibility(View.VISIBLE);
         setButtonsEnabled(false);
 
         new Thread(() -> {
+            Log.d("QueryFragment", "executeQuery: Running on thread "
+                    + Thread.currentThread().getName());
             String[] results;
-            switch (queryType) {
-                case 1:
-                    results = DcmtkJni.cFindByAccession(
-                            viewModel.host.getValue(),
-                            viewModel.port.getValue(),
-                            viewModel.localAet.getValue(),
-                            viewModel.remoteAet.getValue(),
-                            queryVal
-                    );
-                    break;
-                case 2:
-                    results = DcmtkJni.cFindMWL(
-                            viewModel.host.getValue(),
-                            viewModel.port.getValue(),
-                            viewModel.localAet.getValue(),
-                            viewModel.remoteAet.getValue(),
-                            queryVal // Modality
-                    );
-                    break;
-                case 0:
-                default:
-                    results = DcmtkJni.cFind(
-                            viewModel.host.getValue(),
-                            viewModel.port.getValue(),
-                            viewModel.localAet.getValue(),
-                            viewModel.remoteAet.getValue(),
-                            queryVal
-                    );
-                    break;
+            try {
+                switch (queryType) {
+                    case 1:
+                        results = DcmtkJni.cFindByAccession(
+                                viewModel.host.getValue(),
+                                viewModel.port.getValue(),
+                                viewModel.localAet.getValue(),
+                                viewModel.remoteAet.getValue(),
+                                queryVal
+                        );
+                        break;
+                    case 2:
+                        results = DcmtkJni.cFindMWL(
+                                viewModel.host.getValue(),
+                                viewModel.port.getValue(),
+                                viewModel.localAet.getValue(),
+                                viewModel.remoteAet.getValue(),
+                                queryVal // Modality
+                        );
+                        break;
+                    case 0:
+                    default:
+                        results = DcmtkJni.cFind(
+                                viewModel.host.getValue(),
+                                viewModel.port.getValue(),
+                                viewModel.localAet.getValue(),
+                                viewModel.remoteAet.getValue(),
+                                queryVal
+                        );
+                        break;
+                }
+            } catch (Exception e) {
+                Log.e("QueryFragment", "executeQuery: JNI call failed", e);
+                results = null;
             }
 
-            if (getActivity() == null) return;
+            if (getActivity() == null) {
+                Log.w("QueryFragment", "executeQuery: Activity is null, aborting UI update");
+                return;
+            }
+
+            String[] finalResults = results;
             getActivity().runOnUiThread(() -> {
                 binding.progressBar.setVisibility(View.GONE);
                 setButtonsEnabled(true);
 
                 List<PatientRecord> records = new ArrayList<>();
-                if (results != null) {
-                    for (String res : results) {
+                if (finalResults != null) {
+                    Log.d("QueryFragment", "executeQuery: Received " 
+                            + finalResults.length + " raw records");
+                    for (String res : finalResults) {
+                        Log.d("QueryFragment", "Parsing raw result: " + res);
                         // Basic parsing logic: Split by " | " and look for prefixes
                         String[] parts = res.split(" \\| ");
                         String name = "N/A", id = "N/A", sex = "N/A", birth = "N/A", acc = "", mod = "";
 
                         if (parts.length > 0) name = parts[0];
                         for (String p : parts) {
-                            if (p.startsWith("ID:")) id = p.substring(3);
-                            else if (p.startsWith("Acc:")) acc = p.substring(4);
-                            else if (p.startsWith("Mod:")) mod = p.substring(4);
+                            if (p.startsWith("ID:")) id = p.substring(3).trim();
+                            else if (p.startsWith("Acc:")) acc = p.substring(4).trim();
+                            else if (p.startsWith("Mod:")) mod = p.substring(4).trim();
+                            else if (p.startsWith("Sex:")) sex = p.substring(4).trim();
+                            else if (p.startsWith("Birth:")) birth = p.substring(6).trim();
+                            // Fallback for old format or simple queries
                             else if (p.equals("M") || p.equals("F") || p.equals("O")) sex = p;
-                            else if (p.length() == 8 && p.matches("\\d+")) birth = p; // Simple date check
+                            else if (p.length() == 8 && p.matches("\\d+")) birth = p;
                         }
                         records.add(new PatientRecord(name, id, sex, birth, acc, mod));
                     }
+                } else {
+                    Log.w("QueryFragment"
+                            , "executeQuery: Results is null (possible network or association error)");
                 }
+                
+                Log.d("QueryFragment", "executeQuery: [DONE] Parsed " + records.size() + " records");
                 viewModel.queryResults.setValue(records);
 
                 if (records.isEmpty()) {
@@ -156,6 +188,44 @@ public class QueryFragment extends Fragment {
         binding.btnQuery.setEnabled(enabled);
         binding.btnQueryAccession.setEnabled(enabled);
         binding.btnQueryMwl.setEnabled(enabled);
+        binding.btnQueryMwlTemplate.setEnabled(enabled);
+    }
+
+    @SuppressLint("SetTextI18n")
+    private void executeMwlQueryByTemplate(String templateName) {
+        binding.tvQueryResults.setText("Executing MWL Query by Template: " + templateName + "...");
+        binding.progressBar.setVisibility(View.VISIBLE);
+        setButtonsEnabled(false);
+
+        new Thread(() -> {
+            MwlTemplateHelper.prepareTemplates(getContext());
+            String[] exportedFiles = MwlTemplateHelper.executeMwlQuery(
+                    getContext(),
+                    viewModel.host.getValue(),
+                    viewModel.port.getValue(),
+                    viewModel.localAet.getValue(),
+                    viewModel.remoteAet.getValue(),
+                    templateName
+            );
+
+            getActivity().runOnUiThread(() -> {
+                binding.progressBar.setVisibility(View.GONE);
+                setButtonsEnabled(true);
+
+                if (exportedFiles != null && exportedFiles.length > 0) {
+                    binding.tvQueryResults.setText("MWL Query Complete. Exported " + exportedFiles.length + " files to: "
+                            + MwlTemplateHelper.getExportDirPath(getContext()));
+                    
+                    // Optional: parse one of the files to show something in the UI
+                    // For now, just log them
+                    for (String path : exportedFiles) {
+                        Log.d("QueryFragment", "MWL Exported file: " + path);
+                    }
+                } else {
+                    binding.tvQueryResults.setText("MWL Query by Template failed or returned no results.");
+                }
+            });
+        }).start();
     }
 
     @Override

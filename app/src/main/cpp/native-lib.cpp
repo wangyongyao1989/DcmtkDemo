@@ -224,6 +224,31 @@ static jobjectArray native_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jin
     return ret;
 }
 
+static jobjectArray native_cFindMWLByTemplate(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                              jstring local_aet, jstring remote_aet,
+                                              jstring template_path, jstring output_dir) {
+    JniString c_host(env, host);
+    JniString c_local(env, local_aet);
+    JniString c_remote(env, remote_aet);
+    JniString c_tpl(env, template_path);
+    JniString c_out(env, output_dir);
+
+    std::vector<std::string> results = PacsClient::cFindMWLByTemplate(
+            c_host.c_str() ? c_host.c_str() : "", port,
+            c_local.c_str() ? c_local.c_str() : "",
+            c_remote.c_str() ? c_remote.c_str() : "",
+            c_tpl.c_str() ? c_tpl.c_str() : "",
+            c_out.c_str() ? c_out.c_str() : "");
+
+    jobjectArray ret = (jobjectArray) env->NewObjectArray(results.size(),
+                                                          env->FindClass("java/lang/String"),
+                                                          env->NewStringUTF(""));
+    for (size_t i = 0; i < results.size(); ++i) {
+        env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
+    }
+    return ret;
+}
+
 static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
                              jstring local_aet, jstring remote_aet, jstring patient_id,
                              jstring dest_aet) {
@@ -300,6 +325,9 @@ static const JNINativeMethod kMethods[] = {
         {"cFindMWL",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
                 (void *) native_cFindMWL},
+        {"cFindMWLByTemplate",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
+                (void *) native_cFindMWLByTemplate},
         {"cMove",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cMove},

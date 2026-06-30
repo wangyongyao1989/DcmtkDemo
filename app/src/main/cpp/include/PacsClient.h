@@ -45,6 +45,13 @@ public:
                                              const std::string &remoteAet,
                                              const std::string &modality);
 
+    // C-FIND Modality Worklist (MWL) by template file. Exports results to outputDir.
+    static std::vector<std::string> cFindMWLByTemplate(const std::string &host, int port,
+                                                       const std::string &localAet,
+                                                       const std::string &remoteAet,
+                                                       const std::string &templatePath,
+                                                       const std::string &outputDir);
+
     // C-MOVE: ask the PACS to push matching instances to `destAet`.
     static bool cMove(const std::string &host, int port,
                       const std::string &localAet, const std::string &remoteAet,

@@ -52,6 +52,13 @@
             android:layout_marginTop="8dp"
             android:text="Query Modality Worklist (MWL)" />
 
+        <Button
+            android:id="@+id/btn_query_mwl_template"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="MWL Query by Template (Export .dcm)" />
+
         <TextView
             android:id="@+id/tv_query_results"
             android:layout_width="match_parent"

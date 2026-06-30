@@ -56,6 +56,9 @@ public class DcmtkJni {
     public static native String[] cFindMWL(String host, int port, String localAET, String remoteAET
             , String modality);
 
+    public static native String[] cFindMWLByTemplate(String host, int port, String localAET, String remoteAET
+            , String templatePath, String outputDir);
+
     public static native boolean cMove(String host, int port, String localAET, String remoteAET
             , String patientID, String destAET);
 

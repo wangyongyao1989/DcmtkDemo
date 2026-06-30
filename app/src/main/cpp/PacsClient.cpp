@@ -375,7 +375,7 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
                                               const std::string &localAet,
                                               const std::string &remoteAet,
                                               const std::string &modality) {
-    LOGD("native_cFindMWL: Query for Modality=%s", modality.c_str());
+    LOGD("native_cFindMWL: [START] Query for Modality=%s", modality.c_str());
 
     DcmSCU scu;
     scu.setPeerHostName(host.c_str());
@@ -391,50 +391,73 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
     std::vector<std::string> results;
     OFCondition cond = scu.initNetwork();
     if (cond.good()) {
+        LOGD("native_cFindMWL: Network initialized, negotiating association...");
         cond = scu.negotiateAssociation();
         if (cond.good()) {
+            LOGD("native_cFindMWL: Association established.");
             DcmDataset query;
-            // Accession Number at top level in MWL
+            // Standard MWL return keys at top level
             query.putAndInsertString(DCM_AccessionNumber, "");
             query.putAndInsertString(DCM_PatientName, "");
             query.putAndInsertString(DCM_PatientID, "");
+            query.putAndInsertString(DCM_PatientSex, "");
+            query.putAndInsertString(DCM_PatientBirthDate, "");
+            query.putAndInsertString(DCM_StudyInstanceUID, "");
 
-            // MWL requires ScheduledProcedureStepSequence
+            // MWL requires ScheduledProcedureStepSequence for filtering and return keys
             DcmItem *spssItem = nullptr;
             query.findOrCreateSequenceItem(DCM_ScheduledProcedureStepSequence, spssItem);
             if (spssItem) {
+                // Matching keys
                 spssItem->putAndInsertString(DCM_Modality, modality.empty() ? "*" : modality.c_str());
                 spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartDate, "");
                 spssItem->putAndInsertString(DCM_ScheduledStationAETitle, "");
+
+                // Return keys inside sequence
+                spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartTime, "");
+                spssItem->putAndInsertString(DCM_ScheduledProcedureStepDescription, "");
             }
 
             T_ASC_PresentationContextID presId = scu.findPresentationContextID(
                     UID_FINDModalityWorklistInformationModel, "");
             if (presId > 0) {
                 OFList<QRResponse *> responses;
+                LOGD("native_cFindMWL: Sending C-FIND request...");
                 cond = scu.sendFINDRequest(presId, &query, &responses);
                 if (cond.good()) {
+                    LOGD("native_cFindMWL: Received %zu responses", responses.size());
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            OFString name, id, acc, mod;
+                            OFString name, id, acc, sex, birth, studyUid, mod, spsDesc;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
                             ds->findAndGetOFString(DCM_AccessionNumber, acc);
+                            ds->findAndGetOFString(DCM_PatientSex, sex);
+                            ds->findAndGetOFString(DCM_PatientBirthDate, birth);
+                            ds->findAndGetOFString(DCM_StudyInstanceUID, studyUid);
 
-                            // Modality is inside the sequence
+                            // Modality and other details are inside the sequence
                             DcmItem *item = nullptr;
                             if (ds->findAndGetSequenceItem(DCM_ScheduledProcedureStepSequence, item, 0).good()) {
                                 item->findAndGetOFString(DCM_Modality, mod);
+                                item->findAndGetOFString(DCM_ScheduledProcedureStepDescription, spsDesc);
                             }
 
-                            // Format: "Name | ID:id | Acc:acc | Mod:mod"
+                            // Format: "Name | ID:id | Acc:acc | Sex:sex | Birth:birth | Mod:mod | Desc:desc"
                             std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
                             if (!acc.empty()) res += " | Acc:" + std::string(acc.c_str());
+                            if (!sex.empty()) res += " | Sex:" + std::string(sex.c_str());
+                            if (!birth.empty()) res += " | Birth:" + std::string(birth.c_str());
                             if (!mod.empty()) res += " | Mod:" + std::string(mod.c_str());
+                            if (!spsDesc.empty()) res += " | Desc:" + std::string(spsDesc.c_str());
+
+                            LOGD("native_cFindMWL: Found record: %s", res.c_str());
                             results.push_back(res);
                         }
                     }
+                } else {
+                    LOGE("native_cFindMWL: C-FIND request failed: %s", cond.text());
                 }
                 for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
             } else {
@@ -442,10 +465,101 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
                 cond = EC_TagNotFound;
             }
             scu.releaseAssociation();
+        } else {
+            LOGE("native_cFindMWL: Association negotiation failed: %s", cond.text());
         }
+    } else {
+        LOGE("native_cFindMWL: Network init failed: %s", cond.text());
     }
 
-    LOGD("native_cFindMWL finished, found %zu results, status: %s", results.size(), cond.text());
+    LOGD("native_cFindMWL: [DONE] Found %zu results, status: %s", results.size(), cond.text());
+    return results;
+}
+
+std::vector<std::string> PacsClient::cFindMWLByTemplate(const std::string &host, int port,
+                                                       const std::string &localAet,
+                                                       const std::string &remoteAet,
+                                                       const std::string &templatePath,
+                                                       const std::string &outputDir) {
+    LOGD("native_cFindMWLByTemplate: [START] Template=%s, OutputDir=%s", templatePath.c_str()
+         , outputDir.c_str());
+
+    std::vector<std::string> results;
+
+    // 1. Load template
+    DcmFileFormat templateFile;
+    OFCondition cond = templateFile.loadFile(templatePath.c_str());
+    if (cond.bad()) {
+        LOGE("native_cFindMWLByTemplate: Failed to load template: %s", cond.text());
+        return results;
+    }
+    DcmDataset *queryDataset = templateFile.getDataset();
+
+    // 2. Initialize SCU
+    DcmSCU scu;
+    scu.setPeerHostName(host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(localAet.c_str());
+    scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+    scu.addPresentationContext(UID_FINDModalityWorklistInformationModel, ts);
+
+    cond = scu.initNetwork();
+    if (cond.bad()) {
+        LOGE("native_cFindMWLByTemplate: Network init failed: %s", cond.text());
+        return results;
+    }
+
+    cond = scu.negotiateAssociation();
+    if (cond.bad()) {
+        LOGE("native_cFindMWLByTemplate: Association failed: %s", cond.text());
+        return results;
+    }
+
+    // 3. Send C-FIND and export results
+    T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+            UID_FINDModalityWorklistInformationModel, "");
+
+    if (presId > 0) {
+        OFList<QRResponse *> responses;
+        int responseIndex = 0;
+        cond = scu.sendFINDRequest(presId, queryDataset, &responses);
+        if (cond.bad()) {
+            LOGE("native_cFindMWLByTemplate: C-FIND request failed: %s", cond.text());
+        } else {
+            for (auto it = responses.begin(); it != responses.end(); ++it) {
+                DcmDataset *responseDataset = (*it)->m_dataset;
+                if (responseDataset != nullptr) {
+                    responseIndex++;
+                    char fileName[64];
+                    sprintf(fileName, "rsp%04d.dcm", responseIndex);
+                    std::string outputPath = outputDir + "/" + fileName;
+
+                    DcmFileFormat outFile;
+                    // Use copyFrom or assignment to copy the dataset
+                    outFile.getDataset()->copyFrom(*responseDataset);
+
+                    OFCondition saveCond = outFile.saveFile(outputPath.c_str(), EXS_LittleEndianExplicit);
+                    if (saveCond.good()) {
+                        LOGD("native_cFindMWLByTemplate: Exported #%d: %s", responseIndex, outputPath.c_str());
+                        results.push_back(outputPath);
+                    } else {
+                        LOGE("native_cFindMWLByTemplate: Failed to save #%d: %s, Error: %s", responseIndex, outputPath.c_str(), saveCond.text());
+                    }
+                }
+            }
+        }
+        // Clean up responses
+        for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+    } else {
+        LOGE("native_cFindMWLByTemplate: No suitable presentation context found");
+    }
+
+    scu.releaseAssociation();
+    LOGD("native_cFindMWLByTemplate: [DONE] Exported %d files", (int)results.size());
     return results;
 }
 
