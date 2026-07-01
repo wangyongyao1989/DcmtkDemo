@@ -1,5 +1,6 @@
 package com.example.dcmtkdemo.fragment;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
@@ -66,6 +67,7 @@ public class DcmShowFragment extends Fragment {
         return tempDir;
     }
 
+    @SuppressLint("SetTextI18n")
     private void loadAndConvert() {
         File tempDir = getTempDir();
         if (tempDir == null) {

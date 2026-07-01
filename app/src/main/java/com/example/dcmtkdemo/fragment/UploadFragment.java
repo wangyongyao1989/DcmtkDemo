@@ -15,7 +15,9 @@ import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.adapter.DcmUploadAdapter;
 import com.example.dcmtk.callback.ProgressCallback;
+import com.example.dcmtkdemo.activity.DetailActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
+import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
@@ -48,6 +50,28 @@ public class UploadFragment extends Fragment {
         binding.rvDcmFiles.setLayoutManager(new GridLayoutManager(getContext(), 5));
         binding.rvDcmFiles.setAdapter(adapter);
 
+        adapter.setOnItemClickListener(record -> {
+            Intent intent = new Intent(getContext(), DetailActivity.class);
+            intent.putExtra(DetailActivity.EXTRA_DCM_PATH, record.getDcmPath());
+            intent.putExtra(DetailActivity.EXTRA_JPG_PATH, record.getJpgPath());
+            intent.putExtra(DetailActivity.EXTRA_NAME, record.getName());
+            intent.putExtra(DetailActivity.EXTRA_ID, record.getId());
+            intent.putExtra(DetailActivity.EXTRA_SEX, record.getSex());
+            intent.putExtra(DetailActivity.EXTRA_STUDY_DATE, record.getStudyDate());
+            intent.putExtra(DetailActivity.EXTRA_STUDY_DESC, record.getStudyDesc());
+            startActivity(intent);
+        });
+
+        binding.btnToggleMode.setOnClickListener(v -> {
+            boolean currentMode = adapter.isUploadMode();
+            boolean newMode = !currentMode;
+            adapter.setUploadMode(newMode);
+            updateUiMode(newMode);
+        });
+
+        // Initialize UI mode
+        updateUiMode(false);
+
         refreshFileList();
 
         // 监听资产拷贝完成的信号，一旦完成就刷新列表
@@ -66,6 +90,15 @@ public class UploadFragment extends Fragment {
 
             uploadDicomList(selectedRecords);
         });
+    }
+
+    private void updateUiMode(boolean uploadMode) {
+        binding.btnToggleMode.setText(uploadMode ? "Exit Upload Mode" : "Switch to Upload Mode");
+        binding.btnUpload.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
+        binding.tvUploadStatus.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
+        if (!uploadMode) {
+            binding.progressBar.setVisibility(View.GONE);
+        }
     }
 
     @Override
@@ -104,18 +137,20 @@ public class UploadFragment extends Fragment {
                 String dcmPath = f.getAbsolutePath();
                 String jpgPath = new File(jpgDir, f.getName() + ".jpg").getAbsolutePath();
 
-                String name = "N/A", id = "N/A", sex = "N/A";
+                String name = "N/A", id = "N/A", sex = "N/A", date = "N/A", desc = "N/A";
                 try {
                     HashMap<String, String> info = DcmtkJni.loadDicomFileInfo(dcmPath);
                     if (info != null && !info.isEmpty()) {
                         name = safeGet(info, "(0010,0010)");
                         id = safeGet(info, "(0010,0020)");
                         sex = safeGet(info, "(0010,0040)");
+                        date = safeGet(info, "(0008,0020)");
+                        desc = safeGet(info, "(0008,1030)");
                     }
                 } catch (Exception e) {
                     // ignore
                 }
-                records.add(new DicomImageRecord(name, id, sex, "N/A", "N/A"
+                records.add(new DicomImageRecord(name, id, sex, date, desc
                         , dcmPath, jpgPath));
             }
 

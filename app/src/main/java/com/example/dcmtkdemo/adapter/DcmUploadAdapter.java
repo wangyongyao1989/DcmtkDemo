@@ -23,9 +23,29 @@ import java.util.List;
 public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.ViewHolder> {
 
     private List<DicomImageRecord> records;
+    private boolean uploadMode = false;
+    private OnItemClickListener listener;
+
+    public interface OnItemClickListener {
+        void onItemClick(DicomImageRecord record);
+    }
 
     public DcmUploadAdapter(List<DicomImageRecord> records) {
         this.records = records;
+    }
+
+    public void setOnItemClickListener(OnItemClickListener listener) {
+        this.listener = listener;
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void setUploadMode(boolean uploadMode) {
+        this.uploadMode = uploadMode;
+        notifyDataSetChanged();
+    }
+
+    public boolean isUploadMode() {
+        return uploadMode;
     }
 
     @NonNull
@@ -44,7 +64,7 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
         holder.tvId.setText("ID: " + record.getId());
         holder.tvSex.setText("Sex: " + record.getSex());
         
-        holder.cbSelect.setVisibility(View.VISIBLE);
+        holder.cbSelect.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
         holder.cbSelect.setChecked(record.isSelected());
 
         Glide.with(holder.itemView.getContext())
@@ -55,8 +75,14 @@ public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.View
                 .into(holder.ivThumb);
 
         holder.itemView.setOnClickListener(v -> {
-            record.setSelected(!record.isSelected());
-            notifyItemChanged(position);
+            if (uploadMode) {
+                record.setSelected(!record.isSelected());
+                notifyItemChanged(position);
+            } else {
+                if (listener != null) {
+                    listener.onItemClick(record);
+                }
+            }
         });
 
         holder.cbSelect.setOnClickListener(v -> {
