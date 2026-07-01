@@ -17,7 +17,7 @@ import com.example.dcmtkdemo.fragment.QueryFragment;
 import com.example.dcmtkdemo.fragment.RetrieveFragment;
 import com.example.dcmtkdemo.fragment.UploadFragment;
 import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.FileUtil;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 

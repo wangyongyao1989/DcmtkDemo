@@ -12,9 +12,12 @@
 #include <chrono>
 
 #include "dcmtk/dcmdata/dctk.h"
+#include "dcmtk/dcmdata/dcxfer.h"
 #include "dcmtk/dcmnet/assoc.h"
 #include "dcmtk/dcmnet/dimse.h"
 #include "dcmtk/dcmnet/scu.h"
+#include "dcmtk/dcmjpeg/djdecode.h"
+#include "dcmtk/dcmjpeg/djencode.h"
 #include "dcmtk/ofstd/ofcond.h"
 
 #include "PacsClient.h"
@@ -153,6 +156,15 @@ bool PacsClient::cStore(const std::string &host, int port,
     auto startTime = std::chrono::steady_clock::now();
     LOGD("native_cStore: [START] Sending %s to %s:%d", dcmPath.c_str(), host.c_str(), port);
 
+    // 1. 注册编解码器，确保能处理压缩格式
+    static bool codecsRegistered = false;
+    if (!codecsRegistered) {
+        DJDecoderRegistration::registerCodecs();
+        DJEncoderRegistration::registerCodecs();
+        codecsRegistered = true;
+        LOGD("native_cStore: JPEG codecs registered.");
+    }
+
     DcmFileFormat dfile;
     OFCondition cond = dfile.loadFile(dcmPath.c_str());
     if (cond.bad()) {
@@ -160,8 +172,16 @@ bool PacsClient::cStore(const std::string &host, int port,
         return false;
     }
 
+    // 2. 更稳健地获取 SOP Class UID (优先从 Dataset 找，找不到去 MetaInfo)
     OFString sopClass;
-    dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass);
+    if (dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass).bad() || sopClass.empty()) {
+        dfile.getMetaInfo()->findAndGetOFString(DCM_MediaStorageSOPClassUID, sopClass);
+    }
+
+    if (sopClass.empty()) {
+        LOGE("native_cStore: Could not find SOP Class UID in file.");
+        return false;
+    }
 
     ProgressScu scu;
     scu.setPeerHostName(host.c_str());
@@ -180,8 +200,19 @@ bool PacsClient::cStore(const std::string &host, int port,
         scu.setProgressCallback(std::move(callback));
     }
 
+    // 3. 构造传输语法列表
     OFList<OFString> ts;
+    // 获取并加入文件原始传输语法 (提高匹配成功率，且能避免不必要的转码)
+    E_TransferSyntax xfer = dfile.getDataset()->getOriginalXfer();
+    if (xfer != EXS_Unknown) {
+        ts.push_back(DcmXfer(xfer).getXferID());
+    }
+    // 添加其他通用的传输语法作为备选
     addCommonTransferSyntaxes(ts);
+
+    LOGD("native_cStore: Proposing SOP Class %s with %zu transfer syntaxes",
+         sopClass.c_str(), ts.size());
+
     scu.addPresentationContext(sopClass.c_str(), ts);
 
     cond = scu.initNetwork();

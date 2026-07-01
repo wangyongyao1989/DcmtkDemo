@@ -14,9 +14,9 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.adapter.DcmUploadAdapter;
-import com.example.dcmtkdemo.callback.ProgressCallback;
+import com.example.dcmtk.callback.ProgressCallback;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 

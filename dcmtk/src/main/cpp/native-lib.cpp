@@ -292,7 +292,7 @@ static jint native_dcmToJpg(JNIEnv *env, jclass clazz, jstring dir_path) {
 }
 
 // JNI Registration
-static const char *const kClassName = "com/example/dcmtkdemo/jni/DcmtkJni";
+static const char *const kClassName = "com/example/dcmtk/jni/DcmtkJni";
 
 static const JNINativeMethod kMethods[] = {
         {"stringFromJNI",
@@ -314,7 +314,7 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cEcho},
         {"cStore",
-                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtkdemo/callback/ProgressCallback;)Z",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtk/callback/ProgressCallback;)Z",
                 (void *) native_cStore},
         {"cFind",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
@@ -332,7 +332,7 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
                 (void *) native_cMove},
         {"cGet",
-                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtkdemo/callback/ProgressCallback;)Z",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtk/callback/ProgressCallback;)Z",
                 (void *) native_cGet},
         {"dcmToJpg",
                 "(Ljava/lang/String;)I",

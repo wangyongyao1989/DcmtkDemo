@@ -10,6 +10,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import com.example.dcmtk.jni.DcmtkJni;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;

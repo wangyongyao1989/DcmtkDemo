@@ -11,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.bumptech.glide.Glide;
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.databinding.ActivityDetailBinding;
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 
 import java.io.File;
 

@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "DcmtkDemo"
 include ':app'
+include ':dcmtk'

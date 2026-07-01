@@ -15,7 +15,7 @@ import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentWorklistQueryBinding;
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;

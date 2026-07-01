@@ -16,9 +16,9 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.example.dcmtkdemo.adapter.PatientAdapter;
-import com.example.dcmtkdemo.callback.ProgressCallback;
+import com.example.dcmtk.callback.ProgressCallback;
 import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding;
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 

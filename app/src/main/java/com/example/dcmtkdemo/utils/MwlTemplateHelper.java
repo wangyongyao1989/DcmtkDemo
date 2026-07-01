@@ -3,7 +3,7 @@ package com.example.dcmtkdemo.utils;
 import android.content.Context;
 import android.util.Log;
 
-import com.example.dcmtkdemo.jni.DcmtkJni;
+import com.example.dcmtk.jni.DcmtkJni;
 
 import java.io.File;
 import java.io.FileOutputStream;
