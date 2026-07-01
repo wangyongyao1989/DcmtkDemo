@@ -48,13 +48,17 @@ public class QueryFragment extends Fragment {
         setupRecyclerView();
 
         binding.btnQuery.setOnClickListener(v -> {
-            String patName = binding.etQueryPatName.getText().toString().trim();
-            executeQuery(patName, 0);
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                String patName = binding.etQueryPatName.getText().toString().trim();
+                executeQuery(patName, 0);
+            });
         });
 
         binding.btnQueryAccession.setOnClickListener(v -> {
-            String accession = binding.etQueryAccession.getText().toString().trim();
-            executeQuery(accession, 1);
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                String accession = binding.etQueryAccession.getText().toString().trim();
+                executeQuery(accession, 1);
+            });
         });
 
         viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {

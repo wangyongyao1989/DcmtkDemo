@@ -8,6 +8,13 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.PopupWindow;
 import android.widget.Toast;
 
 import com.example.dcmtkdemo.R;
@@ -53,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }).start();
 
-        setupConnectionBar();
+        // setupConnectionBar();
         setupNavigation();
 
         // Default fragment
@@ -62,49 +69,84 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void setupConnectionBar() {
-        binding.etHost.setText(viewModel.host.getValue());
-        binding.etPort.setText(String.valueOf(viewModel.port.getValue()));
-        binding.etLocalAet.setText(viewModel.localAet.getValue());
-        binding.etRemoteAet.setText(viewModel.remoteAet.getValue());
+    public void verifyConnection(Runnable onVerified) {
+        View popupView = LayoutInflater.from(this).inflate(R.layout.popup_connection, null);
+        
+        // Use 85% of screen width
+        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.65);
+        PopupWindow popupWindow = new PopupWindow(popupView, 
+                width, 
+                ViewGroup.LayoutParams.WRAP_CONTENT, true);
 
-        binding.etHost.addTextChangedListener(createWatcher(s -> viewModel.host.setValue(s)));
-        binding.etPort.addTextChangedListener(createWatcher(s -> {
+        EditText etHost = popupView.findViewById(R.id.et_host);
+        EditText etPort = popupView.findViewById(R.id.et_port);
+        EditText etLocalAet = popupView.findViewById(R.id.et_local_aet);
+        EditText etRemoteAet = popupView.findViewById(R.id.et_remote_aet);
+        Button btnConnect = popupView.findViewById(R.id.btn_connect_pacs);
+        Button btnCEcho = popupView.findViewById(R.id.btn_cecho);
+
+        etHost.setText(viewModel.host.getValue());
+        etPort.setText(String.valueOf(viewModel.port.getValue()));
+        etLocalAet.setText(viewModel.localAet.getValue());
+        etRemoteAet.setText(viewModel.remoteAet.getValue());
+
+        final boolean[] connected = {false};
+        final boolean[] echoOk = {false};
+
+        btnConnect.setOnClickListener(v -> {
+            String host = etHost.getText().toString();
+            int port;
             try {
-                viewModel.port.setValue(Integer.parseInt(s));
-            } catch (NumberFormatException ignored) {}
-        }));
-        binding.etLocalAet.addTextChangedListener(createWatcher(s
-                -> viewModel.localAet.setValue(s)));
-        binding.etRemoteAet.addTextChangedListener(createWatcher(s
-                -> viewModel.remoteAet.setValue(s)));
+                port = Integer.parseInt(etPort.getText().toString());
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "Invalid port", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String local = etLocalAet.getText().toString();
+            String remote = etRemoteAet.getText().toString();
 
-        binding.btnConnectPacs.setOnClickListener(v -> {
+            viewModel.host.postValue(host);
+            viewModel.port.postValue(port);
+            viewModel.localAet.postValue(local);
+            viewModel.remoteAet.postValue(remote);
+
             new Thread(() -> {
-                boolean success = DcmtkJni.connectPACS(
-                        viewModel.host.getValue(),
-                        viewModel.port.getValue(),
-                        viewModel.localAet.getValue(),
-                        viewModel.remoteAet.getValue()
-                );
-                runOnUiThread(() -> Toast.makeText(this, "PACS Connection: "
+                boolean success = DcmtkJni.connectPACS(host, port, local, remote);
+                connected[0] = success;
+                runOnUiThread(() -> Toast.makeText(this, "PACS Connection: " 
                         + (success ? "Success" : "Failed"), Toast.LENGTH_SHORT).show());
             }).start();
         });
 
-        binding.btnCecho.setOnClickListener(v -> {
+        btnCEcho.setOnClickListener(v -> {
+            if (!connected[0]) {
+                Toast.makeText(this, "Please connect PACS first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String host = etHost.getText().toString();
+            int port;
+            try {
+                port = Integer.parseInt(etPort.getText().toString());
+            } catch (NumberFormatException e) {
+                return;
+            }
+            String local = etLocalAet.getText().toString();
+            String remote = etRemoteAet.getText().toString();
+
             new Thread(() -> {
-                boolean success = DcmtkJni.cEcho(
-                        viewModel.host.getValue(),
-                        viewModel.port.getValue(),
-                        viewModel.localAet.getValue(),
-                        viewModel.remoteAet.getValue()
-                );
-                runOnUiThread(() -> Toast.makeText(this
-                        , "C-ECHO: " + (success ? "Success" : "Failed")
-                        , Toast.LENGTH_SHORT).show());
+                boolean success = DcmtkJni.cEcho(host, port, local, remote);
+                echoOk[0] = success;
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "C-ECHO: " + (success ? "Success" : "Failed"), Toast.LENGTH_SHORT).show();
+                    if (success) {
+                        popupWindow.dismiss();
+                        if (onVerified != null) onVerified.run();
+                    }
+                });
             }).start();
         });
+
+        popupWindow.showAtLocation(binding.getRoot(), Gravity.CENTER, 0, 0);
     }
 
     private void setupNavigation() {

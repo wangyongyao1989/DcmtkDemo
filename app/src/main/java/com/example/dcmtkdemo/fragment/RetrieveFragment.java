@@ -62,12 +62,14 @@ public class RetrieveFragment extends Fragment {
         });
 
         binding.btnDownloadSelected.setOnClickListener(v -> {
-            List<PatientRecord> selected = adapter.getSelectedRecords();
-            if (selected.isEmpty()) {
-                Toast.makeText(getContext(), "Please select at least one item", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            executeBatchDownload(selected);
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                List<PatientRecord> selected = adapter.getSelectedRecords();
+                if (selected.isEmpty()) {
+                    Toast.makeText(getContext(), "Please select at least one item", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                executeBatchDownload(selected);
+            });
         });
     }
 

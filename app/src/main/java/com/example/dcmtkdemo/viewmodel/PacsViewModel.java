@@ -14,6 +14,9 @@ public class PacsViewModel extends ViewModel {
     public final MutableLiveData<String> localAet = new MutableLiveData<>("ANDROID_SCU");
     public final MutableLiveData<String> remoteAet = new MutableLiveData<>("ACME_STORE");
 
+    public final MutableLiveData<Boolean> isPacsConnected = new MutableLiveData<>(false);
+    public final MutableLiveData<Boolean> isCEchoSuccess = new MutableLiveData<>(false);
+
     public final MutableLiveData<Boolean> assetsReady = new MutableLiveData<>(false);
 
     public final MutableLiveData<List<PatientRecord>> queryResults = new MutableLiveData<>(new ArrayList<>());

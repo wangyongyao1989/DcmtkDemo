@@ -11,6 +11,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtkdemo.utils.FileUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;

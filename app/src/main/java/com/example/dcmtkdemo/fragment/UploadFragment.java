@@ -82,13 +82,15 @@ public class UploadFragment extends Fragment {
         });
 
         binding.btnUpload.setOnClickListener(v -> {
-            List<DicomImageRecord> selectedRecords = adapter.getSelectedRecords();
-            if (selectedRecords.isEmpty()) {
-                Toast.makeText(getContext(), "No files selected", Toast.LENGTH_SHORT).show();
-                return;
-            }
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                List<DicomImageRecord> selectedRecords = adapter.getSelectedRecords();
+                if (selectedRecords.isEmpty()) {
+                    Toast.makeText(getContext(), "No files selected", Toast.LENGTH_SHORT).show();
+                    return;
+                }
 
-            uploadDicomList(selectedRecords);
+                uploadDicomList(selectedRecords);
+            });
         });
     }
 

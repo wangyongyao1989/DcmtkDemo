@@ -46,9 +46,17 @@ public class WorklistQueryFragment extends Fragment {
 
         setupRecyclerView();
 
-        binding.btnQueryMwl.setOnClickListener(v -> executeMwlQuery("*"));
+        binding.btnQueryMwl.setOnClickListener(v -> {
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                executeMwlQuery("*");
+            });
+        });
 
-        binding.btnQueryMwlTemplate.setOnClickListener(v -> executeMwlQueryByTemplate("wlistqry1.wl"));
+        binding.btnQueryMwlTemplate.setOnClickListener(v -> {
+            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+                executeMwlQueryByTemplate("wlistqry1.wl");
+            });
+        });
 
         viewModel.mwlResults.observe(getViewLifecycleOwner(), records -> {
             adapter.updateData(records);
