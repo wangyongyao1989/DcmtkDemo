@@ -13,40 +13,25 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Query PACS (C-FIND)"
+            android:text="Modality Worklist (MWL)"
             android:textStyle="bold" />
 
-        <EditText
-            android:id="@+id/et_query_pat_name"
+        <Button
+            android:id="@+id/btn_query_mwl"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="Patient Name (use * for all)"
-            android:text="*" />
+            android:text="Query Modality Worklist (MWL)" />
 
         <Button
-            android:id="@+id/btn_query"
+            android:id="@+id/btn_query_mwl_template"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Execute Name Query" />
-
-        <EditText
-            android:id="@+id/et_query_accession"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Accession Number (检查单号)" />
-
-        <Button
-            android:id="@+id/btn_query_accession"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Query by Accession" />
+            android:text="MWL Query by Template (Export .dcm)" />
 
         <TextView
-            android:id="@+id/tv_query_results"
+            android:id="@+id/tv_worklist_results"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -55,7 +40,7 @@
             android:textSize="12sp" />
 
         <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rv_query_results"
+            android:id="@+id/rv_worklist_results"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
@@ -73,4 +58,3 @@
         android:visibility="gone" />
 
 </FrameLayout>
-

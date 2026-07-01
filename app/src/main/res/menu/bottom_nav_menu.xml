@@ -9,6 +9,10 @@
         android:icon="@android:drawable/ic_menu_search"
         android:title="Query" />
     <item
+        android:id="@+id/nav_worklist"
+        android:icon="@android:drawable/ic_menu_agenda"
+        android:title="Worklist" />
+    <item
         android:id="@+id/nav_retrieve"
         android:icon="@android:drawable/ic_menu_save"
         android:title="Retrieve" />

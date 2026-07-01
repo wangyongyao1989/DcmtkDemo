@@ -16,6 +16,7 @@ import com.example.dcmtkdemo.fragment.DcmShowFragment;
 import com.example.dcmtkdemo.fragment.QueryFragment;
 import com.example.dcmtkdemo.fragment.RetrieveFragment;
 import com.example.dcmtkdemo.fragment.UploadFragment;
+import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtkdemo.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.FileUtil;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
@@ -114,6 +115,8 @@ public class MainActivity extends AppCompatActivity {
                 fragment = new UploadFragment();
             } else if (itemId == R.id.nav_query) {
                 fragment = new QueryFragment();
+            } else if (itemId == R.id.nav_worklist) {
+                fragment = new WorklistQueryFragment();
             } else if (itemId == R.id.nav_retrieve) {
                 fragment = new RetrieveFragment();
             } else if (itemId == R.id.nav_show) {

@@ -57,15 +57,6 @@ public class QueryFragment extends Fragment {
             executeQuery(accession, 1);
         });
 
-        binding.btnQueryMwl.setOnClickListener(v -> {
-            // Use modality from input or default to '*'
-            executeQuery("*", 2);
-        });
-
-        binding.btnQueryMwlTemplate.setOnClickListener(v -> {
-            executeMwlQueryByTemplate("wlistqry1.wl");
-        });
-
         viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {
             adapter.updateData(records);
         });
@@ -79,13 +70,12 @@ public class QueryFragment extends Fragment {
         binding.rvQueryResults.setLayoutManager(new GridLayoutManager(getContext(), 5));
         binding.rvQueryResults.setAdapter(adapter);
     }
-
+    
     @SuppressLint("SetTextI18n")
     private void executeQuery(String queryVal, int queryType) {
         String label = "Query";
         if (queryType == 0) label = "Name";
         else if (queryType == 1) label = "Accession";
-        else if (queryType == 2) label = "MWL";
 
         Log.d("QueryFragment", "executeQuery: [START] Type=" + label
                 + ", Value=" + queryVal);
@@ -106,15 +96,6 @@ public class QueryFragment extends Fragment {
                                 viewModel.localAet.getValue(),
                                 viewModel.remoteAet.getValue(),
                                 queryVal
-                        );
-                        break;
-                    case 2:
-                        results = DcmtkJni.cFindMWL(
-                                viewModel.host.getValue(),
-                                viewModel.port.getValue(),
-                                viewModel.localAet.getValue(),
-                                viewModel.remoteAet.getValue(),
-                                queryVal // Modality
                         );
                         break;
                     case 0:
@@ -187,45 +168,6 @@ public class QueryFragment extends Fragment {
     private void setButtonsEnabled(boolean enabled) {
         binding.btnQuery.setEnabled(enabled);
         binding.btnQueryAccession.setEnabled(enabled);
-        binding.btnQueryMwl.setEnabled(enabled);
-        binding.btnQueryMwlTemplate.setEnabled(enabled);
-    }
-
-    @SuppressLint("SetTextI18n")
-    private void executeMwlQueryByTemplate(String templateName) {
-        binding.tvQueryResults.setText("Executing MWL Query by Template: " + templateName + "...");
-        binding.progressBar.setVisibility(View.VISIBLE);
-        setButtonsEnabled(false);
-
-        new Thread(() -> {
-            MwlTemplateHelper.prepareTemplates(getContext());
-            String[] exportedFiles = MwlTemplateHelper.executeMwlQuery(
-                    getContext(),
-                    viewModel.host.getValue(),
-                    viewModel.port.getValue(),
-                    viewModel.localAet.getValue(),
-                    viewModel.remoteAet.getValue(),
-                    templateName
-            );
-
-            getActivity().runOnUiThread(() -> {
-                binding.progressBar.setVisibility(View.GONE);
-                setButtonsEnabled(true);
-
-                if (exportedFiles != null && exportedFiles.length > 0) {
-                    binding.tvQueryResults.setText("MWL Query Complete. Exported " + exportedFiles.length + " files to: "
-                            + MwlTemplateHelper.getExportDirPath(getContext()));
-                    
-                    // Optional: parse one of the files to show something in the UI
-                    // For now, just log them
-                    for (String path : exportedFiles) {
-                        Log.d("QueryFragment", "MWL Exported file: " + path);
-                    }
-                } else {
-                    binding.tvQueryResults.setText("MWL Query by Template failed or returned no results.");
-                }
-            });
-        }).start();
     }
 
     @Override
