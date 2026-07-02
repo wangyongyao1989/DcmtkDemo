@@ -46,6 +46,12 @@ public class DicomUploadDialog extends DialogFragment {
         this.listener = listener;
     }
 
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setCancelable(false);
+    }
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container
@@ -90,6 +96,8 @@ public class DicomUploadDialog extends DialogFragment {
         super.onStart();
         Dialog dialog = getDialog();
         if (dialog != null) {
+            dialog.setCancelable(false);
+            dialog.setCanceledOnTouchOutside(false);
             Window window = dialog.getWindow();
             if (window != null) {
                 int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.90);

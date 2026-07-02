@@ -20,7 +20,7 @@ import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.FileUtil;
-import com.example.dcmtkdemo.view.PacsConnectionPopupWindow;
+import com.example.dcmtkdemo.view.PacsConnectionDialog;
 import com.example.dcmtkdemo.view.PacsConnectionView;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
@@ -66,7 +66,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void verifyConnection(Runnable onVerified) {
-        PacsConnectionPopupWindow popupWindow = new PacsConnectionPopupWindow(
+        PacsConnectionDialog popupWindow = new PacsConnectionDialog(
                 this,
                 viewModel.host.getValue(),
                 viewModel.port.getValue(),
@@ -88,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-        popupWindow.showAtLocation(binding.getRoot(), Gravity.CENTER, 0, 0);
+        popupWindow.show();
     }
 
     private void setupNavigation() {
