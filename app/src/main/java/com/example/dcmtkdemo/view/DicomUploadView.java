@@ -78,7 +78,7 @@ public class DicomUploadView extends LinearLayout {
         binding.connectionView.setConnectionInfo(host, port, local, remote);
     }
 
-    private void startUploadProcess() {
+    public void startUploadProcess() {
         if (uploadRecords == null || uploadRecords.isEmpty()) {
             Toast.makeText(getContext(), "No records to upload", Toast.LENGTH_SHORT).show();
             return;

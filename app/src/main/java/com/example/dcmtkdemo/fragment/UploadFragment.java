@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.adapter.DcmUploadAdapter;
 import com.example.dcmtkdemo.activity.DetailActivity;
+import com.example.dcmtkdemo.activity.MainActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
 import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
@@ -90,16 +91,18 @@ public class UploadFragment extends Fragment {
                 return;
             }
 
-            DicomUploadDialog dialog = DicomUploadDialog.newInstance(selectedRecords);
-            dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
-                for (DicomImageRecord record : selectedRecords) {
-                    record.setSelected(false);
-                }
-                adapter.notifyDataSetChanged();
-                binding.tvUploadStatus.setText(String.format(java.util.Locale.getDefault()
-                        , "Last Upload: %d/%d success", successCount, totalCount));
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
+                DicomUploadDialog dialog = DicomUploadDialog.newInstance(selectedRecords, true);
+                dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
+                    for (DicomImageRecord record : selectedRecords) {
+                        record.setSelected(false);
+                    }
+                    adapter.notifyDataSetChanged();
+                    binding.tvUploadStatus.setText(String.format(java.util.Locale.getDefault()
+                            , "Last Upload: %d/%d success", successCount, totalCount));
+                });
+                dialog.show(getParentFragmentManager(), "DicomUploadDialog");
             });
-            dialog.show(getParentFragmentManager(), "DicomUploadDialog");
         });
     }
 

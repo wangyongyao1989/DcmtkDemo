@@ -25,14 +25,20 @@ public class DicomUploadDialog extends DialogFragment {
     private PacsViewModel viewModel;
     private List<DicomImageRecord> uploadRecords;
     private OnUploadFinishedListener listener;
+    private boolean autoStart = false;
 
     public interface OnUploadFinishedListener {
         void onFinished(int successCount, int totalCount);
     }
 
     public static DicomUploadDialog newInstance(List<DicomImageRecord> records) {
+        return newInstance(records, false);
+    }
+
+    public static DicomUploadDialog newInstance(List<DicomImageRecord> records, boolean autoStart) {
         DicomUploadDialog dialog = new DicomUploadDialog();
         dialog.uploadRecords = records;
+        dialog.autoStart = autoStart;
         return dialog;
     }
 
@@ -73,6 +79,10 @@ public class DicomUploadDialog extends DialogFragment {
                 dismiss();
             }
         });
+
+        if (autoStart) {
+            uploadView.startUploadProcess();
+        }
     }
 
     @Override
