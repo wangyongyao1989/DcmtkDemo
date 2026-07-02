@@ -14,11 +14,11 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.dcmtkdemo.adapter.DcmUploadAdapter;
-import com.example.dcmtk.callback.ProgressCallback;
 import com.example.dcmtkdemo.activity.DetailActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
 import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtkdemo.dialog.DicomUploadDialog;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
@@ -82,22 +82,29 @@ public class UploadFragment extends Fragment {
         });
 
         binding.btnUpload.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
-                List<DicomImageRecord> selectedRecords = adapter.getSelectedRecords();
-                if (selectedRecords.isEmpty()) {
-                    Toast.makeText(getContext(), "No files selected", Toast.LENGTH_SHORT).show();
-                    return;
-                }
+            List<DicomImageRecord> selectedRecords = adapter.getSelectedRecords();
+            if (selectedRecords.isEmpty()) {
+                Toast.makeText(getContext(), "No files selected", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
-                uploadDicomList(selectedRecords);
+            DicomUploadDialog dialog = DicomUploadDialog.newInstance(selectedRecords);
+            dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
+                for (DicomImageRecord record : selectedRecords) {
+                    record.setSelected(false);
+                }
+                adapter.notifyDataSetChanged();
+                binding.tvUploadStatus.setText(String.format(java.util.Locale.getDefault()
+                        , "Last Upload: %d/%d success", successCount, totalCount));
             });
+            dialog.show(getParentFragmentManager(), "DicomUploadDialog");
         });
     }
 
     private void updateUiMode(boolean uploadMode) {
         binding.btnToggleMode.setText(uploadMode ? "Exit Upload Mode" : "Switch to Upload Mode");
         binding.btnUpload.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
-        binding.tvUploadStatus.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
+        binding.tvUploadStatus.setVisibility(View.VISIBLE); // Always show status
         if (!uploadMode) {
             binding.progressBar.setVisibility(View.GONE);
         }
@@ -167,69 +174,6 @@ public class UploadFragment extends Fragment {
     private static String safeGet(HashMap<String, String> map, String key) {
         String val = map.get(key);
         return (val != null && !val.isEmpty()) ? val : "N/A";
-    }
-
-    @SuppressLint({"SetTextI18n", "DefaultLocale"})
-    private void uploadDicomList(List<DicomImageRecord> records) {
-        binding.progressBar.setMax(100);
-        binding.progressBar.setProgress(0);
-        binding.progressBar.setVisibility(View.VISIBLE);
-        binding.btnUpload.setEnabled(false);
-
-        new Thread(() -> {
-            int totalFiles = records.size();
-            int successCount = 0;
-
-            for (int i = 0; i < totalFiles; i++) {
-                DicomImageRecord record = records.get(i);
-                final int currentIndex = i + 1;
-                final String path = record.getDcmPath();
-
-                // 进度回调更新当前文件的进度
-                @SuppressLint("DefaultLocale") ProgressCallback callback = (sent, total) -> {
-                    if (getActivity() == null) return;
-                    getActivity().runOnUiThread(() -> {
-                        int percent = total > 0 ? (int) (sent * 100 / total) : 0;
-                        if (percent > 100) percent = 100;
-                        binding.progressBar.setProgress(percent);
-                        binding.tvUploadStatus.setText(
-                                String.format("Uploading (%d/%d): %s\n%s / %s (%d%%)",
-                                        currentIndex, totalFiles, new File(path).getName(),
-                                        formatBytes(sent), formatBytes(total), percent)
-                        );
-                    });
-                };
-
-                boolean success = DcmtkJni.cStore(
-                        viewModel.host.getValue(),
-                        viewModel.port.getValue(),
-                        viewModel.localAet.getValue(),
-                        viewModel.remoteAet.getValue(),
-                        path,
-                        callback
-                );
-
-                if (success) successCount++;
-            }
-
-            final int finalSuccessCount = successCount;
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                binding.progressBar.setVisibility(View.GONE);
-                binding.btnUpload.setEnabled(true);
-                binding.tvUploadStatus.setText(String.format("Upload Finished. Success: %d, Failed: %d",
-                        finalSuccessCount, totalFiles - finalSuccessCount));
-                Toast.makeText(getContext(), "Upload completed: " + finalSuccessCount + " success",
-                        Toast.LENGTH_SHORT).show();
-            });
-        }).start();
-    }
-
-    @SuppressLint("DefaultLocale")
-    private static String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
-        return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
     }
 
     @Override

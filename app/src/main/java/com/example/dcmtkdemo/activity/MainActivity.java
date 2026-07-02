@@ -26,6 +26,7 @@ import com.example.dcmtkdemo.fragment.UploadFragment;
 import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.FileUtil;
+import com.example.dcmtkdemo.view.PacsConnectionView;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.IOException;
@@ -70,80 +71,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void verifyConnection(Runnable onVerified) {
-        View popupView = LayoutInflater.from(this).inflate(R.layout.popup_connection, null);
-        
+        PacsConnectionView connectionView = new PacsConnectionView(this);
+        connectionView.setBackgroundResource(R.drawable.popup_bg);
+        connectionView.setPadding(40, 40, 40, 40);
+
         // Use 85% of screen width
-        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.65);
-        PopupWindow popupWindow = new PopupWindow(popupView, 
+        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.75);
+        PopupWindow popupWindow = new PopupWindow(connectionView, 
                 width, 
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
 
-        EditText etHost = popupView.findViewById(R.id.et_host);
-        EditText etPort = popupView.findViewById(R.id.et_port);
-        EditText etLocalAet = popupView.findViewById(R.id.et_local_aet);
-        EditText etRemoteAet = popupView.findViewById(R.id.et_remote_aet);
-        Button btnConnect = popupView.findViewById(R.id.btn_connect_pacs);
-        Button btnCEcho = popupView.findViewById(R.id.btn_cecho);
+        connectionView.setConnectionInfo(
+                viewModel.host.getValue(),
+                viewModel.port.getValue(),
+                viewModel.localAet.getValue(),
+                viewModel.remoteAet.getValue()
+        );
 
-        etHost.setText(viewModel.host.getValue());
-        etPort.setText(String.valueOf(viewModel.port.getValue()));
-        etLocalAet.setText(viewModel.localAet.getValue());
-        etRemoteAet.setText(viewModel.remoteAet.getValue());
-
-        final boolean[] connected = {false};
-        final boolean[] echoOk = {false};
-
-        btnConnect.setOnClickListener(v -> {
-            String host = etHost.getText().toString();
-            int port;
-            try {
-                port = Integer.parseInt(etPort.getText().toString());
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "Invalid port", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            String local = etLocalAet.getText().toString();
-            String remote = etRemoteAet.getText().toString();
-
+        connectionView.setOnConnectionVerifiedListener((host, port, local, remote) -> {
             viewModel.host.postValue(host);
             viewModel.port.postValue(port);
             viewModel.localAet.postValue(local);
             viewModel.remoteAet.postValue(remote);
-
-            new Thread(() -> {
-                boolean success = DcmtkJni.connectPACS(host, port, local, remote);
-                connected[0] = success;
-                runOnUiThread(() -> Toast.makeText(this, "PACS Connection: " 
-                        + (success ? "Success" : "Failed"), Toast.LENGTH_SHORT).show());
-            }).start();
-        });
-
-        btnCEcho.setOnClickListener(v -> {
-            if (!connected[0]) {
-                Toast.makeText(this, "Please connect PACS first", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            String host = etHost.getText().toString();
-            int port;
-            try {
-                port = Integer.parseInt(etPort.getText().toString());
-            } catch (NumberFormatException e) {
-                return;
-            }
-            String local = etLocalAet.getText().toString();
-            String remote = etRemoteAet.getText().toString();
-
-            new Thread(() -> {
-                boolean success = DcmtkJni.cEcho(host, port, local, remote);
-                echoOk[0] = success;
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "C-ECHO: " + (success ? "Success" : "Failed"), Toast.LENGTH_SHORT).show();
-                    if (success) {
-                        popupWindow.dismiss();
-                        if (onVerified != null) onVerified.run();
-                    }
-                });
-            }).start();
+            
+            popupWindow.dismiss();
+            if (onVerified != null) onVerified.run();
         });
 
         popupWindow.showAtLocation(binding.getRoot(), Gravity.CENTER, 0, 0);

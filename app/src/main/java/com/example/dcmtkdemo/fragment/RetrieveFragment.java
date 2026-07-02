@@ -158,6 +158,10 @@ public class RetrieveFragment extends Fragment {
                     binding.progressBar.setVisibility(View.GONE);
                     binding.btnDownloadSelected.setEnabled(true);
                     binding.tvMoveStatus.setText("Batch download completed.");
+                    for (PatientRecord record : selected) {
+                        record.setSelected(false);
+                    }
+                    adapter.notifyDataSetChanged();
                     Toast.makeText(getContext(), "Batch download finished", Toast.LENGTH_SHORT).show();
                 });
             }
