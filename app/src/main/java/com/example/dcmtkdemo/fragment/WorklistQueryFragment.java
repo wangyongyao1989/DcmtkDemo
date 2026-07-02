@@ -34,7 +34,8 @@ public class WorklistQueryFragment extends Fragment {
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container
+            , @Nullable Bundle savedInstanceState) {
         binding = FragmentWorklistQueryBinding.inflate(inflater, container, false);
         return binding.getRoot();
     }

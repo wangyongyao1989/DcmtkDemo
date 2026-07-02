@@ -18,6 +18,7 @@ public class PacsConnectionView extends LinearLayout {
 
     public interface OnConnectionVerifiedListener {
         void onVerified(String host, int port, String local, String remote);
+        void onCancel();
     }
 
     public PacsConnectionView(Context context) {
@@ -36,35 +37,51 @@ public class PacsConnectionView extends LinearLayout {
     }
 
     private void init() {
-        binding.btnTestConnect.setOnClickListener(v -> {
+        binding.btnVerify.setOnClickListener(v -> {
             String host = getHost();
             int port = getPort();
             String local = getLocalAet();
             String remote = getRemoteAet();
 
+            if (host.isEmpty() || port == 0 || local.isEmpty() || remote.isEmpty()) {
+                Toast.makeText(getContext(), "Please fill all fields", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            binding.btnVerify.setEnabled(false);
+            binding.btnCancel.setEnabled(false);
+
             new Thread(() -> {
-                boolean success = DcmtkJni.connectPACS(host, port, local, remote);
-                post(() -> Toast.makeText(getContext(), "Connection: "
-                        + (success ? "OK" : "Failed"), Toast.LENGTH_SHORT).show());
+                boolean connectSuccess = DcmtkJni.connectPACS(host, port, local, remote);
+                if (!connectSuccess) {
+                    post(() -> {
+                        Toast.makeText(getContext(), "Connection Failed", Toast.LENGTH_LONG).show();
+                        binding.btnVerify.setEnabled(true);
+                        binding.btnCancel.setEnabled(true);
+                    });
+                    return;
+                }
+
+                boolean echoSuccess = DcmtkJni.cEcho(host, port, local, remote);
+                post(() -> {
+                    if (echoSuccess) {
+                        Toast.makeText(getContext(), "Connection & C-ECHO Verified", Toast.LENGTH_SHORT).show();
+                        if (listener != null) {
+                            listener.onVerified(host, port, local, remote);
+                        }
+                    } else {
+                        Toast.makeText(getContext(), "C-ECHO Failed", Toast.LENGTH_LONG).show();
+                    }
+                    binding.btnVerify.setEnabled(true);
+                    binding.btnCancel.setEnabled(true);
+                });
             }).start();
         });
 
-        binding.btnCecho.setOnClickListener(v -> {
-            String host = getHost();
-            int port = getPort();
-            String local = getLocalAet();
-            String remote = getRemoteAet();
-
-            new Thread(() -> {
-                boolean success = DcmtkJni.cEcho(host, port, local, remote);
-                post(() -> {
-                    Toast.makeText(getContext(), "C-ECHO: "
-                            + (success ? "Success" : "Failed"), Toast.LENGTH_SHORT).show();
-                    if (success && listener != null) {
-                        listener.onVerified(host, port, local, remote);
-                    }
-                });
-            }).start();
+        binding.btnCancel.setOnClickListener(v -> {
+            if (listener != null) {
+                listener.onCancel();
+            }
         });
     }
 

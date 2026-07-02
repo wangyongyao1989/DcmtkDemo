@@ -81,6 +81,10 @@ public class MainActivity extends AppCompatActivity {
                 width, 
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
 
+        // Prevent dismissal when clicking outside
+        popupWindow.setOutsideTouchable(false);
+        popupWindow.setFocusable(true);
+
         connectionView.setConnectionInfo(
                 viewModel.host.getValue(),
                 viewModel.port.getValue(),
@@ -88,14 +92,22 @@ public class MainActivity extends AppCompatActivity {
                 viewModel.remoteAet.getValue()
         );
 
-        connectionView.setOnConnectionVerifiedListener((host, port, local, remote) -> {
-            viewModel.host.postValue(host);
-            viewModel.port.postValue(port);
-            viewModel.localAet.postValue(local);
-            viewModel.remoteAet.postValue(remote);
-            
-            popupWindow.dismiss();
-            if (onVerified != null) onVerified.run();
+        connectionView.setOnConnectionVerifiedListener(new PacsConnectionView.OnConnectionVerifiedListener() {
+            @Override
+            public void onVerified(String host, int port, String local, String remote) {
+                viewModel.host.postValue(host);
+                viewModel.port.postValue(port);
+                viewModel.localAet.postValue(local);
+                viewModel.remoteAet.postValue(remote);
+                
+                popupWindow.dismiss();
+                if (onVerified != null) onVerified.run();
+            }
+
+            @Override
+            public void onCancel() {
+                popupWindow.dismiss();
+            }
         });
 
         popupWindow.showAtLocation(binding.getRoot(), Gravity.CENTER, 0, 0);
