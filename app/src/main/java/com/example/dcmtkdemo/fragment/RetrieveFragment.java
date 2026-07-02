@@ -20,6 +20,7 @@ import com.example.dcmtk.callback.ProgressCallback;
 import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 import com.example.dcmtkdemo.activity.MainActivity;
 
@@ -102,7 +103,7 @@ public class RetrieveFragment extends Fragment {
         binding.tvDownloadStats.setVisibility(View.VISIBLE);
         binding.tvDownloadStats.setText("Speed: 0 KB/s | Progress: 0/" + selected.size());
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             int count = 0;
             for (PatientRecord record : selected) {
                 final int currentCount = ++count;
@@ -170,7 +171,7 @@ public class RetrieveFragment extends Fragment {
                     Toast.makeText(getContext(), "Batch download finished", Toast.LENGTH_SHORT).show();
                 });
             }
-        }).start();
+        });
     }
 
     @Override

@@ -20,6 +20,7 @@ import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.dialog.DicomUploadDialog;
 import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.File;
@@ -136,7 +137,7 @@ public class UploadFragment extends Fragment {
         binding.btnUpload.setEnabled(true);
         binding.tvUploadStatus.setText("Loading and converting " + files.length + " file(s)...");
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             // 1) 批量转换为 JPG
             DcmtkJni.dcmToJpg(dir.getAbsolutePath());
 
@@ -169,7 +170,7 @@ public class UploadFragment extends Fragment {
                 adapter.updateData(records);
                 binding.tvUploadStatus.setText("Found " + records.size() + " DICOM file(s).");
             });
-        }).start();
+        });
     }
 
     private static String safeGet(HashMap<String, String> map, String key) {

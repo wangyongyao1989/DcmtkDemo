@@ -12,6 +12,7 @@ import com.bumptech.glide.Glide;
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.databinding.ActivityDetailBinding;
 import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 
 import java.io.File;
 
@@ -67,7 +68,7 @@ public class DetailActivity extends AppCompatActivity {
 
         // JPG 不存在，后台重新转换（转换是耗时操作，显示 loading）
         binding.progressBar.setVisibility(View.VISIBLE);
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             if (dcmPath != null) {
                 File dcmFile = new File(dcmPath);
                 File tempDir = dcmFile.getParentFile();
@@ -94,7 +95,7 @@ public class DetailActivity extends AppCompatActivity {
                     Log.e(TAG, "loadImage: JPG not available at " + pathToLoad);
                 }
             });
-        }).start();
+        });
     }
 
     private String safeExtra(String key) {

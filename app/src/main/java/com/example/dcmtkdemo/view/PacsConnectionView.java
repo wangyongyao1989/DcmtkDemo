@@ -10,6 +10,7 @@ import androidx.annotation.Nullable;
 
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.databinding.ViewPacsConnectionBinding;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 
 public class PacsConnectionView extends LinearLayout {
 
@@ -51,7 +52,7 @@ public class PacsConnectionView extends LinearLayout {
             binding.btnVerify.setEnabled(false);
             binding.btnCancel.setEnabled(false);
 
-            new Thread(() -> {
+            AppThreadPool.execute(() -> {
                 boolean connectSuccess = DcmtkJni.connectPACS(host, port, local, remote);
                 if (!connectSuccess) {
                     post(() -> {
@@ -76,7 +77,7 @@ public class PacsConnectionView extends LinearLayout {
                     binding.btnVerify.setEnabled(true);
                     binding.btnCancel.setEnabled(true);
                 });
-            }).start();
+            });
         });
 
         binding.btnCancel.setOnClickListener(v -> {

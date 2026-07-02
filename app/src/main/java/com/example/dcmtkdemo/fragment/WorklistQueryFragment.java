@@ -17,6 +17,7 @@ import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentWorklistQueryBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 import com.example.dcmtkdemo.activity.MainActivity;
@@ -83,7 +84,7 @@ public class WorklistQueryFragment extends Fragment {
         binding.progressBar.setVisibility(View.VISIBLE);
         setButtonsEnabled(false);
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             String[] results;
             try {
                 results = DcmtkJni.cFindMWL(
@@ -123,7 +124,7 @@ public class WorklistQueryFragment extends Fragment {
                 viewModel.mwlResults.setValue(records);
                 binding.tvWorklistResults.setText("Found " + records.size() + " records via MWL C-FIND.");
             });
-        }).start();
+        });
     }
 
     @SuppressLint("SetTextI18n")
@@ -132,7 +133,7 @@ public class WorklistQueryFragment extends Fragment {
         binding.progressBar.setVisibility(View.VISIBLE);
         setButtonsEnabled(false);
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             MwlTemplateHelper.prepareTemplates(getContext());
             String[] exportedFiles = MwlTemplateHelper.executeMwlQuery(
                     getContext(),
@@ -162,7 +163,7 @@ public class WorklistQueryFragment extends Fragment {
                     binding.tvWorklistResults.setText("MWL Query by Template failed or returned no results.");
                 }
             });
-        }).start();
+        });
     }
 
     private PatientRecord parseDicomFile(String path) {

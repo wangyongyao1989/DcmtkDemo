@@ -18,6 +18,7 @@ import com.example.dcmtkdemo.fragment.RetrieveFragment;
 import com.example.dcmtkdemo.fragment.UploadFragment;
 import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.FileUtil;
 import com.example.dcmtkdemo.view.PacsConnectionPopupWindow;
 import com.example.dcmtkdemo.view.PacsConnectionView;
@@ -41,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
         viewModel = new ViewModelProvider(this).get(PacsViewModel.class);
 
         // 初始化字典 (写入和读取都需要)
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             try {
                 String dictPath = FileUtil.copyAssetToInternalStorage(this
                         , "dicom.dic");
@@ -53,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException e) {
                 Log.e(TAG, "Failed to init dictionary or copy assets", e);
             }
-        }).start();
+        });
 
         // setupConnectionBar();
         setupNavigation();

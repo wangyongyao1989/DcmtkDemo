@@ -19,6 +19,7 @@ import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 import com.example.dcmtkdemo.activity.MainActivity;
@@ -92,7 +93,7 @@ public class QueryFragment extends Fragment {
         binding.progressBar.setVisibility(View.VISIBLE);
         setButtonsEnabled(false);
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             Log.d("QueryFragment", "executeQuery: Running on thread "
                     + Thread.currentThread().getName());
             String[] results;
@@ -171,7 +172,7 @@ public class QueryFragment extends Fragment {
                             + " records. Details shown below.");
                 }
             });
-        }).start();
+        });
     }
 
     private void setButtonsEnabled(boolean enabled) {

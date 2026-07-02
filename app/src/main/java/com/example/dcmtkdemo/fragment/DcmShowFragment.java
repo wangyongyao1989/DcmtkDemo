@@ -18,6 +18,7 @@ import com.example.dcmtkdemo.adapter.DcmImageAdapter;
 import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -92,7 +93,7 @@ public class DcmShowFragment extends Fragment {
 
         showLoading("Converting " + dcmFiles.size() + " file(s) to JPG...");
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             // 1) 批量转换为 JPG
             int converted = DcmtkJni.dcmToJpg(tempDir.getAbsolutePath());
             Log.d(TAG, "dcmToJpg converted=" + converted);
@@ -135,7 +136,7 @@ public class DcmShowFragment extends Fragment {
                     adapter.updateData(records);
                 }
             });
-        }).start();
+        });
     }
 
     private void openDetail(DicomImageRecord record) {

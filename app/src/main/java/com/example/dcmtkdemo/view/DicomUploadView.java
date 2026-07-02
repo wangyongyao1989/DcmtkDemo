@@ -14,6 +14,7 @@ import com.example.dcmtk.callback.ProgressCallback;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.databinding.ViewDicomUploadBinding;
 import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtkdemo.utils.AppThreadPool;
 
 import java.io.File;
 import java.util.List;
@@ -99,7 +100,7 @@ public class DicomUploadView extends LinearLayout {
         binding.btnAction.setVisibility(View.GONE);
         binding.tvTitle.setText("Uploading DICOM Files");
 
-        new Thread(() -> {
+        AppThreadPool.execute(() -> {
             boolean connected = DcmtkJni.connectPACS(host, port, local, remote);
             if (!connected) {
                 showError("Connection failed");
@@ -146,7 +147,7 @@ public class DicomUploadView extends LinearLayout {
                     listener.onFinished(finalSuccessCount, totalFiles);
                 }
             });
-        }).start();
+        });
     }
 
     private void showError(String message) {
