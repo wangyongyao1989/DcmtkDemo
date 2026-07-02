@@ -9,13 +9,6 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.PopupWindow;
-import android.widget.Toast;
 
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.databinding.ActivityMainBinding;
@@ -26,6 +19,7 @@ import com.example.dcmtkdemo.fragment.UploadFragment;
 import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.FileUtil;
+import com.example.dcmtkdemo.view.PacsConnectionPopupWindow;
 import com.example.dcmtkdemo.view.PacsConnectionView;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
@@ -71,44 +65,27 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void verifyConnection(Runnable onVerified) {
-        PacsConnectionView connectionView = new PacsConnectionView(this);
-        connectionView.setBackgroundResource(R.drawable.popup_bg);
-        connectionView.setPadding(40, 40, 40, 40);
-
-        // Use 85% of screen width
-        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.75);
-        PopupWindow popupWindow = new PopupWindow(connectionView, 
-                width, 
-                ViewGroup.LayoutParams.WRAP_CONTENT, true);
-
-        // Prevent dismissal when clicking outside
-        popupWindow.setOutsideTouchable(false);
-        popupWindow.setFocusable(true);
-
-        connectionView.setConnectionInfo(
+        PacsConnectionPopupWindow popupWindow = new PacsConnectionPopupWindow(
+                this,
                 viewModel.host.getValue(),
                 viewModel.port.getValue(),
                 viewModel.localAet.getValue(),
-                viewModel.remoteAet.getValue()
+                viewModel.remoteAet.getValue(),
+                new PacsConnectionView.OnConnectionVerifiedListener() {
+                    @Override
+                    public void onVerified(String host, int port, String local, String remote) {
+                        viewModel.host.postValue(host);
+                        viewModel.port.postValue(port);
+                        viewModel.localAet.postValue(local);
+                        viewModel.remoteAet.postValue(remote);
+                        if (onVerified != null) onVerified.run();
+                    }
+
+                    @Override
+                    public void onCancel() {
+                    }
+                }
         );
-
-        connectionView.setOnConnectionVerifiedListener(new PacsConnectionView.OnConnectionVerifiedListener() {
-            @Override
-            public void onVerified(String host, int port, String local, String remote) {
-                viewModel.host.postValue(host);
-                viewModel.port.postValue(port);
-                viewModel.localAet.postValue(local);
-                viewModel.remoteAet.postValue(remote);
-                
-                popupWindow.dismiss();
-                if (onVerified != null) onVerified.run();
-            }
-
-            @Override
-            public void onCancel() {
-                popupWindow.dismiss();
-            }
-        });
 
         popupWindow.showAtLocation(binding.getRoot(), Gravity.CENTER, 0, 0);
     }
