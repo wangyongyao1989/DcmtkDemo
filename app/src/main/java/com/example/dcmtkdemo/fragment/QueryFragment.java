@@ -21,6 +21,7 @@ import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtkdemo.activity.MainActivity;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -48,17 +49,21 @@ public class QueryFragment extends Fragment {
         setupRecyclerView();
 
         binding.btnQuery.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
                 String patName = binding.etQueryPatName.getText().toString().trim();
                 executeQuery(patName, 0);
             });
         });
 
         binding.btnQueryAccession.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
                 String accession = binding.etQueryAccession.getText().toString().trim();
                 executeQuery(accession, 1);
             });
+        });
+
+        binding.btnPacsConfig.setOnClickListener(v -> {
+            ((MainActivity) requireActivity()).verifyConnection(null);
         });
 
         viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {

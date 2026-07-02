@@ -65,7 +65,8 @@ public class PacsConnectionView extends LinearLayout {
                 boolean echoSuccess = DcmtkJni.cEcho(host, port, local, remote);
                 post(() -> {
                     if (echoSuccess) {
-                        Toast.makeText(getContext(), "Connection & C-ECHO Verified", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(getContext(), "Connection & C-ECHO Verified"
+                                , Toast.LENGTH_SHORT).show();
                         if (listener != null) {
                             listener.onVerified(host, port, local, remote);
                         }

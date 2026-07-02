@@ -21,6 +21,7 @@ import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtkdemo.activity.MainActivity;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -62,7 +63,7 @@ public class RetrieveFragment extends Fragment {
         });
 
         binding.btnDownloadSelected.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
                 List<PatientRecord> selected = adapter.getSelectedRecords();
                 if (selected.isEmpty()) {
                     Toast.makeText(getContext(), "Please select at least one item", Toast.LENGTH_SHORT).show();
@@ -70,6 +71,10 @@ public class RetrieveFragment extends Fragment {
                 }
                 executeBatchDownload(selected);
             });
+        });
+
+        binding.btnPacsConfig.setOnClickListener(v -> {
+            ((MainActivity) requireActivity()).verifyConnection(null);
         });
     }
 

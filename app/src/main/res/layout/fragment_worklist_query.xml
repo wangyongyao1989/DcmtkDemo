@@ -10,11 +10,27 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <RelativeLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Modality Worklist (MWL)"
-            android:textStyle="bold" />
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:text="Modality Worklist (MWL)"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_pacs_config"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:text="PACS Config"
+                android:textSize="12sp" />
+        </RelativeLayout>
 
         <Button
             android:id="@+id/btn_query_mwl"

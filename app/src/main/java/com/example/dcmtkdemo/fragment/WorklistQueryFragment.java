@@ -19,6 +19,7 @@ import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtkdemo.activity.MainActivity;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -48,15 +49,19 @@ public class WorklistQueryFragment extends Fragment {
         setupRecyclerView();
 
         binding.btnQueryMwl.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
                 executeMwlQuery("*");
             });
         });
 
         binding.btnQueryMwlTemplate.setOnClickListener(v -> {
-            ((com.example.dcmtkdemo.activity.MainActivity) requireActivity()).verifyConnection(() -> {
+            ((MainActivity) requireActivity()).verifyConnection(() -> {
                 executeMwlQueryByTemplate("wlistqry1.wl");
             });
+        });
+
+        binding.btnPacsConfig.setOnClickListener(v -> {
+            ((MainActivity) requireActivity()).verifyConnection(null);
         });
 
         viewModel.mwlResults.observe(getViewLifecycleOwner(), records -> {
