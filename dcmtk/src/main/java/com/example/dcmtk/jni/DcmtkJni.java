@@ -1,5 +1,6 @@
 package com.example.dcmtk.jni;
 
+import com.example.dcmtk.callback.MultiProgressCallback;
 import com.example.dcmtk.callback.ProgressCallback;
 
 import java.util.HashMap;
@@ -24,6 +25,9 @@ public class DcmtkJni {
 
     public static native boolean cStore(String host, int port, String localAET, String remoteAET
             , String dcmPath, ProgressCallback callback);
+
+    public static native int cStoreMulti(String host, int port, String localAET, String remoteAET
+            , String[] dcmPaths, MultiProgressCallback callback);
 
     public static native String[] cFind(String host, int port, String localAET, String remoteAET
             , String patientName);

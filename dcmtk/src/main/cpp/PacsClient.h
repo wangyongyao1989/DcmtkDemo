@@ -26,6 +26,15 @@ public:
                        const std::string &localAet, const std::string &remoteAet,
                        const std::string &dcmPath, ProgressCallback callback);
 
+    // C-STORE Multi: upload multiple DICOM files over a single association.
+    // `callback` reports byte progress for the CURRENT file being sent.
+    // If `callback` returns false, the process will be aborted.
+    // Returns the number of successfully stored files.
+    static int cStoreMulti(const std::string &host, int port,
+                           const std::string &localAet, const std::string &remoteAet,
+                           const std::vector<std::string> &dcmPaths,
+                           std::function<bool(int index, unsigned long sent, unsigned long total)> callback);
+
     // C-FIND by patient name. Returns one summary string per match,
     // formatted as "name | ID:id | sex | birth".
     static std::vector<std::string> cFind(const std::string &host, int port,

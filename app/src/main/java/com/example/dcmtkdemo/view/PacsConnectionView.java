@@ -8,7 +8,7 @@ import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
-import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtk.PacsManager;
 import com.example.dcmtkdemo.databinding.ViewPacsConnectionBinding;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 
@@ -45,34 +45,28 @@ public class PacsConnectionView extends LinearLayout {
             String remote = getRemoteAet();
 
             if (host.isEmpty() || port == 0 || local.isEmpty() || remote.isEmpty()) {
-                Toast.makeText(getContext(), "Please fill all fields", Toast.LENGTH_LONG).show();
+                showError("Please fill all fields");
                 return;
             }
 
+            binding.tvError.setVisibility(GONE);
             binding.btnVerify.setEnabled(false);
             binding.btnCancel.setEnabled(false);
 
             AppThreadPool.execute(() -> {
-                boolean connectSuccess = DcmtkJni.connectPACS(host, port, local, remote);
-                if (!connectSuccess) {
-                    post(() -> {
-                        Toast.makeText(getContext(), "Connection Failed", Toast.LENGTH_LONG).show();
-                        binding.btnVerify.setEnabled(true);
-                        binding.btnCancel.setEnabled(true);
-                    });
-                    return;
-                }
-
-                boolean echoSuccess = DcmtkJni.cEcho(host, port, local, remote);
+                // Optimization: Use safeCEchoSync (from PacsManager) which includes
+                // network read timeout handling and automatic retry logic.
+                boolean echoSuccess = PacsManager.safeCEchoSync(host, port, local, remote, 2);
                 post(() -> {
                     if (echoSuccess) {
+                        binding.tvError.setVisibility(GONE);
                         Toast.makeText(getContext(), "Connection & C-ECHO Verified"
                                 , Toast.LENGTH_SHORT).show();
                         if (listener != null) {
                             listener.onVerified(host, port, local, remote);
                         }
                     } else {
-                        Toast.makeText(getContext(), "C-ECHO Failed", Toast.LENGTH_LONG).show();
+                        showError("Verification Failed (Check Network or AETs)");
                     }
                     binding.btnVerify.setEnabled(true);
                     binding.btnCancel.setEnabled(true);
@@ -89,6 +83,11 @@ public class PacsConnectionView extends LinearLayout {
 
     public void setOnConnectionVerifiedListener(OnConnectionVerifiedListener listener) {
         this.listener = listener;
+    }
+
+    private void showError(String message) {
+        binding.tvError.setText(message);
+        binding.tvError.setVisibility(VISIBLE);
     }
 
     public void setConnectionInfo(String host, int port, String local, String remote) {

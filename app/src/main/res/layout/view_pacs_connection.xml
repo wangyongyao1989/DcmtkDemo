@@ -82,4 +82,16 @@
             android:text="Verify"
             tools:ignore="HardcodedText" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_error"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="@android:color/holo_red_dark"
+        android:textSize="14sp"
+        android:visibility="gone"
+        tools:text="Error message"
+        tools:visibility="visible" />
 </merge>

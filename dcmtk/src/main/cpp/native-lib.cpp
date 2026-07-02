@@ -158,6 +158,48 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+static jint native_cStoreMulti(JNIEnv *env, jclass clazz, jstring host, jint port,
+                               jstring local_aet, jstring remote_aet, jobjectArray dcm_paths,
+                               jobject callback) {
+    JniString c_host(env, host);
+    JniString c_local(env, local_aet);
+    JniString c_remote(env, remote_aet);
+
+    int numPaths = env->GetArrayLength(dcm_paths);
+    std::vector<std::string> paths;
+    for (int i = 0; i < numPaths; ++i) {
+        jstring pathObj = (jstring) env->GetObjectArrayElement(dcm_paths, i);
+        if (pathObj) {
+            JniString path(env, pathObj);
+            if (path.c_str()) paths.push_back(path.c_str());
+        }
+        env->DeleteLocalRef(pathObj);
+    }
+
+    auto multiCallback = [env, callback](int index, unsigned long sent
+            , unsigned long total) -> bool {
+        if (callback) {
+            jclass cls = env->GetObjectClass(callback);
+            if (cls) {
+                jmethodID mid = env->GetMethodID(cls, "onProgress", "(IJJ)Z");
+                if (mid) {
+                    jboolean result = env->CallBooleanMethod(callback, mid
+                                                             , (jint) index, (jlong) sent, (jlong) total);
+                    env->DeleteLocalRef(cls);
+                    return (result == JNI_TRUE);
+                }
+                env->DeleteLocalRef(cls);
+            }
+        }
+        return true;
+    };
+
+    return (jint) PacsClient::cStoreMulti(c_host.c_str() ? c_host.c_str() : "", port,
+                                          c_local.c_str() ? c_local.c_str() : "",
+                                          c_remote.c_str() ? c_remote.c_str() : "",
+                                          paths, multiCallback);
+}
+
 static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint port,
                                  jstring local_aet, jstring remote_aet, jstring patient_name) {
     JniString c_host(env, host);
@@ -316,6 +358,9 @@ static const JNINativeMethod kMethods[] = {
         {"cStore",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtk/callback/ProgressCallback;)Z",
                 (void *) native_cStore},
+        {"cStoreMulti",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;[Ljava/lang/String;Lcom/example/dcmtk/callback/MultiProgressCallback;)I",
+                (void *) native_cStoreMulti},
         {"cFind",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
                 (void *) native_cFind},

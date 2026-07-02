@@ -6,12 +6,11 @@ import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
-import com.example.dcmtk.callback.ProgressCallback;
-import com.example.dcmtk.jni.DcmtkJni;
+import com.example.dcmtk.PacsManager;
+import com.example.dcmtk.callback.MultiProgressCallback;
 import com.example.dcmtkdemo.databinding.ViewDicomUploadBinding;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
@@ -80,7 +79,7 @@ public class DicomUploadView extends LinearLayout {
 
     public void startUploadProcess() {
         if (uploadRecords == null || uploadRecords.isEmpty()) {
-            Toast.makeText(getContext(), "No records to upload", Toast.LENGTH_SHORT).show();
+            showError("No records to upload");
             return;
         }
 
@@ -90,10 +89,11 @@ public class DicomUploadView extends LinearLayout {
         String remote = binding.connectionView.getRemoteAet();
 
         if (host.isEmpty() || port == 0 || local.isEmpty() || remote.isEmpty()) {
-            Toast.makeText(getContext(), "Please fill all fields", Toast.LENGTH_SHORT).show();
+            showError("Please fill all fields");
             return;
         }
 
+        binding.tvError.setVisibility(GONE);
         isUploading = true;
         binding.connectionView.setVisibility(View.GONE);
         binding.layoutUploadProgress.setVisibility(View.VISIBLE);
@@ -101,50 +101,41 @@ public class DicomUploadView extends LinearLayout {
         binding.tvTitle.setText("Uploading DICOM Files");
 
         AppThreadPool.execute(() -> {
-            boolean connected = DcmtkJni.connectPACS(host, port, local, remote);
-            if (!connected) {
-                showError("Connection failed");
-                return;
-            }
-
-            boolean echoOk = DcmtkJni.cEcho(host, port, local, remote);
+            // Optimization: Use safeCEchoSync (from PacsManager) which includes
+            // network read timeout handling and automatic retry logic.
+            boolean echoOk = PacsManager.safeCEchoSync(host, port, local, remote, 1);
             if (!echoOk) {
-                showError("C-ECHO failed");
+                showError("PACS Verification Failed (Check Network/AETs)");
                 return;
             }
 
             int totalFiles = uploadRecords.size();
-            int successCount = 0;
-
+            String[] paths = new String[totalFiles];
             for (int i = 0; i < totalFiles; i++) {
-                if (isCancelled.get()) break;
-
-                DicomImageRecord record = uploadRecords.get(i);
-                final int currentIndex = i + 1;
-                final String path = record.getDcmPath();
-
-                ProgressCallback callback = (sent, total) -> {
-                    if (isCancelled.get()) return;
-                    post(() -> {
-                        int percent = total > 0 ? (int) (sent * 100 / total) : 0;
-                        if (percent > 100) percent = 100;
-                        binding.progressBar.setProgress(percent);
-                        binding.tvStatus.setText(
-                                String.format(java.util.Locale.getDefault(), "Uploading (%d/%d): %s\n%s / %s (%d%%)",
-                                        currentIndex, totalFiles, new File(path).getName(),
-                                        formatBytes(sent), formatBytes(total), percent)
-                        );
-                    });
-                };
-
-                boolean success = DcmtkJni.cStore(host, port, local, remote, path, callback);
-                if (success) successCount++;
+                paths[i] = uploadRecords.get(i).getDcmPath();
             }
 
-            final int finalSuccessCount = successCount;
+            // Optimization: Use safeCStoreMultiSync which handles connection reuse
+            // and provides automatic retries for unstable mobile networks.
+            int successCount = PacsManager.safeCStoreMultiSync(host, port, local, remote
+                    , paths, (index, sent, total) -> {
+                if (isCancelled.get()) return false;
+                post(() -> {
+                    int percent = total > 0 ? (int) (sent * 100 / total) : 0;
+                    if (percent > 100) percent = 100;
+                    binding.progressBar.setProgress(percent);
+                    binding.tvStatus.setText(
+                            String.format(java.util.Locale.getDefault(), "Uploading (%d/%d): %s\n%s / %s (%d%%)",
+                                    index + 1, totalFiles, new File(paths[index]).getName(),
+                                    formatBytes(sent), formatBytes(total), percent)
+                    );
+                });
+                return true;
+            });
+
             post(() -> {
                 if (listener != null) {
-                    listener.onFinished(finalSuccessCount, totalFiles);
+                    listener.onFinished(successCount, totalFiles);
                 }
             });
         });
@@ -152,7 +143,8 @@ public class DicomUploadView extends LinearLayout {
 
     private void showError(String message) {
         post(() -> {
-            Toast.makeText(getContext(), message, Toast.LENGTH_LONG).show();
+            binding.tvError.setText(message);
+            binding.tvError.setVisibility(VISIBLE);
             isUploading = false;
             binding.connectionView.setVisibility(View.VISIBLE);
             binding.layoutUploadProgress.setVisibility(View.GONE);

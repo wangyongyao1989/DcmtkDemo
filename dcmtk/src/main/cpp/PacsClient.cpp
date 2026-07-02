@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <set>
 
 #include "dcmtk/dcmdata/dctk.h"
 #include "dcmtk/dcmdata/dcxfer.h"
@@ -42,88 +43,49 @@ namespace {
 
 bool PacsClient::connectPACS(const std::string &host, int port,
                              const std::string &localAet, const std::string &remoteAet) {
-    const char *c_host = host.c_str();
-    const char *c_local_aet = localAet.c_str();
-    const char *c_remote_aet = remoteAet.c_str();
+    LOGD("native_connectPACS: [START] Verifying connectivity to %s:%d (L:%s, R:%s)",
+         host.c_str(), port, localAet.c_str(), remoteAet.c_str());
 
-    LOGD("native_connectPACS: Attempting to connect to %s:%d (Local: %s, Remote: %s)",
-         c_host, port, c_local_aet, c_remote_aet);
+    DcmSCU scu;
+    scu.setPeerHostName(host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(localAet.c_str());
+    scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
-    T_ASC_Network *net = nullptr;
-    T_ASC_Parameters *params = nullptr;
-    T_ASC_Association *assoc = nullptr;
-    OFCondition cond = EC_Normal;
+    // Increase timeouts for unstable mobile networks
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(30);
 
-    // 1. Initialize Network
-    cond = ASC_initializeNetwork(NET_REQUESTOR, 0, 30, &net);
+    OFList<OFString> ts;
+    ts.push_back(UID_LittleEndianImplicitTransferSyntax);
+    scu.addPresentationContext(UID_VerificationSOPClass, ts);
+
+    OFCondition cond = scu.initNetwork();
     if (cond.bad()) {
-        LOGE("native_connectPACS: Failed to initialize network: %s", cond.text());
-        goto cleanup;
+        LOGE("native_connectPACS: Network init failed: %s", cond.text());
+        return false;
     }
 
-    // 2. Create Association Parameters
-    cond = ASC_createAssociationParameters(&params, MAX_PDU_SIZE, 30);
-    if (cond.bad()) {
-        LOGE("native_connectPACS: Failed to create association parameters: %s", cond.text());
-        goto cleanup;
-    }
-
-    // 3. Set Association Parameters
-    ASC_setAPTitles(params, c_local_aet, c_remote_aet, nullptr);
-    {
-        char peer_addr[256];
-        snprintf(peer_addr, sizeof(peer_addr), "%s:%d", c_host, (int) port);
-        ASC_setPresentationAddresses(params, "localhost", peer_addr);
-    }
-
-    // Add a presentation context (e.g., Verification SOP Class / C-ECHO)
-    {
-        const char *transferSyntaxes[] = {UID_LittleEndianExplicitTransferSyntax};
-        cond = ASC_addPresentationContext(params, 1, UID_VerificationSOPClass,
-                                          transferSyntaxes, 1);
-        if (cond.bad()) {
-            LOGE("native_connectPACS: Failed to add presentation context: %s", cond.text());
-            goto cleanup;
-        }
-    }
-
-    // 4. Request Association
-    LOGD("native_connectPACS: Requesting Association...");
-    cond = ASC_requestAssociation(net, params, &assoc);
+    cond = scu.negotiateAssociation();
     if (cond.bad()) {
         if (cond == DUL_ASSOCIATIONREJECTED) {
-            T_ASC_RejectParameters rej;
-            ASC_getRejectParameters(params, &rej);
-            LOGE("native_connectPACS: Association Rejected: %s", cond.text());
-            LOGE("Result: %d, Source: %d, Reason: %d", rej.result, rej.source, rej.reason);
-            // Reason 对应含义:
-            // 1 - Calling AE Title Not Recognized (Local AET 错了)
-            // 3 - Called AE Title Not Recognized  (Remote AET 错了)
+            LOGE("native_connectPACS: Association REJECTED. Check AE Titles (Local: %s, Remote: %s)",
+                 localAet.c_str(), remoteAet.c_str());
         } else {
-            LOGE("native_connectPACS: Association Failed: %s", cond.text());
+            LOGE("native_connectPACS: Association failed: %s (Check Host/Port)", cond.text());
         }
-        goto cleanup;
+        return false;
     }
 
-    LOGD("native_connectPACS: Association Established successfully!");
-
-    // 5. Release Association (since we're just testing connection)
-    LOGD("native_connectPACS: Releasing Association...");
-    cond = ASC_releaseAssociation(assoc);
-    if (cond.bad()) {
-        LOGE("native_connectPACS: Failed to release association: %s", cond.text());
-    }
-    ASC_destroyAssociation(&assoc);
-
-    cleanup:
-    if (net) ASC_dropNetwork(&net);
-
-    return cond.good();
+    LOGD("native_connectPACS: [SUCCESS] Association established and released.");
+    scu.releaseAssociation();
+    return true;
 }
 
 bool PacsClient::cEcho(const std::string &host, int port,
                        const std::string &localAet, const std::string &remoteAet) {
-    LOGD("native_cEcho: %s:%d (L:%s, R:%s)", host.c_str(), port, localAet.c_str(),
+    LOGD("native_cEcho: [START] %s:%d (L:%s, R:%s)", host.c_str(), port, localAet.c_str(),
          remoteAet.c_str());
 
     DcmSCU scu;
@@ -132,6 +94,10 @@ bool PacsClient::cEcho(const std::string &host, int port,
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Timeouts for Echo can be relatively short
+    scu.setACSETimeout(10);
+    scu.setDIMSETimeout(10);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -142,13 +108,21 @@ bool PacsClient::cEcho(const std::string &host, int port,
         cond = scu.negotiateAssociation();
         if (cond.good()) {
             cond = scu.sendECHORequest(0);
+            if (cond.bad()) {
+                LOGE("native_cEcho: C-ECHO Request failed: %s", cond.text());
+            }
             scu.releaseAssociation();
+        } else {
+            LOGE("native_cEcho: Association negotiation failed: %s", cond.text());
         }
+    } else {
+        LOGE("native_cEcho: Network init failed: %s", cond.text());
     }
 
-    LOGD("native_cEcho result: %s", cond.text());
+    LOGD("native_cEcho: [DONE] result: %s", cond.text());
     return cond.good();
 }
+
 
 bool PacsClient::cStore(const std::string &host, int port,
                         const std::string &localAet, const std::string &remoteAet,
@@ -189,6 +163,10 @@ bool PacsClient::cStore(const std::string &host, int port,
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for large file storage
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(60);
 
     unsigned long fileSize = 0;
     if (callback) {
@@ -268,6 +246,132 @@ bool PacsClient::cStore(const std::string &host, int port,
     return cond.good();
 }
 
+int PacsClient::cStoreMulti(const std::string &host, int port,
+                            const std::string &localAet, const std::string &remoteAet,
+                            const std::vector<std::string> &dcmPaths,
+                            std::function<bool(int index, unsigned long sent, unsigned long total)> callback) {
+    if (dcmPaths.empty()) return 0;
+
+    LOGD("native_cStoreMulti: [START] Sending %zu files to %s:%d (L:%s, R:%s)",
+         dcmPaths.size(), host.c_str(), port, localAet.c_str(), remoteAet.c_str());
+
+    static bool codecsRegistered = false;
+    if (!codecsRegistered) {
+        DJDecoderRegistration::registerCodecs();
+        DJEncoderRegistration::registerCodecs();
+        codecsRegistered = true;
+    }
+
+    // 1. Scan files to find all unique SOP Classes to negotiate
+    std::set<std::string> sopClasses;
+    for (const auto &path : dcmPaths) {
+        DcmFileFormat dfile;
+        if (dfile.loadFile(path.c_str()).good()) {
+            OFString sopClass;
+            if (dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID,
+                                                       sopClass).bad() || sopClass.empty()) {
+                dfile.getMetaInfo()->findAndGetOFString(DCM_MediaStorageSOPClassUID, sopClass);
+            }
+            if (!sopClass.empty()) {
+                sopClasses.insert(sopClass.c_str());
+            }
+        }
+    }
+
+    if (sopClasses.empty()) {
+        LOGE("native_cStoreMulti: No valid SOP Classes found in files.");
+        return 0;
+    }
+
+    ProgressScu scu;
+    scu.setPeerHostName(host.c_str());
+    scu.setPeerPort(port);
+    scu.setAETitle(localAet.c_str());
+    scu.setPeerAETitle(remoteAet.c_str());
+    scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
+
+    OFList<OFString> ts;
+    addCommonTransferSyntaxes(ts);
+
+    for (const auto &sop : sopClasses) {
+        scu.addPresentationContext(sop.c_str(), ts);
+    }
+
+    int successCount = 0;
+    OFCondition cond = scu.initNetwork();
+    if (cond.bad()) {
+        LOGE("native_cStoreMulti: Network init failed: %s", cond.text());
+        return 0;
+    }
+
+    cond = scu.negotiateAssociation();
+    if (cond.bad()) {
+        LOGE("native_cStoreMulti: Association negotiation failed: %s", cond.text());
+        return 0;
+    }
+
+    // 2. Send each file over the established association
+    bool aborted = false;
+    for (int i = 0; i < (int) dcmPaths.size(); ++i) {
+        if (aborted) break;
+
+        const std::string &path = dcmPaths[i];
+        DcmFileFormat dfile;
+        if (dfile.loadFile(path.c_str()).bad()) {
+            LOGE("native_cStoreMulti: Failed to load file #%d: %s", i, path.c_str());
+            continue;
+        }
+
+        OFString sopClass;
+        if (dfile.getDataset()->findAndGetOFString(DCM_SOPClassUID, sopClass).bad() || sopClass.empty()) {
+            dfile.getMetaInfo()->findAndGetOFString(DCM_MediaStorageSOPClassUID, sopClass);
+        }
+
+        T_ASC_PresentationContextID presId = scu.findPresentationContextID(sopClass.c_str(), "");
+        if (presId > 0) {
+            struct stat st;
+            if (stat(path.c_str(), &st) == 0) {
+                scu.setTotalBytes((unsigned long) st.st_size);
+            }
+
+            if (callback) {
+                // Wrap the multi-callback into the single-file callback expected by ProgressScu
+                scu.setProgressCallback([&callback, i, &aborted](unsigned long sent, unsigned long total) {
+                    if (!callback(i, sent, total)) {
+                        aborted = true;
+                    }
+                });
+            }
+
+            Uint16 rspStatus = 0;
+            OFCondition storeCond = scu.sendSTORERequest(presId, "", dfile.getDataset()
+                                                         , rspStatus);
+
+            // 0x0000 = Success, 0xB0xx = Warning (often treated as success in PACS)
+            if (storeCond.good() && (rspStatus == 0 || (rspStatus & 0xf000) == 0xb000)) {
+                successCount++;
+                LOGD("native_cStoreMulti: File #%d stored successfully (%s)", i, path.c_str());
+            } else {
+                LOGE("native_cStoreMulti: File #%d storage failed. Status: 0x%04X, Error: %s",
+                     i, rspStatus, storeCond.text());
+            }
+        } else {
+            LOGE("native_cStoreMulti: No negotiated presentation context for SOP Class %s (File #%d)",
+                 sopClass.c_str(), i);
+        }
+    }
+
+    scu.releaseAssociation();
+    LOGD("native_cStoreMulti: [DONE] Successfully stored %d/%zu files.%s",
+         successCount, dcmPaths.size(), aborted ? " (Aborted by user)" : "");
+
+    return successCount;
+}
+
 std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
                                            const std::string &localAet,
                                            const std::string &remoteAet,
@@ -280,6 +384,10 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -346,6 +454,10 @@ std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, i
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -414,6 +526,10 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
 
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
@@ -534,6 +650,10 @@ std::vector<std::string> PacsClient::cFindMWLByTemplate(const std::string &host,
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
+
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_FINDModalityWorklistInformationModel, ts);
@@ -606,6 +726,10 @@ bool PacsClient::cMove(const std::string &host, int port,
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
 
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
+
     OFList<OFString> ts;
     addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_MOVEPatientRootQueryRetrieveInformationModel, ts);
@@ -660,6 +784,10 @@ bool PacsClient::cGet(const std::string &host, int port,
     scu.setAETitle(localAet.c_str());
     scu.setPeerAETitle(remoteAet.c_str());
     scu.setMaxReceivePDULength(MAX_PDU_SIZE);
+
+    // Increase timeouts for batch operations
+    scu.setACSETimeout(30);
+    scu.setDIMSETimeout(90);
 
     if (callback) {
         scu.setProgressCallback(std::move(callback));

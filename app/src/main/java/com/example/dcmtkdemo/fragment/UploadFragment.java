@@ -19,7 +19,7 @@ import com.example.dcmtkdemo.activity.MainActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
 import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.dialog.DicomUploadDialog;
+import com.example.dcmtkdemo.view.DicomUploadDialog;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;

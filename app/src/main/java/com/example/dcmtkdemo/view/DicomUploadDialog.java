@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo.dialog;
+package com.example.dcmtkdemo.view;
 
 import android.app.Dialog;
 import android.os.Bundle;
@@ -14,7 +14,6 @@ import androidx.lifecycle.ViewModelProvider;
 
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.model.DicomImageRecord;
-import com.example.dcmtkdemo.view.DicomUploadView;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.util.List;

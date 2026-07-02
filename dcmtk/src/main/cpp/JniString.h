@@ -15,6 +15,10 @@ public:
         if (c_str_) env_->ReleaseStringUTFChars(jstr_, c_str_);
     }
 
+    // Delete copy constructor and assignment operator to prevent double-release of JNI strings.
+    JniString(const JniString&) = delete;
+    JniString& operator=(const JniString&) = delete;
+
     const char *c_str() const { return c_str_; }
 
     operator const char *() const { return c_str_; }
