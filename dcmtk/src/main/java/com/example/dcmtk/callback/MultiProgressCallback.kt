@@ -1,8 +1,8 @@
-package com.example.dcmtk.callback;
+package com.example.dcmtk.callback
 
-public interface MultiProgressCallback {
+interface MultiProgressCallback {
     /**
      * @return true to continue, false to cancel
      */
-    boolean onProgress(int index, long sent, long total);
+    fun onProgress(index: Int, sent: Long, total: Long): Boolean
 }

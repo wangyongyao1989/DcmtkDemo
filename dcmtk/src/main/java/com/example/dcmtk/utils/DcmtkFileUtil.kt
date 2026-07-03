@@ -1,12 +1,11 @@
-package com.example.dcmtk.utils;
+package com.example.dcmtk.utils
 
-import android.content.Context;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import android.content.Context
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
-public class DcmtkFileUtil {
+object DcmtkFileUtil {
     /**
      * 将 Assets 中的文件拷贝到应用的内部存储目录
      * @param context 上下文
@@ -14,21 +13,25 @@ public class DcmtkFileUtil {
      * @return 拷贝后文件的绝对路径
      * @throws IOException 拷贝失败时抛出异常
      */
-    public static String copyAssetToInternalStorage(Context context, String assetName) throws IOException {
-        File file = new File(context.getFilesDir(), assetName);
+    @JvmStatic
+    @Throws(IOException::class)
+    fun copyAssetToInternalStorage(context: Context, assetName: String): String {
+        val file = File(context.filesDir, assetName)
         if (!file.exists()) {
-            copyAsset(context, assetName, file);
+            copyAsset(context, assetName, file)
         }
-        return file.getAbsolutePath();
+        return file.absolutePath
     }
 
-    private static void copyAsset(Context context, String assetName, File targetFile) throws IOException {
-        try (InputStream is = context.getAssets().open(assetName);
-             FileOutputStream fos = new FileOutputStream(targetFile)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
+    @Throws(IOException::class)
+    private fun copyAsset(context: Context, assetName: String, targetFile: File) {
+        context.assets.open(assetName).use { `is` ->
+            FileOutputStream(targetFile).use { fos ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while ((`is`.read(buffer).also { read = it }) != -1) {
+                    fos.write(buffer, 0, read)
+                }
             }
         }
     }

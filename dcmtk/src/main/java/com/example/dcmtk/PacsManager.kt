@@ -40,30 +40,6 @@ object PacsManager {
     }
 
     /**
-     * 专门给 Java 调用的同步版本（需在后台线程运行）
-     */
-    @JvmStatic
-    @JvmOverloads
-    fun safeCEchoSync(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
-        maxRetries: Int = 2
-    ): Boolean {
-        var lastResult = false
-        for (i in 0..maxRetries) {
-            if (i > 0) {
-                Log.w(TAG, "C-ECHO sync failed, retrying ($i/$maxRetries)...")
-                try { Thread.sleep(1000); } catch (e: Exception) {}
-            }
-            lastResult = DcmtkJni.cEcho(host, port, localAET, remoteAET)
-            if (lastResult) return true
-        }
-        return lastResult
-    }
-
-    /**
      * 在后台线程执行批量上传，并支持重试
      * 注意：cStoreMulti 内部已经处理了 Association 级别的复用
      */
@@ -98,49 +74,17 @@ object PacsManager {
     }
 
     /**
-     * 同步版本批量上传 (Java 友好)
-     */
-    @JvmStatic
-    @JvmOverloads
-    fun safeCStoreMultiSync(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
-        dcmPaths: Array<String>,
-        callback: MultiProgressCallback,
-        maxRetries: Int = 1
-    ): Int {
-        var successCount = 0
-        var attempt = 0
-        
-        while (attempt <= maxRetries) {
-            if (attempt > 0) try { Thread.sleep(2000); } catch (e: Exception) {}
-            
-            val result = DcmtkJni.cStoreMulti(host, port, localAET, remoteAET, dcmPaths, callback)
-            if (result > 0 || dcmPaths.isEmpty()) {
-                successCount = result
-                break
-            }
-            attempt++
-            Log.w(TAG, "cStoreMulti sync attempt $attempt failed.")
-        }
-        
-        return successCount
-    }
-
-    /**
      * C-FIND 操作
      */
     @JvmStatic
-    fun cFind(
+    suspend fun cFind(
         host: String,
         port: Int,
         localAET: String,
         remoteAET: String,
         queryVal: String
-    ): Array<String>? {
-        return try {
+    ): Array<String>? = withContext(Dispatchers.IO) {
+        try {
             DcmtkJni.cFind(host, port, localAET, remoteAET, queryVal)
         } catch (e: Exception) {
             Log.e(TAG, "cFind failed", e)
@@ -152,14 +96,14 @@ object PacsManager {
      * C-FIND By Accession
      */
     @JvmStatic
-    fun cFindByAccession(
+    suspend fun cFindByAccession(
         host: String,
         port: Int,
         localAET: String,
         remoteAET: String,
         accession: String
-    ): Array<String>? {
-        return try {
+    ): Array<String>? = withContext(Dispatchers.IO) {
+        try {
             DcmtkJni.cFindByAccession(host, port, localAET, remoteAET, accession)
         } catch (e: Exception) {
             Log.e(TAG, "cFindByAccession failed", e)
@@ -171,7 +115,7 @@ object PacsManager {
      * C-GET 操作
      */
     @JvmStatic
-    fun cGet(
+    suspend fun cGet(
         host: String,
         port: Int,
         localAET: String,
@@ -179,8 +123,8 @@ object PacsManager {
         patId: String,
         saveDir: String,
         callback: com.example.dcmtk.callback.ProgressCallback
-    ): Boolean {
-        return try {
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
             DcmtkJni.cGet(host, port, localAET, remoteAET, patId, saveDir, callback)
         } catch (e: Exception) {
             Log.e(TAG, "cGet failed", e)
@@ -192,14 +136,14 @@ object PacsManager {
      * MWL C-FIND 操作
      */
     @JvmStatic
-    fun cFindMWL(
+    suspend fun cFindMWL(
         host: String,
         port: Int,
         localAET: String,
         remoteAET: String,
         modality: String
-    ): Array<String>? {
-        return try {
+    ): Array<String>? = withContext(Dispatchers.IO) {
+        try {
             DcmtkJni.cFindMWL(host, port, localAET, remoteAET, modality)
         } catch (e: Exception) {
             Log.e(TAG, "cFindMWL failed", e)
@@ -211,8 +155,8 @@ object PacsManager {
      * 加载 DICOM 文件信息
      */
     @JvmStatic
-    fun loadDicomFileInfo(path: String): java.util.HashMap<String, String>? {
-        return try {
+    suspend fun loadDicomFileInfo(path: String): java.util.HashMap<String, String>? = withContext(Dispatchers.IO) {
+        try {
             DcmtkJni.loadDicomFileInfo(path)
         } catch (e: Exception) {
             Log.e(TAG, "loadDicomFileInfo failed", e)

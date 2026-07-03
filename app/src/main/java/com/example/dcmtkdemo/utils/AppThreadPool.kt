@@ -1,33 +1,31 @@
-package com.example.dcmtkdemo.utils;
+package com.example.dcmtkdemo.utils
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*
 
 /**
  * Global thread pool manager for the application.
  */
-public class AppThreadPool {
-    private static final int CORE_POOL_SIZE = Runtime.getRuntime().availableProcessors();
-    private static final int MAX_POOL_SIZE = CORE_POOL_SIZE * 2 + 1;
-    private static final long KEEP_ALIVE_TIME = 60L;
+object AppThreadPool {
+    private val CORE_POOL_SIZE = Runtime.getRuntime().availableProcessors()
+    private val MAX_POOL_SIZE = CORE_POOL_SIZE * 2 + 1
+    private const val KEEP_ALIVE_TIME = 60L
 
-    private static final ExecutorService executor = new ThreadPoolExecutor(
-            CORE_POOL_SIZE,
-            MAX_POOL_SIZE,
-            KEEP_ALIVE_TIME,
-            TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>()
-    );
+    private val executor: ExecutorService = ThreadPoolExecutor(
+        CORE_POOL_SIZE,
+        MAX_POOL_SIZE,
+        KEEP_ALIVE_TIME,
+        TimeUnit.SECONDS,
+        LinkedBlockingQueue()
+    )
 
     /**
      * Executes the given task in the thread pool.
      *
      * @param runnable the task to execute
      */
-    public static void execute(Runnable runnable) {
-        executor.execute(runnable);
+    @JvmStatic
+    fun execute(runnable: Runnable) {
+        executor.execute(runnable)
     }
 
     /**
@@ -35,7 +33,8 @@ public class AppThreadPool {
      *
      * @return the executor service
      */
-    public static ExecutorService getExecutor() {
-        return executor;
+    @JvmStatic
+    fun getExecutor(): ExecutorService {
+        return executor
     }
 }

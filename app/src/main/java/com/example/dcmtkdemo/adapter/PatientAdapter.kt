@@ -1,98 +1,61 @@
-package com.example.dcmtkdemo.adapter;
+package com.example.dcmtkdemo.adapter
 
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.CheckBox;
-import android.widget.ImageView;
-import android.widget.TextView;
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.CheckBox
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtkdemo.R
 
-import androidx.annotation.NonNull;
-import androidx.recyclerview.widget.RecyclerView;
+class PatientAdapter(
+    private var records: List<PatientRecord>,
+    private val listener: (PatientRecord) -> Unit
+) : RecyclerView.Adapter<PatientAdapter.ViewHolder>() {
 
-import com.example.dcmtkdemo.R;
-import com.example.dcmtk.model.PatientRecord;
-
-import java.util.ArrayList;
-import java.util.List;
-
-public class PatientAdapter extends RecyclerView.Adapter<PatientAdapter.ViewHolder> {
-
-    private List<PatientRecord> records;
-    private OnItemClickListener listener;
-
-    public interface OnItemClickListener {
-        void onItemClick(PatientRecord record);
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_patient, parent, false)
+        return ViewHolder(view)
     }
 
-    public PatientAdapter(List<PatientRecord> records, OnItemClickListener listener) {
-        this.records = records;
-        this.listener = listener;
-    }
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val record = records[position]
+        holder.tvName.text = record.name
+        holder.tvId.text = "ID: ${record.id}"
+        holder.tvSex.text = "Sex: ${record.sex}"
+        holder.tvBirth.text = "Birth: ${record.birthDate}"
 
-    @NonNull
-    @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_patient, parent, false);
-        return new ViewHolder(view);
-    }
-
-    @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        PatientRecord record = records.get(position);
-        holder.tvName.setText(record.getName());
-        holder.tvId.setText("ID: " + record.getId());
-        holder.tvSex.setText("Sex: " + record.getSex());
-        holder.tvBirth.setText("Birth: " + record.getBirthDate());
-        
-        holder.cbSelect.setOnCheckedChangeListener(null);
-        holder.cbSelect.setChecked(record.isSelected());
-        holder.cbSelect.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            record.setSelected(isChecked);
-        });
-
-        holder.ivDownloaded.setVisibility(record.isDownloaded() ? View.VISIBLE : View.GONE);
-
-        holder.itemView.setOnClickListener(v -> {
-            if (listener != null) {
-                listener.onItemClick(record);
-            }
-        });
-    }
-
-    @Override
-    public int getItemCount() {
-        return records.size();
-    }
-
-    public void updateData(List<PatientRecord> newRecords) {
-        this.records = newRecords;
-        notifyDataSetChanged();
-    }
-
-    public List<PatientRecord> getSelectedRecords() {
-        List<PatientRecord> selected = new ArrayList<>();
-        for (PatientRecord r : records) {
-            if (r.isSelected()) {
-                selected.add(r);
-            }
+        holder.cbSelect.setOnCheckedChangeListener(null)
+        holder.cbSelect.isChecked = record.isSelected
+        holder.cbSelect.setOnCheckedChangeListener { _, isChecked ->
+            record.isSelected = isChecked
         }
-        return selected;
+
+        holder.ivDownloaded.visibility = if (record.isDownloaded) View.VISIBLE else View.GONE
+
+        holder.itemView.setOnClickListener {
+            listener(record)
+        }
     }
 
-    static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView tvName, tvId, tvSex, tvBirth;
-        CheckBox cbSelect;
-        ImageView ivDownloaded;
+    override fun getItemCount(): Int = records.size
 
-        ViewHolder(View view) {
-            super(view);
-            tvName = view.findViewById(R.id.tv_patient_name);
-            tvId = view.findViewById(R.id.tv_patient_id);
-            tvSex = view.findViewById(R.id.tv_patient_sex);
-            tvBirth = view.findViewById(R.id.tv_patient_birth);
-            cbSelect = view.findViewById(R.id.cb_select);
-            ivDownloaded = view.findViewById(R.id.iv_downloaded);
-        }
+    fun updateData(newRecords: List<PatientRecord>) {
+        this.records = newRecords
+        notifyDataSetChanged()
+    }
+
+    val selectedRecords: List<PatientRecord>
+        get() = records.filter { it.isSelected }
+
+    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tvName: TextView = view.findViewById(R.id.tv_patient_name)
+        val tvId: TextView = view.findViewById(R.id.tv_patient_id)
+        val tvSex: TextView = view.findViewById(R.id.tv_patient_sex)
+        val tvBirth: TextView = view.findViewById(R.id.tv_patient_birth)
+        val cbSelect: CheckBox = view.findViewById(R.id.cb_select)
+        val ivDownloaded: ImageView = view.findViewById(R.id.iv_downloaded)
     }
 }

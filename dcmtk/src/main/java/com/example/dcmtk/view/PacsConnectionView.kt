@@ -49,9 +49,7 @@ class PacsConnectionView @JvmOverloads constructor(
             binding.btnCancel.isEnabled = false
 
             scope.launch {
-                val echoSuccess = withContext(Dispatchers.IO) {
-                    PacsManager.safeCEchoSync(host, port, local, remote, 2)
-                }
+                val echoSuccess = PacsManager.safeCEcho(host, port, local, remote, 2)
                 
                 if (echoSuccess) {
                     binding.tvError.visibility = View.GONE

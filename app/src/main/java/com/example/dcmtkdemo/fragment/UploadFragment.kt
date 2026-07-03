@@ -1,193 +1,189 @@
-package com.example.dcmtkdemo.fragment;
+package com.example.dcmtkdemo.fragment
 
-import android.annotation.SuppressLint;
-import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.Toast;
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
+import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtk.view.DicomUploadDialog
+import com.example.dcmtk.viewmodel.PacsViewModel
+import com.example.dcmtkdemo.activity.DetailActivity
+import com.example.dcmtkdemo.activity.MainActivity
+import com.example.dcmtkdemo.adapter.DcmUploadAdapter
+import com.example.dcmtkdemo.databinding.FragmentUploadBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.*
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.GridLayoutManager;
+class UploadFragment : Fragment() {
 
-import com.example.dcmtkdemo.adapter.DcmUploadAdapter;
-import com.example.dcmtkdemo.activity.DetailActivity;
-import com.example.dcmtkdemo.activity.MainActivity;
-import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
-import android.content.Intent;
-import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtk.view.DicomUploadDialog;
-import com.example.dcmtk.model.DicomImageRecord;
-import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtk.viewmodel.PacsViewModel;
+    private var binding: FragmentUploadBinding? = null
+    private lateinit var viewModel: PacsViewModel
+    private lateinit var adapter: DcmUploadAdapter
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-
-public class UploadFragment extends Fragment {
-
-    private FragmentUploadBinding binding;
-    private PacsViewModel viewModel;
-    private DcmUploadAdapter adapter;
-
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container
-            , @Nullable Bundle savedInstanceState) {
-        binding = FragmentUploadBinding.inflate(inflater, container, false);
-        return binding.getRoot();
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        binding = FragmentUploadBinding.inflate(inflater, container, false)
+        return binding?.root
     }
 
     @SuppressLint("NotifyDataSetChanged")
-    @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        super.onViewCreated(view, savedInstanceState);
-        viewModel = new ViewModelProvider(requireActivity()).get(PacsViewModel.class);
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
 
-        adapter = new DcmUploadAdapter(new ArrayList<>());
-        binding.rvDcmFiles.setLayoutManager(new GridLayoutManager(getContext(), 5));
-        binding.rvDcmFiles.setAdapter(adapter);
+        adapter = DcmUploadAdapter(ArrayList())
+        binding?.rvDcmFiles?.layoutManager = GridLayoutManager(context, 5)
+        binding?.rvDcmFiles?.adapter = adapter
 
-        adapter.setOnItemClickListener(record -> {
-            Intent intent = new Intent(getContext(), DetailActivity.class);
-            intent.putExtra(DetailActivity.EXTRA_DCM_PATH, record.getDcmPath());
-            intent.putExtra(DetailActivity.EXTRA_JPG_PATH, record.getJpgPath());
-            intent.putExtra(DetailActivity.EXTRA_NAME, record.getName());
-            intent.putExtra(DetailActivity.EXTRA_ID, record.getId());
-            intent.putExtra(DetailActivity.EXTRA_SEX, record.getSex());
-            intent.putExtra(DetailActivity.EXTRA_STUDY_DATE, record.getStudyDate());
-            intent.putExtra(DetailActivity.EXTRA_STUDY_DESC, record.getStudyDesc());
-            startActivity(intent);
-        });
+        adapter.setOnItemClickListener { record ->
+            val intent = Intent(context, DetailActivity::class.java)
+            intent.putExtra(DetailActivity.EXTRA_DCM_PATH, record.dcmPath)
+            intent.putExtra(DetailActivity.EXTRA_JPG_PATH, record.jpgPath)
+            intent.putExtra(DetailActivity.EXTRA_NAME, record.name)
+            intent.putExtra(DetailActivity.EXTRA_ID, record.id)
+            intent.putExtra(DetailActivity.EXTRA_SEX, record.sex)
+            intent.putExtra(DetailActivity.EXTRA_STUDY_DATE, record.studyDate)
+            intent.putExtra(DetailActivity.EXTRA_STUDY_DESC, record.studyDesc)
+            startActivity(intent)
+        }
 
-        binding.btnToggleMode.setOnClickListener(v -> {
-            boolean currentMode = adapter.isUploadMode();
-            boolean newMode = !currentMode;
-            adapter.setUploadMode(newMode);
-            updateUiMode(newMode);
-        });
+        binding?.btnToggleMode?.setOnClickListener {
+            val currentMode = adapter.isUploadMode
+            val newMode = !currentMode
+            adapter.isUploadMode = newMode
+            updateUiMode(newMode)
+        }
 
         // Initialize UI mode
-        updateUiMode(false);
+        updateUiMode(false)
 
-        refreshFileList();
+        refreshFileList()
 
         // 监听资产拷贝完成的信号，一旦完成就刷新列表
-        viewModel.assetsReady.observe(getViewLifecycleOwner(), ready -> {
+        viewModel.assetsReady.observe(viewLifecycleOwner) { ready ->
             if (ready) {
-                refreshFileList();
+                refreshFileList()
             }
-        });
+        }
 
-        binding.btnUpload.setOnClickListener(v -> {
-            List<DicomImageRecord> selectedRecords = adapter.getSelectedRecords();
+        binding?.btnUpload?.setOnClickListener {
+            val selectedRecords = adapter.selectedRecords
             if (selectedRecords.isEmpty()) {
-                Toast.makeText(getContext(), "No files selected", Toast.LENGTH_SHORT).show();
-                return;
+                Toast.makeText(context, "No files selected", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
 
-            ((MainActivity) requireActivity()).verifyConnection(() -> {
-                String[] paths = new String[selectedRecords.size()];
-                for (int i = 0; i < selectedRecords.size(); i++) {
-                    paths[i] = selectedRecords.get(i).getDcmPath();
-                }
-                DicomUploadDialog dialog = DicomUploadDialog.newInstance(paths, true);
-                dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
-                    for (DicomImageRecord record : selectedRecords) {
-                        record.setSelected(false);
+            (requireActivity() as MainActivity).verifyConnection {
+                val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
+                val dialog = DicomUploadDialog.newInstance(paths, true)
+                dialog.setOnUploadFinishedListener(object : DicomUploadDialog.OnUploadFinishedListener {
+                    override fun onFinished(successCount: Int, totalCount: Int) {
+                        selectedRecords.forEach { it.isSelected = false }
+                        adapter.notifyDataSetChanged()
+                        binding?.tvUploadStatus?.text = String.format(
+                            Locale.getDefault(),
+                            "Last Upload: %d/%d success", successCount, totalCount
+                        )
                     }
-                    adapter.notifyDataSetChanged();
-                    binding.tvUploadStatus.setText(String.format(java.util.Locale.getDefault()
-                            , "Last Upload: %d/%d success", successCount, totalCount));
-                });
-                dialog.show(getParentFragmentManager(), "DicomUploadDialog");
-            });
-        });
-    }
-
-    private void updateUiMode(boolean uploadMode) {
-        binding.btnToggleMode.setText(uploadMode ? "Exit Upload Mode" : "Switch to Upload Mode");
-        binding.btnUpload.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
-        binding.tvUploadStatus.setVisibility(View.VISIBLE); // Always show status
-        if (!uploadMode) {
-            binding.progressBar.setVisibility(View.GONE);
+                })
+                dialog.show(parentFragmentManager, "DicomUploadDialog")
+            }
         }
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-        refreshFileList();
+    private fun updateUiMode(uploadMode: Boolean) {
+        binding?.btnToggleMode?.text = if (uploadMode) "Exit Upload Mode" else "Switch to Upload Mode"
+        binding?.btnUpload?.visibility = if (uploadMode) View.VISIBLE else View.GONE
+        binding?.tvUploadStatus?.visibility = View.VISIBLE // Always show status
+        if (!uploadMode) {
+            binding?.progressBar?.visibility = View.GONE
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshFileList()
     }
 
     @SuppressLint("SetTextI18n")
-    private void refreshFileList() {
-        File dir = requireContext().getExternalFilesDir(null);
-        if (dir == null) return;
+    private fun refreshFileList() {
+        val dir = requireContext().getExternalFilesDir(null) ?: return
 
         // 仅列出普通文件，排除 .jpg 与 jpg/ 子目录
-        File[] files = dir.listFiles((d, name) ->
-                name.toLowerCase().endsWith(".dcm") && !name.toLowerCase().endsWith(".jpg"));
-
-        if (files == null || files.length == 0) {
-            binding.btnUpload.setEnabled(false);
-            binding.tvUploadStatus.setText("No .dcm files found in " + dir.getAbsolutePath());
-            adapter.updateData(new ArrayList<>());
-            return;
+        val files = dir.listFiles { _, name ->
+            name.lowercase().endsWith(".dcm") && !name.lowercase().endsWith(".jpg")
         }
 
-        binding.btnUpload.setEnabled(true);
-        binding.tvUploadStatus.setText("Loading and converting " + files.length + " file(s)...");
+        if (files == null || files.isEmpty()) {
+            binding?.btnUpload?.isEnabled = false
+            binding?.tvUploadStatus?.text = "No .dcm files found in ${dir.absolutePath}"
+            adapter.updateData(ArrayList())
+            return
+        }
 
-        AppThreadPool.execute(() -> {
-            // 1) 批量转换为 JPG
-            DcmtkJni.dcmToJpg(dir.getAbsolutePath());
+        binding?.btnUpload?.isEnabled = true
+        binding?.tvUploadStatus?.text = "Loading and converting ${files.size} file(s)..."
 
-            // 2) 解析每个文件的 DICOM 信息
-            File jpgDir = new File(dir, "jpg");
-            List<DicomImageRecord> records = new ArrayList<>();
-            for (File f : files) {
-                String dcmPath = f.getAbsolutePath();
-                String jpgPath = new File(jpgDir, f.getName() + ".jpg").getAbsolutePath();
+        viewLifecycleOwner.lifecycleScope.launch {
+            val records = withContext(Dispatchers.IO) {
+                // 1) 批量转换为 JPG
+                DcmtkJni.dcmToJpg(dir.absolutePath)
 
-                String name = "N/A", id = "N/A", sex = "N/A", date = "N/A", desc = "N/A";
-                try {
-                    HashMap<String, String> info = DcmtkJni.loadDicomFileInfo(dcmPath);
-                    if (info != null && !info.isEmpty()) {
-                        name = safeGet(info, "(0010,0010)");
-                        id = safeGet(info, "(0010,0020)");
-                        sex = safeGet(info, "(0010,0040)");
-                        date = safeGet(info, "(0008,0020)");
-                        desc = safeGet(info, "(0008,1030)");
+                // 2) 解析每个文件的 DICOM 信息
+                val jpgDir = File(dir, "jpg")
+                files.map { f ->
+                    val dcmPath = f.absolutePath
+                    val jpgPath = File(jpgDir, "${f.name}.jpg").absolutePath
+
+                    var name = "N/A"
+                    var id = "N/A"
+                    var sex = "N/A"
+                    var date = "N/A"
+                    var desc = "N/A"
+                    try {
+                        val info = DcmtkJni.loadDicomFileInfo(dcmPath)
+                        if (info != null && info.isNotEmpty()) {
+                            name = safeGet(info, "(0010,0010)")
+                            id = safeGet(info, "(0010,0020)")
+                            sex = safeGet(info, "(0010,0040)")
+                            date = safeGet(info, "(0008,0020)")
+                            desc = safeGet(info, "(0008,1030)")
+                        }
+                    } catch (e: Exception) {
+                        // ignore
                     }
-                } catch (Exception e) {
-                    // ignore
+                    DicomImageRecord(name, id, sex, date, desc, dcmPath, jpgPath)
                 }
-                records.add(new DicomImageRecord(name, id, sex, date, desc
-                        , dcmPath, jpgPath));
             }
-
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                adapter.updateData(records);
-                binding.tvUploadStatus.setText("Found " + records.size() + " DICOM file(s).");
-            });
-        });
+            
+            binding?.let {
+                adapter.updateData(records)
+                it.tvUploadStatus.text = "Found ${records.size} DICOM file(s)."
+            }
+        }
     }
 
-    private static String safeGet(HashMap<String, String> map, String key) {
-        String val = map.get(key);
-        return (val != null && !val.isEmpty()) ? val : "N/A";
+    private fun safeGet(map: HashMap<String, String>, key: String): String {
+        val valStr = map[key]
+        return if (valStr != null && valStr.isNotEmpty()) valStr else "N/A"
     }
 
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        binding = null;
+    override fun onDestroyView() {
+        super.onDestroyView()
+        binding = null
     }
 }

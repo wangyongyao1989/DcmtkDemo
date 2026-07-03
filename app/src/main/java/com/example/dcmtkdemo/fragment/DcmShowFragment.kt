@@ -1,29 +1,25 @@
-package com.example.dcmtkdemo.fragment;
+package com.example.dcmtkdemo.fragment
 
-import android.annotation.SuppressLint;
-import android.content.Intent;
-import android.os.Bundle;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.GridLayoutManager;
-
-import com.example.dcmtkdemo.activity.DetailActivity;
-import com.example.dcmtkdemo.adapter.DcmImageAdapter;
-import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding;
-import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtk.model.DicomImageRecord;
-import com.example.dcmtkdemo.utils.AppThreadPool;
-
-import java.io.File;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
+import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtkdemo.activity.DetailActivity
+import com.example.dcmtkdemo.adapter.DcmImageAdapter
+import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.*
 
 /**
  * 展示 ../temp 目录下通过 C-GET 下载的 DICOM 文件。
@@ -32,152 +28,158 @@ import java.util.List;
  * 3) 解析每个文件的 Patient Name/ID/Sex 等信息，以 RecyclerView 展示，item 仅含 JPG 缩略图 + name + id + sex；
  * 4) 点击 item 跳转到 DetailActivity 显示更多详情。
  */
-public class DcmShowFragment extends Fragment {
+class DcmShowFragment : Fragment() {
 
-    private static final String TAG = "DcmShowFragment";
+    private var binding: FragmentDcmShowBinding? = null
+    private lateinit var adapter: DcmImageAdapter
 
-    private FragmentDcmShowBinding binding;
-    private DcmImageAdapter adapter;
-
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-                             @Nullable Bundle savedInstanceState) {
-        binding = FragmentDcmShowBinding.inflate(inflater, container, false);
-        return binding.getRoot();
+    companion object {
+        private const val TAG = "DcmShowFragment"
     }
 
-    @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        super.onViewCreated(view, savedInstanceState);
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        binding = FragmentDcmShowBinding.inflate(inflater, container, false)
+        return binding?.root
+    }
 
-        adapter = new DcmImageAdapter(new ArrayList<>(), this::openDetail);
-        binding.rvDcmImages.setLayoutManager(new GridLayoutManager(getContext(), 5));
-        binding.rvDcmImages.setAdapter(adapter);
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-        loadAndConvert();
+        adapter = DcmImageAdapter(ArrayList()) { openDetail(it) }
+        binding?.rvDcmImages?.layoutManager = GridLayoutManager(context, 5)
+        binding?.rvDcmImages?.adapter = adapter
+
+        loadAndConvert()
     }
 
     /** 解析 ../temp 目录 */
-    @Nullable
-    private File getTempDir() {
-        File externalFilesDir = requireContext().getExternalFilesDir(null);
-        if (externalFilesDir == null) return null;
-        File tempDir = new File(externalFilesDir.getParentFile(), "temp");
-        if (!tempDir.exists()) tempDir.mkdirs();
-        return tempDir;
+    private fun getTempDir(): File? {
+        val externalFilesDir = requireContext().getExternalFilesDir(null) ?: return null
+        val tempDir = File(externalFilesDir.parentFile, "temp")
+        if (!tempDir.exists()) tempDir.mkdirs()
+        return tempDir
     }
 
     @SuppressLint("SetTextI18n")
-    private void loadAndConvert() {
-        File tempDir = getTempDir();
+    private fun loadAndConvert() {
+        val tempDir = getTempDir()
         if (tempDir == null) {
-            showEmpty("External storage not available.");
-            return;
+            showEmpty("External storage not available.")
+            return
         }
 
         // 仅列出普通文件，排除 .jpg（转换产物）与 jpg/ 子目录
-        File[] files = tempDir.listFiles((dir, name) ->
-                !name.toLowerCase().endsWith(".jpg"));
-        List<File> dcmFiles = new ArrayList<>();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isFile()) dcmFiles.add(f);
-            }
+        val files = tempDir.listFiles { _, name ->
+            !name.lowercase().endsWith(".jpg")
+        }
+        val dcmFiles = ArrayList<File>()
+        files?.forEach { f ->
+            if (f.isFile) dcmFiles.add(f)
         }
 
         if (dcmFiles.isEmpty()) {
-            showEmpty("No files in temp/ folder.\nPlease go to the Retrieve tab to download DICOM files first.");
-            return;
+            showEmpty("No files in temp/ folder.\nPlease go to the Retrieve tab to download DICOM files first.")
+            return
         }
 
-        showLoading("Converting " + dcmFiles.size() + " file(s) to JPG...");
+        showLoading("Converting ${dcmFiles.size} file(s) to JPG...")
 
-        AppThreadPool.execute(() -> {
-            // 1) 批量转换为 JPG
-            int converted = DcmtkJni.dcmToJpg(tempDir.getAbsolutePath());
-            Log.d(TAG, "dcmToJpg converted=" + converted);
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (records, converted) = withContext(Dispatchers.IO) {
+                // 1) 批量转换为 JPG
+                val convertedCount = DcmtkJni.dcmToJpg(tempDir.absolutePath)
+                Log.d(TAG, "dcmToJpg converted=$convertedCount")
 
-            // 2) 解析每个文件的 DICOM 信息并构建记录
-            File jpgDir = new File(tempDir, "jpg");
-            List<DicomImageRecord> records = new ArrayList<>();
-            for (File f : dcmFiles) {
-                String dcmPath = f.getAbsolutePath();
-                String jpgPath = new File(jpgDir, f.getName() + ".jpg").getAbsolutePath();
+                // 2) 解析每个文件的 DICOM 信息并构建记录
+                val jpgDir = File(tempDir, "jpg")
+                val recordsList = dcmFiles.map { f ->
+                    val dcmPath = f.absolutePath
+                    val jpgPath = File(jpgDir, "${f.name}.jpg").absolutePath
 
-                String name = "N/A", id = "N/A", sex = "N/A";
-                String studyDate = "N/A", studyDesc = "N/A";
-                try {
-                    HashMap<String, String> info = DcmtkJni.loadDicomFileInfo(dcmPath);
-                    if (info != null && !info.isEmpty()) {
-                        name = safeGet(info, "(0010,0010)");
-                        id = safeGet(info, "(0010,0020)");
-                        sex = safeGet(info, "(0010,0040)");
-                        studyDate = safeGet(info, "(0008,0020)");
-                        studyDesc = safeGet(info, "(0008,1030)");
+                    var name = "N/A"
+                    var id = "N/A"
+                    var sex = "N/A"
+                    var studyDate = "N/A"
+                    var studyDesc = "N/A"
+                    try {
+                        val info = DcmtkJni.loadDicomFileInfo(dcmPath)
+                        if (info != null && info.isNotEmpty()) {
+                            name = safeGet(info, "(0010,0010)")
+                            id = safeGet(info, "(0010,0020)")
+                            sex = safeGet(info, "(0010,0040)")
+                            studyDate = safeGet(info, "(0008,0020)")
+                            studyDesc = safeGet(info, "(0008,1030)")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error loading info for ${f.name}", e)
                     }
-                } catch (Exception e) {
-                    Log.e(TAG, "Error loading info for " + f.getName(), e);
+                    DicomImageRecord(name, id, sex, studyDate, studyDesc, dcmPath, jpgPath)
                 }
-                records.add(new DicomImageRecord(name, id, sex, studyDate, studyDesc,
-                        dcmPath, jpgPath));
+                Pair(recordsList, convertedCount)
             }
 
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                hideLoading();
-                if (records.isEmpty()) {
-                    showEmpty("No valid DICOM files in temp/ folder.");
-                } else {
-                    binding.rvDcmImages.setVisibility(View.VISIBLE);
-                    binding.tvDcmEmpty.setVisibility(View.GONE);
-                    binding.tvDcmShowStatus.setText("Showing " + records.size()
-                            + " image(s). Converted " + converted + " to JPG.");
-                    adapter.updateData(records);
+            if (activity == null || binding == null) return@launch
+            
+            hideLoading()
+            if (records.isEmpty()) {
+                showEmpty("No valid DICOM files in temp/ folder.")
+            } else {
+                binding?.apply {
+                    rvDcmImages.visibility = View.VISIBLE
+                    tvDcmEmpty.visibility = View.GONE
+                    tvDcmShowStatus.text = "Showing ${records.size} image(s). Converted $converted to JPG."
+                    adapter.updateData(records)
                 }
-            });
-        });
+            }
+        }
     }
 
-    private void openDetail(DicomImageRecord record) {
-        Intent intent = new Intent(getContext(), DetailActivity.class);
-        intent.putExtra(DetailActivity.EXTRA_DCM_PATH, record.getDcmPath());
-        intent.putExtra(DetailActivity.EXTRA_JPG_PATH, record.getJpgPath());
-        intent.putExtra(DetailActivity.EXTRA_NAME, record.getName());
-        intent.putExtra(DetailActivity.EXTRA_ID, record.getId());
-        intent.putExtra(DetailActivity.EXTRA_SEX, record.getSex());
-        intent.putExtra(DetailActivity.EXTRA_STUDY_DATE, record.getStudyDate());
-        intent.putExtra(DetailActivity.EXTRA_STUDY_DESC, record.getStudyDesc());
-        startActivity(intent);
+    private fun openDetail(record: DicomImageRecord) {
+        val intent = Intent(context, DetailActivity::class.java).apply {
+            putExtra(DetailActivity.EXTRA_DCM_PATH, record.dcmPath)
+            putExtra(DetailActivity.EXTRA_JPG_PATH, record.jpgPath)
+            putExtra(DetailActivity.EXTRA_NAME, record.name)
+            putExtra(DetailActivity.EXTRA_ID, record.id)
+            putExtra(DetailActivity.EXTRA_SEX, record.sex)
+            putExtra(DetailActivity.EXTRA_STUDY_DATE, record.studyDate)
+            putExtra(DetailActivity.EXTRA_STUDY_DESC, record.studyDesc)
+        }
+        startActivity(intent)
     }
 
-    private void showLoading(String status) {
-        binding.progressBar.setVisibility(View.VISIBLE);
-        binding.rvDcmImages.setVisibility(View.GONE);
-        binding.tvDcmEmpty.setVisibility(View.GONE);
-        binding.tvDcmShowStatus.setText(status);
+    private fun showLoading(status: String) {
+        binding?.apply {
+            progressBar.visibility = View.VISIBLE
+            rvDcmImages.visibility = View.GONE
+            tvDcmEmpty.visibility = View.GONE
+            tvDcmShowStatus.text = status
+        }
     }
 
-    private void hideLoading() {
-        binding.progressBar.setVisibility(View.GONE);
+    private fun hideLoading() {
+        binding?.progressBar?.visibility = View.GONE
     }
 
-    private void showEmpty(String message) {
-        binding.progressBar.setVisibility(View.GONE);
-        binding.rvDcmImages.setVisibility(View.GONE);
-        binding.tvDcmEmpty.setVisibility(View.VISIBLE);
-        binding.tvDcmEmpty.setText(message);
-        binding.tvDcmShowStatus.setText("");
+    private fun showEmpty(message: String) {
+        binding?.apply {
+            progressBar.visibility = View.GONE
+            rvDcmImages.visibility = View.GONE
+            tvDcmEmpty.visibility = View.VISIBLE
+            tvDcmEmpty.text = message
+            tvDcmShowStatus.text = ""
+        }
     }
 
-    private static String safeGet(HashMap<String, String> map, String key) {
-        String val = map.get(key);
-        return (val != null && !val.isEmpty()) ? val : "N/A";
+    private fun safeGet(map: HashMap<String, String>, key: String): String {
+        val valStr = map[key]
+        return if (valStr != null && valStr.isNotEmpty()) valStr else "N/A"
     }
 
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        binding = null;
+    override fun onDestroyView() {
+        super.onDestroyView()
+        binding = null
     }
 }

@@ -1,128 +1,89 @@
-package com.example.dcmtkdemo.adapter;
+package com.example.dcmtkdemo.adapter
 
-import android.annotation.SuppressLint;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.CheckBox;
-import android.widget.ImageView;
-import android.widget.TextView;
+import android.annotation.SuppressLint
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.CheckBox
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtkdemo.R
+import java.io.File
 
-import androidx.annotation.NonNull;
-import androidx.recyclerview.widget.RecyclerView;
+class DcmUploadAdapter(
+    private var records: List<DicomImageRecord>
+) : RecyclerView.Adapter<DcmUploadAdapter.ViewHolder>() {
 
-import com.bumptech.glide.Glide;
-import com.example.dcmtkdemo.R;
-import com.example.dcmtk.model.DicomImageRecord;
+    var isUploadMode = false
+        @SuppressLint("NotifyDataSetChanged")
+        set(value) {
+            field = value
+            notifyDataSetChanged()
+        }
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
+    private var listener: ((DicomImageRecord) -> Unit)? = null
 
-public class DcmUploadAdapter extends RecyclerView.Adapter<DcmUploadAdapter.ViewHolder> {
-
-    private List<DicomImageRecord> records;
-    private boolean uploadMode = false;
-    private OnItemClickListener listener;
-
-    public interface OnItemClickListener {
-        void onItemClick(DicomImageRecord record);
+    fun setOnItemClickListener(listener: (DicomImageRecord) -> Unit) {
+        this.listener = listener
     }
 
-    public DcmUploadAdapter(List<DicomImageRecord> records) {
-        this.records = records;
-    }
-
-    public void setOnItemClickListener(OnItemClickListener listener) {
-        this.listener = listener;
-    }
-
-    @SuppressLint("NotifyDataSetChanged")
-    public void setUploadMode(boolean uploadMode) {
-        this.uploadMode = uploadMode;
-        notifyDataSetChanged();
-    }
-
-    public boolean isUploadMode() {
-        return uploadMode;
-    }
-
-    @NonNull
-    @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_dcm_upload, parent, false);
-        return new ViewHolder(view);
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_dcm_upload, parent, false)
+        return ViewHolder(view)
     }
 
     @SuppressLint("SetTextI18n")
-    @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        DicomImageRecord record = records.get(position);
-        holder.tvName.setText(record.getName());
-        holder.tvId.setText("ID: " + record.getId());
-        holder.tvSex.setText("Sex: " + record.getSex());
-        
-        holder.cbSelect.setVisibility(uploadMode ? View.VISIBLE : View.GONE);
-        holder.cbSelect.setChecked(record.isSelected());
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val record = records[position]
+        holder.tvName.text = record.name
+        holder.tvId.text = "ID: ${record.id}"
+        holder.tvSex.text = "Sex: ${record.sex}"
 
-        Glide.with(holder.itemView.getContext())
-                .load(record.getJpgPath() != null ? new File(record.getJpgPath()) : null)
-                .centerCrop()
-                .placeholder(android.R.color.darker_gray)
-                .error(android.R.drawable.ic_menu_gallery)
-                .into(holder.ivThumb);
+        holder.cbSelect.visibility = if (isUploadMode) View.VISIBLE else View.GONE
+        holder.cbSelect.isChecked = record.isSelected
 
-        holder.itemView.setOnClickListener(v -> {
-            if (uploadMode) {
-                record.setSelected(!record.isSelected());
-                notifyItemChanged(position);
+        Glide.with(holder.itemView.context)
+            .load(record.jpgPath?.let { File(it) })
+            .centerCrop()
+            .placeholder(android.R.color.darker_gray)
+            .error(android.R.drawable.ic_menu_gallery)
+            .into(holder.ivThumb)
+
+        holder.itemView.setOnClickListener {
+            if (isUploadMode) {
+                record.isSelected = !record.isSelected
+                notifyItemChanged(position)
             } else {
-                if (listener != null) {
-                    listener.onItemClick(record);
-                }
+                listener?.invoke(record)
             }
-        });
+        }
 
-        holder.cbSelect.setOnClickListener(v -> {
-            record.setSelected(!record.isSelected());
-            notifyItemChanged(position);
-        });
-
+        holder.cbSelect.setOnClickListener {
+            record.isSelected = !record.isSelected
+            notifyItemChanged(position)
+        }
     }
 
-    @Override
-    public int getItemCount() {
-        return records.size();
-    }
+    override fun getItemCount(): Int = records.size
 
     @SuppressLint("NotifyDataSetChanged")
-    public void updateData(List<DicomImageRecord> newRecords) {
-        this.records = newRecords;
-        notifyDataSetChanged();
+    fun updateData(newRecords: List<DicomImageRecord>) {
+        this.records = newRecords
+        notifyDataSetChanged()
     }
 
-    public List<DicomImageRecord> getSelectedRecords() {
-        List<DicomImageRecord> selected = new ArrayList<>();
-        for (DicomImageRecord r : records) {
-            if (r.isSelected()) selected.add(r);
-        }
-        return selected;
-    }
+    val selectedRecords: List<DicomImageRecord>
+        get() = records.filter { it.isSelected }
 
-    static class ViewHolder extends RecyclerView.ViewHolder {
-        ImageView ivThumb;
-        TextView tvName, tvId, tvSex;
-        CheckBox cbSelect;
-
-        ViewHolder(View view) {
-            super(view);
-            ivThumb = view.findViewById(R.id.iv_dcm_thumb);
-            tvName = view.findViewById(R.id.tv_dcm_name);
-            tvId = view.findViewById(R.id.tv_dcm_id);
-            tvSex = view.findViewById(R.id.tv_dcm_sex);
-            cbSelect = view.findViewById(R.id.cb_select);
-        }
+    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val ivThumb: ImageView = view.findViewById(R.id.iv_dcm_thumb)
+        val tvName: TextView = view.findViewById(R.id.tv_dcm_name)
+        val tvId: TextView = view.findViewById(R.id.tv_dcm_id)
+        val tvSex: TextView = view.findViewById(R.id.tv_dcm_sex)
+        val cbSelect: CheckBox = view.findViewById(R.id.cb_select)
     }
 }

@@ -1,70 +1,127 @@
-package com.example.dcmtk.jni;
+package com.example.dcmtk.jni
 
-import android.content.Context;
-import android.util.Log;
+import android.content.Context
+import android.util.Log
+import com.example.dcmtk.callback.MultiProgressCallback
+import com.example.dcmtk.callback.ProgressCallback
+import com.example.dcmtk.utils.DcmtkFileUtil
+import java.io.IOException
 
-import com.example.dcmtk.callback.MultiProgressCallback;
-import com.example.dcmtk.callback.ProgressCallback;
-import com.example.dcmtk.utils.DcmtkFileUtil;
+object DcmtkJni {
 
-import java.io.IOException;
-import java.util.HashMap;
-
-public class DcmtkJni {
-
-    static {
-        System.loadLibrary("dcmtk_native");
+    init {
+        System.loadLibrary("dcmtk_native")
     }
 
-    public native String stringFromJNI();
+    external fun stringFromJNI(): String
 
     /**
      * 初始化 DCMTK 字典
      * @param context 上下文，用于从 assets 中拷贝 dicom.dic
      */
-    public static void initDcmtk(Context context) {
+    @JvmStatic
+    fun initDcmtk(context: Context) {
         try {
-            String dictPath = DcmtkFileUtil.copyAssetToInternalStorage(context, "dicom.dic");
-            initDcmtk(dictPath);
-        } catch (IOException e) {
-            Log.e("DcmtkJni", "Failed to init dcmtk dictionary", e);
+            val dictPath = DcmtkFileUtil.copyAssetToInternalStorage(context, "dicom.dic")
+            initDcmtk(dictPath)
+        } catch (e: IOException) {
+            Log.e("DcmtkJni", "Failed to init dcmtk dictionary", e)
         }
     }
 
-    public static native void initDcmtk(String dictPath);
+    @JvmStatic
+    external fun initDcmtk(dictPath: String)
 
-    public static native HashMap<String, String> loadDicomFileInfo(String filePath);
+    @JvmStatic
+    external fun loadDicomFileInfo(filePath: String): HashMap<String, String>?
 
-    public static native boolean writeDicomFile(String rawDataPath, String destDcmPath, int width, int height);
+    @JvmStatic
+    external fun writeDicomFile(rawDataPath: String, destDcmPath: String, width: Int, height: Int): Boolean
 
-    public static native boolean connectPACS(String host, int port, String localAET, String remoteAET);
+    @JvmStatic
+    external fun connectPACS(host: String, port: Int, localAET: String, remoteAET: String): Boolean
 
-    public static native boolean cEcho(String host, int port, String localAET, String remoteAET);
+    @JvmStatic
+    external fun cEcho(host: String, port: Int, localAET: String, remoteAET: String): Boolean
 
-    public static native boolean cStore(String host, int port, String localAET, String remoteAET
-            , String dcmPath, ProgressCallback callback);
+    @JvmStatic
+    external fun cStore(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        dcmPath: String,
+        callback: ProgressCallback?
+    ): Boolean
 
-    public static native int cStoreMulti(String host, int port, String localAET, String remoteAET
-            , String[] dcmPaths, MultiProgressCallback callback);
+    @JvmStatic
+    external fun cStoreMulti(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        dcmPaths: Array<String>,
+        callback: MultiProgressCallback?
+    ): Int
 
-    public static native String[] cFind(String host, int port, String localAET, String remoteAET
-            , String patientName);
+    @JvmStatic
+    external fun cFind(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        patientName: String
+    ): Array<String>?
 
-    public static native String[] cFindByAccession(String host, int port, String localAET, String remoteAET
-            , String accessionNumber);
+    @JvmStatic
+    external fun cFindByAccession(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        accessionNumber: String
+    ): Array<String>?
 
-    public static native String[] cFindMWL(String host, int port, String localAET, String remoteAET
-            , String modality);
+    @JvmStatic
+    external fun cFindMWL(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        modality: String
+    ): Array<String>?
 
-    public static native String[] cFindMWLByTemplate(String host, int port, String localAET, String remoteAET
-            , String templatePath, String outputDir);
+    @JvmStatic
+    external fun cFindMWLByTemplate(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        templatePath: String,
+        outputDir: String
+    ): Array<String>?
 
-    public static native boolean cMove(String host, int port, String localAET, String remoteAET
-            , String patientID, String destAET);
+    @JvmStatic
+    external fun cMove(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        patientID: String,
+        destAET: String
+    ): Boolean
 
-    public static native boolean cGet(String host, int port, String localAET, String remoteAET
-            , String patientID, String saveDir, ProgressCallback callback);
+    @JvmStatic
+    external fun cGet(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        patientID: String,
+        saveDir: String,
+        callback: ProgressCallback?
+    ): Boolean
 
-    public static native int dcmToJpg(String dir);
-
+    @JvmStatic
+    external fun dcmToJpg(dir: String): Int
 }

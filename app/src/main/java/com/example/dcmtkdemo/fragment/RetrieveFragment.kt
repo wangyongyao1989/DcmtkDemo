@@ -1,182 +1,165 @@
-package com.example.dcmtkdemo.fragment;
+package com.example.dcmtkdemo.fragment
 
-import android.annotation.SuppressLint;
-import android.os.Bundle;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.Toast;
+import android.annotation.SuppressLint
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
+import com.example.dcmtk.callback.ProgressCallback
+import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.viewmodel.PacsViewModel
+import com.example.dcmtkdemo.activity.MainActivity
+import com.example.dcmtkdemo.adapter.PatientAdapter
+import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
+class RetrieveFragment : Fragment() {
 
-import com.example.dcmtkdemo.adapter.PatientAdapter;
-import com.example.dcmtk.callback.ProgressCallback;
-import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding;
-import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtk.model.PatientRecord;
-import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtk.viewmodel.PacsViewModel;
-import com.example.dcmtkdemo.activity.MainActivity;
+    private var binding: FragmentRetrieveBinding? = null
+    private lateinit var viewModel: PacsViewModel
+    private lateinit var adapter: PatientAdapter
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
+    private var lastBytes = 0L
+    private var lastTime = 0L
 
-public class RetrieveFragment extends Fragment {
-
-    private FragmentRetrieveBinding binding;
-    private PacsViewModel viewModel;
-    private PatientAdapter adapter;
-
-    private long lastBytes = 0;
-    private long lastTime = 0;
-
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container
-            , @Nullable Bundle savedInstanceState) {
-        binding = FragmentRetrieveBinding.inflate(inflater, container, false);
-        return binding.getRoot();
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        binding = FragmentRetrieveBinding.inflate(inflater, container, false)
+        return binding?.root
     }
 
     @SuppressLint("SetTextI18n")
-    @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        super.onViewCreated(view, savedInstanceState);
-        viewModel = new ViewModelProvider(requireActivity()).get(PacsViewModel.class);
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
 
-        setupRecyclerView();
+        setupRecyclerView()
 
-        viewModel.queryResults.observe(getViewLifecycleOwner(), records -> {
-            adapter.updateData(records);
+        viewModel.queryResults.observe(viewLifecycleOwner) { records ->
+            adapter.updateData(records)
             if (records == null || records.isEmpty()) {
-                binding.tvMoveStatus.setText("No query results. Please go to Query tab first.");
+                binding?.tvMoveStatus?.text = "No query results. Please go to Query tab first."
             } else {
-                binding.tvMoveStatus.setText("Found " + records.size()
-                        + " items from Query. Select to retrieve.");
+                binding?.tvMoveStatus?.text = "Found ${records.size} items from Query. Select to retrieve."
             }
-        });
+        }
 
-        binding.btnDownloadSelected.setOnClickListener(v -> {
-            ((MainActivity) requireActivity()).verifyConnection(() -> {
-                List<PatientRecord> selected = adapter.getSelectedRecords();
+        binding?.btnDownloadSelected?.setOnClickListener {
+            (requireActivity() as MainActivity).verifyConnection {
+                val selected = adapter.selectedRecords
                 if (selected.isEmpty()) {
-                    Toast.makeText(getContext(), "Please select at least one item", Toast.LENGTH_SHORT).show();
-                    return;
+                    Toast.makeText(context, "Please select at least one item", Toast.LENGTH_SHORT).show()
+                    return@verifyConnection
                 }
-                executeBatchDownload(selected);
-            });
-        });
+                executeBatchDownload(selected)
+            }
+        }
 
-        binding.btnPacsConfig.setOnClickListener(v -> {
-            ((MainActivity) requireActivity()).verifyConnection(null);
-        });
+        binding?.btnPacsConfig?.setOnClickListener {
+            (requireActivity() as MainActivity).verifyConnection(null)
+        }
     }
 
-    private void setupRecyclerView() {
-        adapter = new PatientAdapter(new ArrayList<>(), record -> {
-            record.setSelected(!record.isSelected());
-            adapter.notifyDataSetChanged();
-        });
-        binding.rvPatients.setLayoutManager(new GridLayoutManager(getContext(), 5));
-        binding.rvPatients.setAdapter(adapter);
+    @SuppressLint("NotifyDataSetChanged")
+    private fun setupRecyclerView() {
+        adapter = PatientAdapter(ArrayList()) { record ->
+            record.isSelected = !record.isSelected
+            adapter.notifyDataSetChanged()
+        }
+        binding?.rvPatients?.layoutManager = GridLayoutManager(context, 5)
+        binding?.rvPatients?.adapter = adapter
     }
 
-    @SuppressLint("SetTextI18n")
-    private void executeBatchDownload(List<PatientRecord> selected) {
-        File externalFilesDir = requireContext().getExternalFilesDir(null);
-        if (externalFilesDir == null) return;
-        File tempDir = new File(externalFilesDir.getParentFile(), "temp");
-        if (!tempDir.exists()) tempDir.mkdirs();
+    @SuppressLint("SetTextI18n", "DefaultLocale")
+    private fun executeBatchDownload(selected: List<PatientRecord>) {
+        val externalFilesDir = requireContext().getExternalFilesDir(null) ?: return
+        val tempDir = File(externalFilesDir.parentFile, "temp")
+        if (!tempDir.exists()) tempDir.mkdirs()
 
-        binding.progressBar.setVisibility(View.VISIBLE);
-        binding.progressBar.setIndeterminate(false);
-        binding.progressBar.setMax(selected.size());
-        binding.progressBar.setProgress(0);
-        binding.btnDownloadSelected.setEnabled(false);
-        binding.tvDownloadStats.setVisibility(View.VISIBLE);
-        binding.tvDownloadStats.setText("Speed: 0 KB/s | Progress: 0/" + selected.size());
+        binding?.apply {
+            progressBar.visibility = View.VISIBLE
+            progressBar.isIndeterminate = false
+            progressBar.max = selected.size
+            progressBar.progress = 0
+            btnDownloadSelected.isEnabled = false
+            tvDownloadStats.visibility = View.VISIBLE
+            tvDownloadStats.text = "Speed: 0 KB/s | Progress: 0/${selected.size}"
+        }
 
-        AppThreadPool.execute(() -> {
-            int count = 0;
-            for (PatientRecord record : selected) {
-                final int currentCount = ++count;
-                final String patId = record.getId();
-                
-                lastBytes = 0;
-                lastTime = System.currentTimeMillis();
+        viewLifecycleOwner.lifecycleScope.launch {
+            var count = 0
+            selected.forEach { record ->
+                val currentCount = ++count
+                val patId = record.id
 
-                if (getActivity() != null) {
-                    getActivity().runOnUiThread(() -> {
-                        binding.tvMoveStatus.setText("Downloading (" + currentCount
-                                + "/" + selected.size() + "): " + patId);
-                    });
-                }
+                lastBytes = 0L
+                lastTime = System.currentTimeMillis()
 
-                @SuppressLint("DefaultLocale") ProgressCallback callback = (sent, total) -> {
-                    long currentTime = System.currentTimeMillis();
-                    long timeDiff = currentTime - lastTime;
-                    if (timeDiff >= 1000) {
-                        long bytesDiff = sent - lastBytes;
-                        double speed = (bytesDiff / 1024.0) / (timeDiff / 1000.0); // KB/s
-                        lastBytes = sent;
-                        lastTime = currentTime;
-                        if (getActivity() != null) {
-                            getActivity().runOnUiThread(() -> {
-                                binding.tvDownloadStats
-                                        .setText(String.format("Speed: %.2f KB/s | Progress: %d/%d",
-                                        speed, currentCount, selected.size()));
-                            });
-                        }
-                    }
-                };
+                binding?.tvMoveStatus?.text = "Downloading ($currentCount/${selected.size}): $patId"
 
-                boolean success = DcmtkJni.cGet(
-                        viewModel.host.getValue(),
-                        viewModel.port.getValue(),
-                        viewModel.localAet.getValue(),
-                        viewModel.remoteAet.getValue(),
+                val success = withContext(Dispatchers.IO) {
+                    DcmtkJni.cGet(
+                        viewModel.host.value!!,
+                        viewModel.port.value!!,
+                        viewModel.localAet.value!!,
+                        viewModel.remoteAet.value!!,
                         patId,
-                        tempDir.getAbsolutePath(),
-                        callback
-                );
+                        tempDir.absolutePath,
+                        object : ProgressCallback {
+                            override fun onProgress(sent: Long, total: Long) {
+                                val currentTime = System.currentTimeMillis()
+                                val timeDiff = currentTime - lastTime
+                                if (timeDiff >= 1000) {
+                                    val bytesDiff = sent - lastBytes
+                                    val speed = (bytesDiff / 1024.0) / (timeDiff / 1000.0) // KB/s
+                                    lastBytes = sent
+                                    lastTime = currentTime
+                                    
+                                    lifecycleScope.launch(Dispatchers.Main) {
+                                        binding?.tvDownloadStats?.text = String.format(
+                                            "Speed: %.2f KB/s | Progress: %d/%d",
+                                            speed, currentCount, selected.size
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
 
                 if (success) {
-                    record.setDownloaded(true);
+                    record.isDownloaded = true
                 }
 
-                if (getActivity() != null) {
-                    getActivity().runOnUiThread(() -> {
-                        binding.progressBar.setProgress(currentCount);
-                        adapter.notifyDataSetChanged();
-                    });
-                }
+                binding?.progressBar?.progress = currentCount
+                adapter.notifyDataSetChanged()
             }
 
-            if (getActivity() != null) {
-                getActivity().runOnUiThread(() -> {
-                    binding.progressBar.setVisibility(View.GONE);
-                    binding.btnDownloadSelected.setEnabled(true);
-                    binding.tvMoveStatus.setText("Batch download completed.");
-                    for (PatientRecord record : selected) {
-                        record.setSelected(false);
-                    }
-                    adapter.notifyDataSetChanged();
-                    Toast.makeText(getContext(), "Batch download finished", Toast.LENGTH_SHORT).show();
-                });
+            binding?.apply {
+                progressBar.visibility = View.GONE
+                btnDownloadSelected.isEnabled = true
+                tvMoveStatus.text = "Batch download completed."
+                selected.forEach { it.isSelected = false }
+                adapter.notifyDataSetChanged()
+                Toast.makeText(context, "Batch download finished", Toast.LENGTH_SHORT).show()
             }
-        });
+        }
     }
 
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        binding = null;
+    override fun onDestroyView() {
+        super.onDestroyView()
+        binding = null
     }
 }

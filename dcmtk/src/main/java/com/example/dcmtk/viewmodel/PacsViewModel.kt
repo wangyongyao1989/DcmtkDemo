@@ -1,24 +1,20 @@
-package com.example.dcmtk.viewmodel;
+package com.example.dcmtk.viewmodel
 
-import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import com.example.dcmtk.model.PatientRecord
 
-import com.example.dcmtk.model.PatientRecord;
+class PacsViewModel : ViewModel() {
+    val host = MutableLiveData("192.168.10.153")
+    val port = MutableLiveData(11112)
+    val localAet = MutableLiveData("ANDROID_SCU")
+    val remoteAet = MutableLiveData("ACME_STORE")
 
-import java.util.ArrayList;
-import java.util.List;
+    val isPacsConnected = MutableLiveData(false)
+    val isCEchoSuccess = MutableLiveData(false)
 
-public class PacsViewModel extends ViewModel {
-    public final MutableLiveData<String> host = new MutableLiveData<>("192.168.10.153");
-    public final MutableLiveData<Integer> port = new MutableLiveData<>(11112);
-    public final MutableLiveData<String> localAet = new MutableLiveData<>("ANDROID_SCU");
-    public final MutableLiveData<String> remoteAet = new MutableLiveData<>("ACME_STORE");
+    val assetsReady = MutableLiveData(false)
 
-    public final MutableLiveData<Boolean> isPacsConnected = new MutableLiveData<>(false);
-    public final MutableLiveData<Boolean> isCEchoSuccess = new MutableLiveData<>(false);
-
-    public final MutableLiveData<Boolean> assetsReady = new MutableLiveData<>(false);
-
-    public final MutableLiveData<List<PatientRecord>> queryResults = new MutableLiveData<>(new ArrayList<>());
-    public final MutableLiveData<List<PatientRecord>> mwlResults = new MutableLiveData<>(new ArrayList<>());
+    val queryResults = MutableLiveData<List<PatientRecord>>(ArrayList())
+    val mwlResults = MutableLiveData<List<PatientRecord>>(ArrayList())
 }

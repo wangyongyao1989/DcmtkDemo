@@ -1,5 +1,5 @@
-package com.example.dcmtk.callback;
+package com.example.dcmtk.callback
 
-public interface ProgressCallback {
-    void onProgress(long sent, long total);
+interface ProgressCallback {
+    fun onProgress(sent: Long, total: Long)
 }

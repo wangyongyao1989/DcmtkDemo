@@ -1,130 +1,114 @@
-package com.example.dcmtkdemo.activity;
+package com.example.dcmtkdemo.activity
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.view.PacsConnectionDialog
+import com.example.dcmtk.view.PacsConnectionView
+import com.example.dcmtk.viewmodel.PacsViewModel
+import com.example.dcmtkdemo.R
+import com.example.dcmtkdemo.databinding.ActivityMainBinding
+import com.example.dcmtkdemo.fragment.*
+import com.example.dcmtkdemo.utils.FileUtil
+import kotlinx.coroutines.launch
+import java.io.IOException
 
-import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
-import android.util.Log;
+class MainActivity : AppCompatActivity() {
 
-import com.example.dcmtkdemo.R;
-import com.example.dcmtkdemo.databinding.ActivityMainBinding;
-import com.example.dcmtkdemo.fragment.DcmShowFragment;
-import com.example.dcmtkdemo.fragment.QueryFragment;
-import com.example.dcmtkdemo.fragment.RetrieveFragment;
-import com.example.dcmtkdemo.fragment.UploadFragment;
-import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
-import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtkdemo.utils.FileUtil;
-import com.example.dcmtk.view.PacsConnectionDialog;
-import com.example.dcmtk.view.PacsConnectionView;
-import com.example.dcmtk.viewmodel.PacsViewModel;
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var viewModel: PacsViewModel
 
-import java.io.IOException;
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 
-public class MainActivity extends AppCompatActivity {
-    private static final String TAG = "MainActivity";
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-    private ActivityMainBinding binding;
-    private PacsViewModel viewModel;
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        binding = ActivityMainBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
-
-        viewModel = new ViewModelProvider(this).get(PacsViewModel.class);
+        viewModel = ViewModelProvider(this).get(PacsViewModel::class.java)
 
         // 初始化字典 (写入和读取都需要)
-        AppThreadPool.execute(() -> {
+        lifecycleScope.launch {
             try {
-                DcmtkJni.initDcmtk(this);
-
+                DcmtkJni.initDcmtk(this@MainActivity)
                 // 将 assets 目录下的 .dcm 文件都拷贝到 getExternalFilesDir 下
-                FileUtil.copyDcmAssetsToExternal(this);
-                viewModel.assetsReady.postValue(true);
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to init dictionary or copy assets", e);
+                FileUtil.copyDcmAssetsToExternal(this@MainActivity)
+                viewModel.assetsReady.postValue(true)
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to init dictionary or copy assets", e)
             }
-        });
+        }
 
-        // setupConnectionBar();
-        setupNavigation();
+        setupNavigation()
 
         // Default fragment
         if (savedInstanceState == null) {
-            switchFragment(new UploadFragment());
+            switchFragment(UploadFragment())
         }
     }
 
-    public void verifyConnection(Runnable onVerified) {
-        PacsConnectionDialog popupWindow = new PacsConnectionDialog(
-                this,
-                viewModel.host.getValue(),
-                viewModel.port.getValue(),
-                viewModel.localAet.getValue(),
-                viewModel.remoteAet.getValue(),
-                new PacsConnectionView.OnConnectionVerifiedListener() {
-                    @Override
-                    public void onVerified(@androidx.annotation.NonNull String host, int port, @androidx.annotation.NonNull String local, @androidx.annotation.NonNull String remote) {
-                        viewModel.host.postValue(host);
-                        viewModel.port.postValue(port);
-                        viewModel.localAet.postValue(local);
-                        viewModel.remoteAet.postValue(remote);
-                        if (onVerified != null) onVerified.run();
-                    }
-
-                    @Override
-                    public void onCancel() {
-                    }
+    fun verifyConnection(onVerified: Runnable?) {
+        val popupWindow = PacsConnectionDialog(
+            this,
+            viewModel.host.value,
+            viewModel.port.value,
+            viewModel.localAet.value,
+            viewModel.remoteAet.value,
+            object : PacsConnectionView.OnConnectionVerifiedListener {
+                override fun onVerified(host: String, port: Int, local: String, remote: String) {
+                    viewModel.host.postValue(host)
+                    viewModel.port.postValue(port)
+                    viewModel.localAet.postValue(local)
+                    viewModel.remoteAet.postValue(remote)
+                    onVerified?.run()
                 }
-        );
 
-        popupWindow.show();
+                override fun onCancel() {}
+            }
+        )
+        popupWindow.show()
     }
 
-    private void setupNavigation() {
-        binding.bottomNavigation.setOnItemSelectedListener(item -> {
-            Fragment fragment = null;
-            int itemId = item.getItemId();
-            if (itemId == R.id.nav_upload) {
-                fragment = new UploadFragment();
-            } else if (itemId == R.id.nav_query) {
-                fragment = new QueryFragment();
-            } else if (itemId == R.id.nav_worklist) {
-                fragment = new WorklistQueryFragment();
-            } else if (itemId == R.id.nav_retrieve) {
-                fragment = new RetrieveFragment();
-            } else if (itemId == R.id.nav_show) {
-                fragment = new DcmShowFragment();
+    private fun setupNavigation() {
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            val fragment: Fragment? = when (item.itemId) {
+                R.id.nav_upload -> UploadFragment()
+                R.id.nav_query -> QueryFragment()
+                R.id.nav_worklist -> WorklistQueryFragment()
+                R.id.nav_retrieve -> RetrieveFragment()
+                R.id.nav_show -> DcmShowFragment()
+                else -> null
             }
 
-            if (fragment != null) {
-                switchFragment(fragment);
-                return true;
-            }
-            return false;
-        });
+            fragment?.let {
+                switchFragment(it)
+                true
+            } ?: false
+        }
     }
 
-    private void switchFragment(Fragment fragment) {
-        getSupportFragmentManager().beginTransaction()
-                .replace(R.id.fragment_container, fragment)
-                .commit();
+    private fun switchFragment(fragment: Fragment) {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, fragment)
+            .commit()
     }
 
-    private TextWatcher createWatcher(java.util.function.Consumer<String> consumer) {
-        return new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-            @Override public void afterTextChanged(Editable s) {
-                consumer.accept(s.toString());
+    private fun createWatcher(consumer: (String) -> Unit): TextWatcher {
+        return object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                consumer(s.toString())
             }
-        };
+        }
     }
 }

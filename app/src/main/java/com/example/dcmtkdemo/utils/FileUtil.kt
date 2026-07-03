@@ -1,42 +1,48 @@
-package com.example.dcmtkdemo.utils;
+package com.example.dcmtkdemo.utils
 
-import android.content.Context;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
-public class FileUtil {
+object FileUtil {
 
-    public static String copyAssetToExternalStorage(Context context, String assetName, String targetName) throws IOException {
-        File dir = context.getExternalFilesDir(null);
-        if (dir == null) throw new IOException("External storage not available");
-        File file = new File(dir, targetName);
-        if (!file.exists()) {
-            copyAsset(context, assetName, file);
+    @JvmStatic
+    @Throws(IOException::class)
+    suspend fun copyAssetToExternalStorage(context: Context, assetName: String, targetName: String): String =
+        withContext(Dispatchers.IO) {
+            val dir = context.getExternalFilesDir(null) ?: throw IOException("External storage not available")
+            val file = File(dir, targetName)
+            if (!file.exists()) {
+                copyAsset(context, assetName, file)
+            }
+            file.absolutePath
         }
-        return file.getAbsolutePath();
-    }
 
-    public static void copyDcmAssetsToExternal(Context context) throws IOException {
-        String[] assets = context.getAssets().list("");
-        if (assets != null) {
-            for (String asset : assets) {
-                if (asset.toLowerCase().endsWith(".dcm")) {
-                    android.util.Log.d("FileUtil", "Copying asset: " + asset);
-                    copyAssetToExternalStorage(context, asset, asset);
-                }
+    @JvmStatic
+    @Throws(IOException::class)
+    suspend fun copyDcmAssetsToExternal(context: Context) = withContext(Dispatchers.IO) {
+        val assets = context.assets.list("")
+        assets?.forEach { asset ->
+            if (asset.lowercase().endsWith(".dcm")) {
+                Log.d("FileUtil", "Copying asset: $asset")
+                copyAssetToExternalStorage(context, asset, asset)
             }
         }
     }
 
-    private static void copyAsset(Context context, String assetName, File targetFile) throws IOException {
-        try (InputStream is = context.getAssets().open(assetName);
-             FileOutputStream fos = new FileOutputStream(targetFile)) {
-            byte[] buffer = new byte[1024];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
+    @Throws(IOException::class)
+    private fun copyAsset(context: Context, assetName: String, targetFile: File) {
+        context.assets.open(assetName).use { `is` ->
+            FileOutputStream(targetFile).use { fos ->
+                val buffer = ByteArray(1024)
+                var read: Int
+                while ((`is`.read(buffer).also { read = it }) != -1) {
+                    fos.write(buffer, 0, read)
+                }
             }
         }
     }

@@ -1,85 +1,59 @@
-package com.example.dcmtkdemo.adapter;
+package com.example.dcmtkdemo.adapter
 
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ImageView;
-import android.widget.TextView;
-
-import androidx.annotation.NonNull;
-import androidx.recyclerview.widget.RecyclerView;
-
-import com.bumptech.glide.Glide;
-import com.example.dcmtkdemo.R;
-import com.example.dcmtk.model.DicomImageRecord;
-
-import java.io.File;
-import java.util.List;
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtkdemo.R
+import java.io.File
 
 /**
  * 用于 DcmShowFragment 列表的适配器。
  * 每个 item 展示转换后的 JPG 缩略图，以及 Patient Name / ID / Sex。
  */
-public class DcmImageAdapter extends RecyclerView.Adapter<DcmImageAdapter.ViewHolder> {
+class DcmImageAdapter(
+    private var records: List<DicomImageRecord>,
+    private val listener: (DicomImageRecord) -> Unit
+) : RecyclerView.Adapter<DcmImageAdapter.ViewHolder>() {
 
-    private List<DicomImageRecord> records;
-    private final OnItemClickListener listener;
-
-    public interface OnItemClickListener {
-        void onItemClick(DicomImageRecord record);
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_dcm_image, parent, false)
+        return ViewHolder(view)
     }
 
-    public DcmImageAdapter(List<DicomImageRecord> records, OnItemClickListener listener) {
-        this.records = records;
-        this.listener = listener;
-    }
-
-    @NonNull
-    @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_dcm_image, parent, false);
-        return new ViewHolder(view);
-    }
-
-    @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        DicomImageRecord record = records.get(position);
-        holder.tvName.setText(record.getName());
-        holder.tvId.setText("ID: " + record.getId());
-        holder.tvSex.setText("Sex: " + record.getSex());
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val record = records[position]
+        holder.tvName.text = record.name
+        holder.tvId.text = "ID: ${record.id}"
+        holder.tvSex.text = "Sex: ${record.sex}"
 
         // 使用 Glide 加载转换后的 JPG 缩略图
-        Glide.with(holder.itemView.getContext())
-                .load(record.getJpgPath() != null ? new File(record.getJpgPath()) : null)
-                .centerCrop()
-                .placeholder(android.R.color.darker_gray)
-                .error(android.R.drawable.ic_menu_gallery)
-                .into(holder.ivThumb);
+        Glide.with(holder.itemView.context)
+            .load(record.jpgPath?.let { File(it) })
+            .centerCrop()
+            .placeholder(android.R.color.darker_gray)
+            .error(android.R.drawable.ic_menu_gallery)
+            .into(holder.ivThumb)
 
-        holder.itemView.setOnClickListener(v -> listener.onItemClick(record));
+        holder.itemView.setOnClickListener { listener(record) }
     }
 
-    @Override
-    public int getItemCount() {
-        return records.size();
+    override fun getItemCount(): Int = records.size
+
+    fun updateData(newRecords: List<DicomImageRecord>) {
+        this.records = newRecords
+        notifyDataSetChanged()
     }
 
-    public void updateData(List<DicomImageRecord> newRecords) {
-        this.records = newRecords;
-        notifyDataSetChanged();
-    }
-
-    static class ViewHolder extends RecyclerView.ViewHolder {
-        ImageView ivThumb;
-        TextView tvName, tvId, tvSex;
-
-        ViewHolder(View view) {
-            super(view);
-            ivThumb = view.findViewById(R.id.iv_dcm_thumb);
-            tvName = view.findViewById(R.id.tv_dcm_name);
-            tvId = view.findViewById(R.id.tv_dcm_id);
-            tvSex = view.findViewById(R.id.tv_dcm_sex);
-        }
+    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val ivThumb: ImageView = view.findViewById(R.id.iv_dcm_thumb)
+        val tvName: TextView = view.findViewById(R.id.tv_dcm_name)
+        val tvId: TextView = view.findViewById(R.id.tv_dcm_id)
+        val tvSex: TextView = view.findViewById(R.id.tv_dcm_sex)
     }
 }

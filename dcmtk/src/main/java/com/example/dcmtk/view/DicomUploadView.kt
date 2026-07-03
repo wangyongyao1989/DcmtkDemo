@@ -105,9 +105,7 @@ class DicomUploadView @JvmOverloads constructor(
         binding.tvTitle.text = "Uploading DICOM Files"
 
         scope.launch {
-            val echoOk = withContext(Dispatchers.IO) {
-                PacsManager.safeCEchoSync(host, port, local, remote, 1)
-            }
+            val echoOk = PacsManager.safeCEcho(host, port, local, remote, 1)
             
             if (!echoOk) {
                 showError("PACS Verification Failed (Check Network/AETs)")
@@ -116,24 +114,22 @@ class DicomUploadView @JvmOverloads constructor(
 
             val totalFiles = paths.size
 
-            val successCount = withContext(Dispatchers.IO) {
-                PacsManager.safeCStoreMultiSync(host, port, local, remote, paths, object : MultiProgressCallback {
-                    override fun onProgress(index: Int, sent: Long, total: Long): Boolean {
-                        if (isCancelled.get()) return false
-                        launch(Dispatchers.Main) {
-                            var percent = if (total > 0) (sent * 100 / total).toInt() else 0
-                            if (percent > 100) percent = 100
-                            binding.progressBar.progress = percent
-                            binding.tvStatus.text = String.format(
-                                Locale.getDefault(), "Uploading (%d/%d): %s\n%s / %s (%d%%)",
-                                index + 1, totalFiles, File(paths[index]).name,
-                                formatBytes(sent), formatBytes(total), percent
-                            )
-                        }
-                        return true
+            val successCount = PacsManager.safeCStoreMulti(host, port, local, remote, paths, object : MultiProgressCallback {
+                override fun onProgress(index: Int, sent: Long, total: Long): Boolean {
+                    if (isCancelled.get()) return false
+                    launch(Dispatchers.Main) {
+                        var percent = if (total > 0) (sent * 100 / total).toInt() else 0
+                        if (percent > 100) percent = 100
+                        binding.progressBar.progress = percent
+                        binding.tvStatus.text = String.format(
+                            Locale.getDefault(), "Uploading (%d/%d): %s\n%s / %s (%d%%)",
+                            index + 1, totalFiles, File(paths[index]).name,
+                            formatBytes(sent), formatBytes(total), percent
+                        )
                     }
-                }, 1)
-            }
+                    return true
+                }
+            }, 1)
 
             listener?.onFinished(successCount, totalFiles)
         }
