@@ -17,13 +17,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class DicomUploadViewKt @JvmOverloads constructor(
     context: Context,
+    private var dcmPaths: Array<String>? = null,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewDicomUploadBinding =
         ViewDicomUploadBinding.inflate(LayoutInflater.from(context), this, true)
-    private var uploadRecords: List<DicomImageRecord>? = null
     private val isCancelled = AtomicBoolean(false)
     private var isUploading = false
     private var listener: OnUploadEventListener? = null
@@ -58,8 +58,12 @@ class DicomUploadViewKt @JvmOverloads constructor(
         }
     }
 
+    fun setDcmPaths(paths: Array<String>?) {
+        this.dcmPaths = paths
+    }
+
     fun setUploadRecords(records: List<DicomImageRecord>?) {
-        this.uploadRecords = records
+        this.dcmPaths = records?.map { it.dcmPath }?.toTypedArray()
     }
 
     fun setOnUploadEventListener(listener: OnUploadEventListener?) {
@@ -71,8 +75,8 @@ class DicomUploadViewKt @JvmOverloads constructor(
     }
 
     fun startUploadProcess() {
-        val records = uploadRecords
-        if (records.isNullOrEmpty()) {
+        val paths = dcmPaths
+        if (paths.isNullOrEmpty()) {
             showError("No records to upload")
             return
         }
@@ -110,8 +114,7 @@ class DicomUploadViewKt @JvmOverloads constructor(
                 return@launch
             }
 
-            val totalFiles = records.size
-            val paths = records.map { it.dcmPath }.toTypedArray()
+            val totalFiles = paths.size
 
             val successCount = withContext(Dispatchers.IO) {
                 PacsManager.safeCStoreMultiSync(host, port, local, remote, paths, object : MultiProgressCallback {

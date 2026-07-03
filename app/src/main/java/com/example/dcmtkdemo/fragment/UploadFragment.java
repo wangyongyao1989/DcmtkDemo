@@ -92,7 +92,11 @@ public class UploadFragment extends Fragment {
             }
 
             ((MainActivity) requireActivity()).verifyConnection(() -> {
-                DicomUploadDialogKt dialog = DicomUploadDialogKt.newInstance(selectedRecords, true);
+                String[] paths = new String[selectedRecords.size()];
+                for (int i = 0; i < selectedRecords.size(); i++) {
+                    paths[i] = selectedRecords.get(i).getDcmPath();
+                }
+                DicomUploadDialogKt dialog = DicomUploadDialogKt.newInstance(paths, true);
                 dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
                     for (DicomImageRecord record : selectedRecords) {
                         record.setSelected(false);
