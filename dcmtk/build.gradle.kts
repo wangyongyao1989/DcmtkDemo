@@ -30,6 +30,10 @@ android {
             )
         }
     }
+    buildFeatures {
+        viewBinding = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -44,4 +48,7 @@ android {
 
 dependencies {
     implementation(libs.appcompat)
+    implementation(libs.constraintlayout)
+    implementation(libs.material)
+    implementation(libs.kotlinx.coroutines.android)
 }

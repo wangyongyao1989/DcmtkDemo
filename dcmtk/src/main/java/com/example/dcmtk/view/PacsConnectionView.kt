@@ -1,15 +1,16 @@
-package com.example.dcmtkdemo.view
+package com.example.dcmtk.view
 
 import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.example.dcmtk.PacsManager
-import com.example.dcmtkdemo.databinding.ViewPacsConnectionBinding
+import com.example.dcmtk.databinding.ViewPacsConnectionBinding
 import kotlinx.coroutines.*
 
-class PacsConnectionViewKt @JvmOverloads constructor(
+class PacsConnectionView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
@@ -43,7 +44,7 @@ class PacsConnectionViewKt @JvmOverloads constructor(
                 return@setOnClickListener
             }
 
-            binding.tvError.visibility = GONE
+            binding.tvError.visibility = View.GONE
             binding.btnVerify.isEnabled = false
             binding.btnCancel.isEnabled = false
 
@@ -53,7 +54,7 @@ class PacsConnectionViewKt @JvmOverloads constructor(
                 }
                 
                 if (echoSuccess) {
-                    binding.tvError.visibility = GONE
+                    binding.tvError.visibility = View.GONE
                     Toast.makeText(context, "Connection & C-ECHO Verified", Toast.LENGTH_SHORT).show()
                     listener?.onVerified(host, port, local, remote)
                 } else {
@@ -75,7 +76,7 @@ class PacsConnectionViewKt @JvmOverloads constructor(
 
     private fun showError(message: String) {
         binding.tvError.text = message
-        binding.tvError.visibility = VISIBLE
+        binding.tvError.visibility = View.VISIBLE
     }
 
     fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {

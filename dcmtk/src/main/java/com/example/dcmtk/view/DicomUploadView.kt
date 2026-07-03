@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo.view
+package com.example.dcmtk.view
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -8,14 +8,14 @@ import android.view.View
 import android.widget.LinearLayout
 import com.example.dcmtk.PacsManager
 import com.example.dcmtk.callback.MultiProgressCallback
-import com.example.dcmtkdemo.databinding.ViewDicomUploadBinding
-import com.example.dcmtkdemo.model.DicomImageRecord
+import com.example.dcmtk.databinding.ViewDicomUploadBinding
+import com.example.dcmtk.model.DicomImageRecord
 import kotlinx.coroutines.*
 import java.io.File
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
-class DicomUploadViewKt @JvmOverloads constructor(
+class DicomUploadView @JvmOverloads constructor(
     context: Context,
     private var dcmPaths: Array<String>? = null,
     attrs: AttributeSet? = null,
@@ -71,7 +71,7 @@ class DicomUploadViewKt @JvmOverloads constructor(
     }
 
     fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
-        (binding.connectionView as? PacsConnectionViewKt)?.setConnectionInfo(host, port, local, remote)
+        (binding.connectionView as? PacsConnectionView)?.setConnectionInfo(host, port, local, remote)
     }
 
     fun startUploadProcess() {
@@ -81,7 +81,7 @@ class DicomUploadViewKt @JvmOverloads constructor(
             return
         }
 
-        val connView = binding.connectionView as? PacsConnectionViewKt
+        val connView = binding.connectionView as? PacsConnectionView
         if (connView == null) {
             showError("Invalid Connection View")
             return
@@ -97,7 +97,7 @@ class DicomUploadViewKt @JvmOverloads constructor(
             return
         }
 
-        binding.tvError.visibility = GONE
+        binding.tvError.visibility = View.GONE
         isUploading = true
         binding.connectionView.visibility = View.GONE
         binding.layoutUploadProgress.visibility = View.VISIBLE
@@ -141,7 +141,7 @@ class DicomUploadViewKt @JvmOverloads constructor(
 
     private fun showError(message: String) {
         binding.tvError.text = message
-        binding.tvError.visibility = VISIBLE
+        binding.tvError.visibility = View.VISIBLE
         isUploading = false
         binding.connectionView.visibility = View.VISIBLE
         binding.layoutUploadProgress.visibility = View.GONE

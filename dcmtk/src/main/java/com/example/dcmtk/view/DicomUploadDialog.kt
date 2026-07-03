@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo.view
+package com.example.dcmtk.view
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -6,12 +6,12 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.ViewModelProvider
-import com.example.dcmtkdemo.R
-import com.example.dcmtkdemo.viewmodel.PacsViewModel
+import com.example.dcmtk.R
+import com.example.dcmtk.viewmodel.PacsViewModel
 
-class DicomUploadDialogKt : DialogFragment() {
+class DicomUploadDialog : DialogFragment() {
 
-    private var uploadView: DicomUploadViewKt? = null
+    private var uploadView: DicomUploadView? = null
     private lateinit var viewModel: PacsViewModel
     private var dcmPaths: Array<String>? = null
     private var listener: OnUploadFinishedListener? = null
@@ -23,13 +23,13 @@ class DicomUploadDialogKt : DialogFragment() {
 
     companion object {
         @JvmStatic
-        fun newInstance(paths: Array<String>): DicomUploadDialogKt {
+        fun newInstance(paths: Array<String>): DicomUploadDialog {
             return newInstance(paths, false)
         }
 
         @JvmStatic
-        fun newInstance(paths: Array<String>, autoStart: Boolean): DicomUploadDialogKt {
-            return DicomUploadDialogKt().apply {
+        fun newInstance(paths: Array<String>, autoStart: Boolean): DicomUploadDialog {
+            return DicomUploadDialog().apply {
                 this.dcmPaths = paths
                 this.autoStart = autoStart
             }
@@ -50,7 +50,7 @@ class DicomUploadDialogKt : DialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        uploadView = DicomUploadViewKt(requireContext(), dcmPaths).apply {
+        uploadView = DicomUploadView(requireContext(), dcmPaths).apply {
             setBackgroundResource(R.drawable.popup_bg)
         }
         return uploadView
@@ -67,7 +67,7 @@ class DicomUploadDialogKt : DialogFragment() {
                 viewModel.localAet.value,
                 viewModel.remoteAet.value
             )
-            setOnUploadEventListener(object : DicomUploadViewKt.OnUploadEventListener {
+            setOnUploadEventListener(object : DicomUploadView.OnUploadEventListener {
                 override fun onFinished(successCount: Int, totalCount: Int) {
                     listener?.onFinished(successCount, totalCount)
                     dismiss()

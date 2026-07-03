@@ -11,7 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.example.dcmtkdemo.R;
-import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtk.model.DicomImageRecord;
 
 import java.io.File;
 import java.util.List;

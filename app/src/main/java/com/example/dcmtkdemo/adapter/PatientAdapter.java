@@ -11,7 +11,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.dcmtkdemo.R;
-import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtk.model.PatientRecord;
 
 import java.util.ArrayList;
 import java.util.List;

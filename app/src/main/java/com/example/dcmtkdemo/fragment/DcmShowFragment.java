@@ -17,7 +17,7 @@ import com.example.dcmtkdemo.activity.DetailActivity;
 import com.example.dcmtkdemo.adapter.DcmImageAdapter;
 import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding;
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtk.model.DicomImageRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 
 import java.io.File;

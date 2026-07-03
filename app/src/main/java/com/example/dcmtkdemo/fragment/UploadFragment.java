@@ -19,10 +19,10 @@ import com.example.dcmtkdemo.activity.MainActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
 import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.view.DicomUploadDialogKt;
-import com.example.dcmtkdemo.model.DicomImageRecord;
+import com.example.dcmtk.view.DicomUploadDialog;
+import com.example.dcmtk.model.DicomImageRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtk.viewmodel.PacsViewModel;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -96,7 +96,7 @@ public class UploadFragment extends Fragment {
                 for (int i = 0; i < selectedRecords.size(); i++) {
                     paths[i] = selectedRecords.get(i).getDcmPath();
                 }
-                DicomUploadDialogKt dialog = DicomUploadDialogKt.newInstance(paths, true);
+                DicomUploadDialog dialog = DicomUploadDialog.newInstance(paths, true);
                 dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
                     for (DicomImageRecord record : selectedRecords) {
                         record.setSelected(false);

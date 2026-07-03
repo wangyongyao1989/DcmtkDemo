@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
-import android.view.Gravity;
 
 import com.example.dcmtkdemo.R;
 import com.example.dcmtkdemo.databinding.ActivityMainBinding;
@@ -20,9 +19,9 @@ import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.FileUtil;
-import com.example.dcmtkdemo.view.PacsConnectionDialogKt;
-import com.example.dcmtkdemo.view.PacsConnectionViewKt;
-import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtk.view.PacsConnectionDialog;
+import com.example.dcmtk.view.PacsConnectionView;
+import com.example.dcmtk.viewmodel.PacsViewModel;
 
 import java.io.IOException;
 
@@ -64,13 +63,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void verifyConnection(Runnable onVerified) {
-        PacsConnectionDialogKt popupWindow = new PacsConnectionDialogKt(
+        PacsConnectionDialog popupWindow = new PacsConnectionDialog(
                 this,
                 viewModel.host.getValue(),
                 viewModel.port.getValue(),
                 viewModel.localAet.getValue(),
                 viewModel.remoteAet.getValue(),
-                new PacsConnectionViewKt.OnConnectionVerifiedListener() {
+                new PacsConnectionView.OnConnectionVerifiedListener() {
                     @Override
                     public void onVerified(@androidx.annotation.NonNull String host, int port, @androidx.annotation.NonNull String local, @androidx.annotation.NonNull String remote) {
                         viewModel.host.postValue(host);

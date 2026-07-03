@@ -18,9 +18,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import com.example.dcmtkdemo.adapter.PatientAdapter;
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding;
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.model.PatientRecord;
+import com.example.dcmtk.model.PatientRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtkdemo.viewmodel.PacsViewModel;
+import com.example.dcmtk.viewmodel.PacsViewModel;
 import com.example.dcmtkdemo.activity.MainActivity;
 
 import java.io.File;

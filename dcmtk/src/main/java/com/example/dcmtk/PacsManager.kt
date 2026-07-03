@@ -128,4 +128,95 @@ object PacsManager {
         
         return successCount
     }
+
+    /**
+     * C-FIND 操作
+     */
+    @JvmStatic
+    fun cFind(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        queryVal: String
+    ): Array<String>? {
+        return try {
+            DcmtkJni.cFind(host, port, localAET, remoteAET, queryVal)
+        } catch (e: Exception) {
+            Log.e(TAG, "cFind failed", e)
+            null
+        }
+    }
+
+    /**
+     * C-FIND By Accession
+     */
+    @JvmStatic
+    fun cFindByAccession(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        accession: String
+    ): Array<String>? {
+        return try {
+            DcmtkJni.cFindByAccession(host, port, localAET, remoteAET, accession)
+        } catch (e: Exception) {
+            Log.e(TAG, "cFindByAccession failed", e)
+            null
+        }
+    }
+
+    /**
+     * C-GET 操作
+     */
+    @JvmStatic
+    fun cGet(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        patId: String,
+        saveDir: String,
+        callback: com.example.dcmtk.callback.ProgressCallback
+    ): Boolean {
+        return try {
+            DcmtkJni.cGet(host, port, localAET, remoteAET, patId, saveDir, callback)
+        } catch (e: Exception) {
+            Log.e(TAG, "cGet failed", e)
+            false
+        }
+    }
+
+    /**
+     * MWL C-FIND 操作
+     */
+    @JvmStatic
+    fun cFindMWL(
+        host: String,
+        port: Int,
+        localAET: String,
+        remoteAET: String,
+        modality: String
+    ): Array<String>? {
+        return try {
+            DcmtkJni.cFindMWL(host, port, localAET, remoteAET, modality)
+        } catch (e: Exception) {
+            Log.e(TAG, "cFindMWL failed", e)
+            null
+        }
+    }
+
+    /**
+     * 加载 DICOM 文件信息
+     */
+    @JvmStatic
+    fun loadDicomFileInfo(path: String): java.util.HashMap<String, String>? {
+        return try {
+            DcmtkJni.loadDicomFileInfo(path)
+        } catch (e: Exception) {
+            Log.e(TAG, "loadDicomFileInfo failed", e)
+            null
+        }
+    }
 }
