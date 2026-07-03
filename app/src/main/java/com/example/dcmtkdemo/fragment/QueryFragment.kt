@@ -12,8 +12,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.view.PacsConnectionDialog
+import com.example.dcmtk.view.PacsConnectionView
 import com.example.dcmtk.viewmodel.PacsViewModel
-import com.example.dcmtkdemo.activity.MainActivity
 import com.example.dcmtkdemo.adapter.PatientAdapter
 import com.example.dcmtkdemo.databinding.FragmentQueryBinding
 import kotlinx.coroutines.Dispatchers
@@ -42,21 +43,21 @@ class QueryFragment : Fragment() {
         setupRecyclerView()
 
         binding?.btnQuery?.setOnClickListener {
-            (requireActivity() as MainActivity).verifyConnection {
+            verifyConnection {
                 val patName = binding?.etQueryPatName?.text.toString().trim()
                 executeQuery(patName, 0)
             }
         }
 
         binding?.btnQueryAccession?.setOnClickListener {
-            (requireActivity() as MainActivity).verifyConnection {
+            verifyConnection {
                 val accession = binding?.etQueryAccession?.text.toString().trim()
                 executeQuery(accession, 1)
             }
         }
 
         binding?.btnPacsConfig?.setOnClickListener {
-            (requireActivity() as MainActivity).verifyConnection(null)
+            verifyConnection(null)
         }
 
         viewModel.queryResults.observe(viewLifecycleOwner) { records ->
@@ -158,6 +159,28 @@ class QueryFragment : Fragment() {
     private fun setButtonsEnabled(enabled: Boolean) {
         binding?.btnQuery?.isEnabled = enabled
         binding?.btnQueryAccession?.isEnabled = enabled
+    }
+
+    private fun verifyConnection(onVerified: Runnable?) {
+        val popupWindow = PacsConnectionDialog(
+            requireContext(),
+            viewModel.host.value,
+            viewModel.port.value,
+            viewModel.localAet.value,
+            viewModel.remoteAet.value,
+            object : PacsConnectionView.OnConnectionVerifiedListener {
+                override fun onVerified(host: String, port: Int, local: String, remote: String) {
+                    viewModel.host.postValue(host)
+                    viewModel.port.postValue(port)
+                    viewModel.localAet.postValue(local)
+                    viewModel.remoteAet.postValue(remote)
+                    onVerified?.run()
+                }
+
+                override fun onCancel() {}
+            }
+        )
+        popupWindow.show()
     }
 
     override fun onDestroyView() {

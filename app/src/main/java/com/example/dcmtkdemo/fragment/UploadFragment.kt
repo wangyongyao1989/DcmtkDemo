@@ -15,9 +15,10 @@ import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.DicomImageRecord
 import com.example.dcmtk.view.DicomUploadDialog
+import com.example.dcmtk.view.PacsConnectionDialog
+import com.example.dcmtk.view.PacsConnectionView
 import com.example.dcmtk.viewmodel.PacsViewModel
 import com.example.dcmtkdemo.activity.DetailActivity
-import com.example.dcmtkdemo.activity.MainActivity
 import com.example.dcmtkdemo.adapter.DcmUploadAdapter
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding
 import kotlinx.coroutines.Dispatchers
@@ -87,7 +88,7 @@ class UploadFragment : Fragment() {
                 return@setOnClickListener
             }
 
-            (requireActivity() as MainActivity).verifyConnection {
+            verifyConnection {
                 val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
                 val dialog = DicomUploadDialog.newInstance(paths, true)
                 dialog.setOnUploadFinishedListener(object : DicomUploadDialog.OnUploadFinishedListener {
@@ -180,6 +181,28 @@ class UploadFragment : Fragment() {
     private fun safeGet(map: HashMap<String, String>, key: String): String {
         val valStr = map[key]
         return if (valStr != null && valStr.isNotEmpty()) valStr else "N/A"
+    }
+
+    private fun verifyConnection(onVerified: Runnable?) {
+        val popupWindow = PacsConnectionDialog(
+            requireContext(),
+            viewModel.host.value,
+            viewModel.port.value,
+            viewModel.localAet.value,
+            viewModel.remoteAet.value,
+            object : PacsConnectionView.OnConnectionVerifiedListener {
+                override fun onVerified(host: String, port: Int, local: String, remote: String) {
+                    viewModel.host.postValue(host)
+                    viewModel.port.postValue(port)
+                    viewModel.localAet.postValue(local)
+                    viewModel.remoteAet.postValue(remote)
+                    onVerified?.run()
+                }
+
+                override fun onCancel() {}
+            }
+        )
+        popupWindow.show()
     }
 
     override fun onDestroyView() {

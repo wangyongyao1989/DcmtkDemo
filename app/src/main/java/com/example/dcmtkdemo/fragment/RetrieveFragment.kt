@@ -14,8 +14,9 @@ import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.callback.ProgressCallback
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.view.PacsConnectionDialog
+import com.example.dcmtk.view.PacsConnectionView
 import com.example.dcmtk.viewmodel.PacsViewModel
-import com.example.dcmtkdemo.activity.MainActivity
 import com.example.dcmtkdemo.adapter.PatientAdapter
 import com.example.dcmtkdemo.databinding.FragmentRetrieveBinding
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,7 @@ class RetrieveFragment : Fragment() {
         }
 
         binding?.btnDownloadSelected?.setOnClickListener {
-            (requireActivity() as MainActivity).verifyConnection {
+            verifyConnection {
                 val selected = adapter.selectedRecords
                 if (selected.isEmpty()) {
                     Toast.makeText(context, "Please select at least one item", Toast.LENGTH_SHORT).show()
@@ -68,7 +69,7 @@ class RetrieveFragment : Fragment() {
         }
 
         binding?.btnPacsConfig?.setOnClickListener {
-            (requireActivity() as MainActivity).verifyConnection(null)
+            verifyConnection(null)
         }
     }
 
@@ -156,6 +157,28 @@ class RetrieveFragment : Fragment() {
                 Toast.makeText(context, "Batch download finished", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun verifyConnection(onVerified: Runnable?) {
+        val popupWindow = PacsConnectionDialog(
+            requireContext(),
+            viewModel.host.value,
+            viewModel.port.value,
+            viewModel.localAet.value,
+            viewModel.remoteAet.value,
+            object : PacsConnectionView.OnConnectionVerifiedListener {
+                override fun onVerified(host: String, port: Int, local: String, remote: String) {
+                    viewModel.host.postValue(host)
+                    viewModel.port.postValue(port)
+                    viewModel.localAet.postValue(local)
+                    viewModel.remoteAet.postValue(remote)
+                    onVerified?.run()
+                }
+
+                override fun onCancel() {}
+            }
+        )
+        popupWindow.show()
     }
 
     override fun onDestroyView() {
