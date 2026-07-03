@@ -1,8 +1,13 @@
 package com.example.dcmtk.jni;
 
+import android.content.Context;
+import android.util.Log;
+
 import com.example.dcmtk.callback.MultiProgressCallback;
 import com.example.dcmtk.callback.ProgressCallback;
+import com.example.dcmtk.utils.DcmtkFileUtil;
 
+import java.io.IOException;
 import java.util.HashMap;
 
 public class DcmtkJni {
@@ -12,6 +17,19 @@ public class DcmtkJni {
     }
 
     public native String stringFromJNI();
+
+    /**
+     * 初始化 DCMTK 字典
+     * @param context 上下文，用于从 assets 中拷贝 dicom.dic
+     */
+    public static void initDcmtk(Context context) {
+        try {
+            String dictPath = DcmtkFileUtil.copyAssetToInternalStorage(context, "dicom.dic");
+            initDcmtk(dictPath);
+        } catch (IOException e) {
+            Log.e("DcmtkJni", "Failed to init dcmtk dictionary", e);
+        }
+    }
 
     public static native void initDcmtk(String dictPath);
 

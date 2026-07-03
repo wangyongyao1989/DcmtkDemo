@@ -11,7 +11,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.utils.FileUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -41,9 +40,8 @@ public class DcmtkGetTest {
     public void setUp() throws IOException {
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         // 初始化 DCMTK 字典
-        String dictPath = FileUtil.copyAssetToInternalStorage(context, "dicom.dic");
-        DcmtkJni.initDcmtk(dictPath);
-        Log.d(TAG, "DCMTK JNI initialized with dict: " + dictPath);
+        DcmtkJni.initDcmtk(context);
+        Log.d(TAG, "DCMTK JNI initialized.");
     }
 
     /**

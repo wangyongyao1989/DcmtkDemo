@@ -19,7 +19,7 @@ import com.example.dcmtkdemo.activity.MainActivity;
 import com.example.dcmtkdemo.databinding.FragmentUploadBinding;
 import android.content.Intent;
 import com.example.dcmtk.jni.DcmtkJni;
-import com.example.dcmtkdemo.view.DicomUploadDialog;
+import com.example.dcmtkdemo.view.DicomUploadDialogKt;
 import com.example.dcmtkdemo.model.DicomImageRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
@@ -92,7 +92,7 @@ public class UploadFragment extends Fragment {
             }
 
             ((MainActivity) requireActivity()).verifyConnection(() -> {
-                DicomUploadDialog dialog = DicomUploadDialog.newInstance(selectedRecords, true);
+                DicomUploadDialogKt dialog = DicomUploadDialogKt.newInstance(selectedRecords, true);
                 dialog.setOnUploadFinishedListener((successCount, totalCount) -> {
                     for (DicomImageRecord record : selectedRecords) {
                         record.setSelected(false);

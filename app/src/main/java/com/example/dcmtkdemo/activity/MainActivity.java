@@ -20,8 +20,8 @@ import com.example.dcmtkdemo.fragment.WorklistQueryFragment;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.utils.AppThreadPool;
 import com.example.dcmtkdemo.utils.FileUtil;
-import com.example.dcmtkdemo.view.PacsConnectionDialog;
-import com.example.dcmtkdemo.view.PacsConnectionView;
+import com.example.dcmtkdemo.view.PacsConnectionDialogKt;
+import com.example.dcmtkdemo.view.PacsConnectionViewKt;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 
 import java.io.IOException;
@@ -44,9 +44,7 @@ public class MainActivity extends AppCompatActivity {
         // 初始化字典 (写入和读取都需要)
         AppThreadPool.execute(() -> {
             try {
-                String dictPath = FileUtil.copyAssetToInternalStorage(this
-                        , "dicom.dic");
-                DcmtkJni.initDcmtk(dictPath);
+                DcmtkJni.initDcmtk(this);
 
                 // 将 assets 目录下的 .dcm 文件都拷贝到 getExternalFilesDir 下
                 FileUtil.copyDcmAssetsToExternal(this);
@@ -66,15 +64,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void verifyConnection(Runnable onVerified) {
-        PacsConnectionDialog popupWindow = new PacsConnectionDialog(
+        PacsConnectionDialogKt popupWindow = new PacsConnectionDialogKt(
                 this,
                 viewModel.host.getValue(),
                 viewModel.port.getValue(),
                 viewModel.localAet.getValue(),
                 viewModel.remoteAet.getValue(),
-                new PacsConnectionView.OnConnectionVerifiedListener() {
+                new PacsConnectionViewKt.OnConnectionVerifiedListener() {
                     @Override
-                    public void onVerified(String host, int port, String local, String remote) {
+                    public void onVerified(@androidx.annotation.NonNull String host, int port, @androidx.annotation.NonNull String local, @androidx.annotation.NonNull String remote) {
                         viewModel.host.postValue(host);
                         viewModel.port.postValue(port);
                         viewModel.localAet.postValue(local);

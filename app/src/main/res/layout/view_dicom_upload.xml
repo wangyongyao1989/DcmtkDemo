@@ -18,7 +18,7 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <com.example.dcmtkdemo.view.PacsConnectionView
+    <com.example.dcmtkdemo.view.PacsConnectionViewKt
         android:id="@+id/connection_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />

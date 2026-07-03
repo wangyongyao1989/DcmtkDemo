@@ -7,20 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 
 public class FileUtil {
-    /**
-     * 将 Assets 中的文件拷贝到应用的内部存储目录
-     * @param context 上下文
-     * @param assetName assets 文件夹中的文件名
-     * @return 拷贝后文件的绝对路径
-     * @throws IOException 拷贝失败时抛出异常
-     */
-    public static String copyAssetToInternalStorage(Context context, String assetName) throws IOException {
-        File file = new File(context.getFilesDir(), assetName);
-        if (!file.exists()) {
-            copyAsset(context, assetName, file);
-        }
-        return file.getAbsolutePath();
-    }
 
     public static String copyAssetToExternalStorage(Context context, String assetName, String targetName) throws IOException {
         File dir = context.getExternalFilesDir(null);

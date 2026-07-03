@@ -18,7 +18,7 @@ import com.example.dcmtkdemo.databinding.FragmentWorklistQueryBinding;
 import com.example.dcmtk.jni.DcmtkJni;
 import com.example.dcmtkdemo.model.PatientRecord;
 import com.example.dcmtkdemo.utils.AppThreadPool;
-import com.example.dcmtkdemo.utils.MwlTemplateHelper;
+import com.example.dcmtk.utils.MwlTemplateHelper;
 import com.example.dcmtkdemo.viewmodel.PacsViewModel;
 import com.example.dcmtkdemo.activity.MainActivity;
 

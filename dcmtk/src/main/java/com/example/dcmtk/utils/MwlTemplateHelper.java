@@ -1,4 +1,4 @@
-package com.example.dcmtkdemo.utils;
+package com.example.dcmtk.utils;
 
 import android.content.Context;
 import android.util.Log;
