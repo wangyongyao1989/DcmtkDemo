@@ -17,6 +17,11 @@ class DicomUploadDialog : DialogFragment() {
     private var listener: OnUploadFinishedListener? = null
     private var autoStart = false
 
+    private var host: String? = null
+    private var port: Int = 0
+    private var localAet: String? = null
+    private var remoteAet: String? = null
+
     interface OnUploadFinishedListener {
         fun onFinished(successCount: Int, totalCount: Int)
     }
@@ -32,6 +37,25 @@ class DicomUploadDialog : DialogFragment() {
             return DicomUploadDialog().apply {
                 this.dcmPaths = paths
                 this.autoStart = autoStart
+            }
+        }
+
+        @JvmStatic
+        fun newInstance(
+            paths: Array<String>,
+            autoStart: Boolean,
+            host: String?,
+            port: Int,
+            localAet: String?,
+            remoteAet: String?
+        ): DicomUploadDialog {
+            return DicomUploadDialog().apply {
+                this.dcmPaths = paths
+                this.autoStart = autoStart
+                this.host = host
+                this.port = port
+                this.localAet = localAet
+                this.remoteAet = remoteAet
             }
         }
     }

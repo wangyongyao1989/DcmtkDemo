@@ -90,8 +90,13 @@ class UploadFragment : Fragment() {
 
             verifyConnection {
                 val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
-                val dialog = DicomUploadDialog.newInstance(paths, true)
-                dialog.setOnUploadFinishedListener(object : DicomUploadDialog.OnUploadFinishedListener {
+                val dialog = DicomUploadDialog.newInstance(paths, true,
+                viewModel.host.value,
+                viewModel.port.value ?: 0,
+                viewModel.localAet.value,
+                viewModel.remoteAet.value)
+                dialog.setOnUploadFinishedListener(object :
+                    DicomUploadDialog.OnUploadFinishedListener {
                     override fun onFinished(successCount: Int, totalCount: Int) {
                         selectedRecords.forEach { it.isSelected = false }
                         adapter.notifyDataSetChanged()
@@ -107,7 +112,8 @@ class UploadFragment : Fragment() {
     }
 
     private fun updateUiMode(uploadMode: Boolean) {
-        binding?.btnToggleMode?.text = if (uploadMode) "Exit Upload Mode" else "Switch to Upload Mode"
+        binding?.btnToggleMode?.text =
+            if (uploadMode) "Exit Upload Mode" else "Switch to Upload Mode"
         binding?.btnUpload?.visibility = if (uploadMode) View.VISIBLE else View.GONE
         binding?.tvUploadStatus?.visibility = View.VISIBLE // Always show status
         if (!uploadMode) {
@@ -170,7 +176,7 @@ class UploadFragment : Fragment() {
                     DicomImageRecord(name, id, sex, date, desc, dcmPath, jpgPath)
                 }
             }
-            
+
             binding?.let {
                 adapter.updateData(records)
                 it.tvUploadStatus.text = "Found ${records.size} DICOM file(s)."
@@ -183,8 +189,8 @@ class UploadFragment : Fragment() {
         return if (valStr != null && valStr.isNotEmpty()) valStr else "N/A"
     }
 
-    private fun verifyConnection(onVerified: Runnable?) {
-        val popupWindow = PacsConnectionDialog(
+    private fun verifyConnection(onSuccess: (() -> Unit)? = null) {
+        PacsConnectionDialog(
             requireContext(),
             viewModel.host.value,
             viewModel.port.value,
@@ -192,17 +198,20 @@ class UploadFragment : Fragment() {
             viewModel.remoteAet.value,
             object : PacsConnectionView.OnConnectionVerifiedListener {
                 override fun onVerified(host: String, port: Int, local: String, remote: String) {
-                    viewModel.host.postValue(host)
-                    viewModel.port.postValue(port)
-                    viewModel.localAet.postValue(local)
-                    viewModel.remoteAet.postValue(remote)
-                    onVerified?.run()
+                    // 更新 ViewModel 中的连接信息。使用 .value 直接同步更新，
+                    // 确保后续操作（如弹出上传对话框）能立即读取到最新配置。
+                    viewModel.host.value = host
+                    viewModel.port.value = port
+                    viewModel.localAet.value = local
+                    viewModel.remoteAet.value = remote
+                    onSuccess?.invoke()
                 }
 
-                override fun onCancel() {}
+                override fun onCancel() {
+                    // 用户取消验证，不执行后续逻辑
+                }
             }
-        )
-        popupWindow.show()
+        ).show()
     }
 
     override fun onDestroyView() {
