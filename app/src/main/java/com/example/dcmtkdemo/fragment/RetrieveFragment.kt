@@ -11,8 +11,10 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
+import com.example.dcmtk.PacsManager
 import com.example.dcmtk.callback.ProgressCallback
 import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
 import com.example.dcmtk.view.PacsConnectionDialog
 import com.example.dcmtk.view.PacsConnectionView
@@ -100,6 +102,7 @@ class RetrieveFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            val config = viewModel.pacsConfig.value ?: return@launch
             var count = 0
             selected.forEach { record ->
                 val currentCount = ++count
@@ -111,11 +114,8 @@ class RetrieveFragment : Fragment() {
                 binding?.tvMoveStatus?.text = "Downloading ($currentCount/${selected.size}): $patId"
 
                 val success = withContext(Dispatchers.IO) {
-                    DcmtkJni.cGet(
-                        viewModel.host.value!!,
-                        viewModel.port.value!!,
-                        viewModel.localAet.value!!,
-                        viewModel.remoteAet.value!!,
+                    PacsManager.cGet(
+                        config,
                         patId,
                         tempDir.absolutePath,
                         object : ProgressCallback {
@@ -159,20 +159,14 @@ class RetrieveFragment : Fragment() {
         }
     }
 
-    private fun verifyConnection(onVerified: Runnable?) {
+    private fun verifyConnection(onVerified: (() -> Unit)?) {
         val popupWindow = PacsConnectionDialog(
             requireContext(),
-            viewModel.host.value,
-            viewModel.port.value,
-            viewModel.localAet.value,
-            viewModel.remoteAet.value,
+            viewModel.pacsConfig.value,
             object : PacsConnectionView.OnConnectionVerifiedListener {
-                override fun onVerified(host: String, port: Int, local: String, remote: String) {
-                    viewModel.host.postValue(host)
-                    viewModel.port.postValue(port)
-                    viewModel.localAet.postValue(local)
-                    viewModel.remoteAet.postValue(remote)
-                    onVerified?.run()
+                override fun onVerified(config: PacsConfig) {
+                    viewModel.pacsConfig.postValue(config)
+                    onVerified?.invoke()
                 }
 
                 override fun onCancel() {}

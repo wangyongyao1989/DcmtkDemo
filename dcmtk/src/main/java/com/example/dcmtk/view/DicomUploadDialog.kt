@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.ViewModelProvider
 import com.example.dcmtk.R
+import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.viewmodel.PacsViewModel
 
 class DicomUploadDialog : DialogFragment() {
@@ -17,10 +18,7 @@ class DicomUploadDialog : DialogFragment() {
     private var listener: OnUploadFinishedListener? = null
     private var autoStart = false
 
-    private var host: String? = null
-    private var port: Int = 0
-    private var localAet: String? = null
-    private var remoteAet: String? = null
+    private var pacsConfig: PacsConfig? = null
 
     interface OnUploadFinishedListener {
         fun onFinished(successCount: Int, totalCount: Int)
@@ -44,19 +42,25 @@ class DicomUploadDialog : DialogFragment() {
         fun newInstance(
             paths: Array<String>,
             autoStart: Boolean,
+            config: PacsConfig?
+        ): DicomUploadDialog {
+            return DicomUploadDialog().apply {
+                this.dcmPaths = paths
+                this.autoStart = autoStart
+                this.pacsConfig = config
+            }
+        }
+
+        @JvmStatic
+        fun newInstance(
+            paths: Array<String>,
+            autoStart: Boolean,
             host: String?,
             port: Int,
             localAet: String?,
             remoteAet: String?
         ): DicomUploadDialog {
-            return DicomUploadDialog().apply {
-                this.dcmPaths = paths
-                this.autoStart = autoStart
-                this.host = host
-                this.port = port
-                this.localAet = localAet
-                this.remoteAet = remoteAet
-            }
+            return newInstance(paths, autoStart, PacsConfig(host ?: "", port, localAet ?: "", remoteAet ?: ""))
         }
     }
 
@@ -85,12 +89,7 @@ class DicomUploadDialog : DialogFragment() {
         viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
 
         uploadView?.apply {
-            setConnectionInfo(
-                viewModel.host.value,
-                viewModel.port.value ?: 0,
-                viewModel.localAet.value,
-                viewModel.remoteAet.value
-            )
+            setConnectionInfo(pacsConfig ?: viewModel.pacsConfig.value)
             setOnUploadEventListener(object : DicomUploadView.OnUploadEventListener {
                 override fun onFinished(successCount: Int, totalCount: Int) {
                     listener?.onFinished(successCount, totalCount)

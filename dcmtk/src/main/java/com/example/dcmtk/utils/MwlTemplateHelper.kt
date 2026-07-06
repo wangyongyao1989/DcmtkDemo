@@ -2,7 +2,9 @@ package com.example.dcmtk.utils
 
 import android.content.Context
 import android.util.Log
+import com.example.dcmtk.PacsManager
 import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.PacsConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -58,10 +60,7 @@ object MwlTemplateHelper {
     @JvmStatic
     suspend fun executeMwlQuery(
         context: Context,
-        host: String,
-        port: Int,
-        localAet: String,
-        remoteAet: String,
+        config: PacsConfig,
         templateName: String
     ): Array<String> = withContext(Dispatchers.IO) {
         val templateFile = File(context.filesDir, "$TEMPLATE_LOCAL_DIR/$templateName")
@@ -75,8 +74,8 @@ object MwlTemplateHelper {
             exportDir.mkdirs()
         }
 
-        DcmtkJni.cFindMWLByTemplate(
-            host, port, localAet, remoteAet,
+        PacsManager.cFindMWLByTemplate(
+            config,
             templateFile.absolutePath, exportDir.absolutePath
         ) ?: emptyArray()
     }

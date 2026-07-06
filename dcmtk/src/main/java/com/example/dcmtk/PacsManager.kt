@@ -7,6 +7,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import android.util.Log
 
+import com.example.dcmtk.model.PacsConfig
+
 /**
  * 封装 PACS 操作的高层管理器
  * 1. 线程管理：强制在 Dispatchers.IO 中运行
@@ -21,10 +23,7 @@ object PacsManager {
     @JvmStatic
     @JvmOverloads
     suspend fun safeCEcho(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         maxRetries: Int = 2
     ): Boolean = withContext(Dispatchers.IO) {
         var lastResult = false
@@ -33,7 +32,7 @@ object PacsManager {
                 Log.w(TAG, "C-ECHO failed, retrying ($i/$maxRetries)...")
                 delay(1000) // 重试前等待
             }
-            lastResult = DcmtkJni.cEcho(host, port, localAET, remoteAET)
+            lastResult = DcmtkJni.cEcho(config.host, config.port, config.localAet, config.remoteAet)
             if (lastResult) return@withContext true
         }
         lastResult
@@ -46,10 +45,7 @@ object PacsManager {
     @JvmStatic
     @JvmOverloads
     suspend fun safeCStoreMulti(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         dcmPaths: Array<String>,
         callback: MultiProgressCallback,
         maxRetries: Int = 1
@@ -61,7 +57,7 @@ object PacsManager {
         while (attempt <= maxRetries) {
             if (attempt > 0) delay(2000)
             
-            val result = DcmtkJni.cStoreMulti(host, port, localAET, remoteAET, dcmPaths, callback)
+            val result = DcmtkJni.cStoreMulti(config.host, config.port, config.localAet, config.remoteAet, dcmPaths, callback)
             if (result > 0 || dcmPaths.isEmpty()) {
                 successCount = result
                 break
@@ -78,14 +74,11 @@ object PacsManager {
      */
     @JvmStatic
     suspend fun cFind(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         queryVal: String
     ): Array<String>? = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cFind(host, port, localAET, remoteAET, queryVal)
+            DcmtkJni.cFind(config.host, config.port, config.localAet, config.remoteAet, queryVal)
         } catch (e: Exception) {
             Log.e(TAG, "cFind failed", e)
             null
@@ -97,14 +90,11 @@ object PacsManager {
      */
     @JvmStatic
     suspend fun cFindByAccession(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         accession: String
     ): Array<String>? = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cFindByAccession(host, port, localAET, remoteAET, accession)
+            DcmtkJni.cFindByAccession(config.host, config.port, config.localAet, config.remoteAet, accession)
         } catch (e: Exception) {
             Log.e(TAG, "cFindByAccession failed", e)
             null
@@ -116,16 +106,13 @@ object PacsManager {
      */
     @JvmStatic
     suspend fun cGet(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         patId: String,
         saveDir: String,
         callback: com.example.dcmtk.callback.ProgressCallback
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cGet(host, port, localAET, remoteAET, patId, saveDir, callback)
+            DcmtkJni.cGet(config.host, config.port, config.localAet, config.remoteAet, patId, saveDir, callback)
         } catch (e: Exception) {
             Log.e(TAG, "cGet failed", e)
             false
@@ -137,16 +124,33 @@ object PacsManager {
      */
     @JvmStatic
     suspend fun cFindMWL(
-        host: String,
-        port: Int,
-        localAET: String,
-        remoteAET: String,
+        config: PacsConfig,
         modality: String
     ): Array<String>? = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cFindMWL(host, port, localAET, remoteAET, modality)
+            DcmtkJni.cFindMWL(config.host, config.port, config.localAet, config.remoteAet, modality)
         } catch (e: Exception) {
             Log.e(TAG, "cFindMWL failed", e)
+            null
+        }
+    }
+
+    /**
+     * MWL C-FIND By Template 操作
+     */
+    @JvmStatic
+    suspend fun cFindMWLByTemplate(
+        config: PacsConfig,
+        templatePath: String,
+        outputDir: String
+    ): Array<String>? = withContext(Dispatchers.IO) {
+        try {
+            DcmtkJni.cFindMWLByTemplate(
+                config.host, config.port, config.localAet, config.remoteAet,
+                templatePath, outputDir
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "cFindMWLByTemplate failed", e)
             null
         }
     }

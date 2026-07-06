@@ -10,6 +10,7 @@ import com.example.dcmtk.PacsManager
 import com.example.dcmtk.callback.MultiProgressCallback
 import com.example.dcmtk.databinding.ViewDicomUploadBinding
 import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtk.model.PacsConfig
 import kotlinx.coroutines.*
 import java.io.File
 import java.util.*
@@ -27,6 +28,7 @@ class DicomUploadView @JvmOverloads constructor(
     private val isCancelled = AtomicBoolean(false)
     private var isUploading = false
     private var listener: OnUploadEventListener? = null
+    private var pacsConfig: PacsConfig? = null
     
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -70,8 +72,13 @@ class DicomUploadView @JvmOverloads constructor(
         this.listener = listener
     }
 
+    fun setConnectionInfo(config: PacsConfig?) {
+        this.pacsConfig = config
+        (binding.connectionView as? PacsConnectionView)?.setConnectionInfo(config)
+    }
+
     fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
-        (binding.connectionView as? PacsConnectionView)?.setConnectionInfo(host, port, local, remote)
+        setConnectionInfo(PacsConfig(host ?: "", port, local ?: "", remote ?: ""))
     }
 
     fun startUploadProcess() {
@@ -82,17 +89,9 @@ class DicomUploadView @JvmOverloads constructor(
         }
 
         val connView = binding.connectionView as? PacsConnectionView
-        if (connView == null) {
-            showError("Invalid Connection View")
-            return
-        }
-
-        val host = connView.getHost()
-        val port = connView.getPort()
-        val local = connView.getLocalAet()
-        val remote = connView.getRemoteAet()
-
-        if (host.isEmpty() || port == 0 || local.isEmpty() || remote.isEmpty()) {
+        val config = connView?.getConfig() ?: pacsConfig
+        
+        if (config == null) {
             showError("Please fill all fields")
             return
         }
@@ -105,7 +104,7 @@ class DicomUploadView @JvmOverloads constructor(
         binding.tvTitle.text = "Uploading DICOM Files"
 
         scope.launch {
-            val echoOk = PacsManager.safeCEcho(host, port, local, remote, 1)
+            val echoOk = PacsManager.safeCEcho(config, 1)
             
             if (!echoOk) {
                 showError("PACS Verification Failed (Check Network/AETs)")
@@ -114,7 +113,7 @@ class DicomUploadView @JvmOverloads constructor(
 
             val totalFiles = paths.size
 
-            val successCount = PacsManager.safeCStoreMulti(host, port, local, remote, paths, object : MultiProgressCallback {
+            val successCount = PacsManager.safeCStoreMulti(config, paths, object : MultiProgressCallback {
                 override fun onProgress(index: Int, sent: Long, total: Long): Boolean {
                     if (isCancelled.get()) return false
                     launch(Dispatchers.Main) {

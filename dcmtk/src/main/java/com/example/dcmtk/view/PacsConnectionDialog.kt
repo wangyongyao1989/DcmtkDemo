@@ -8,15 +8,23 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.view.Window
 import com.example.dcmtk.R
+import com.example.dcmtk.model.PacsConfig
 
 class PacsConnectionDialog(
     context: Context,
-    private val host: String?,
-    private val port: Int?,
-    private val localAet: String?,
-    private val remoteAet: String?,
+    private val config: PacsConfig?,
     private val listener: PacsConnectionView.OnConnectionVerifiedListener?
 ) : Dialog(context) {
+
+    // Keep the old constructor for compatibility or just update it
+    constructor(
+        context: Context,
+        host: String?,
+        port: Int?,
+        localAet: String?,
+        remoteAet: String?,
+        listener: PacsConnectionView.OnConnectionVerifiedListener?
+    ) : this(context, PacsConfig(host ?: "", port ?: 0, localAet ?: "", remoteAet ?: ""), listener)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,11 +47,11 @@ class PacsConnectionDialog(
             setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
-        connectionView.setConnectionInfo(host, port ?: 0, localAet, remoteAet)
+        connectionView.setConnectionInfo(config)
 
         connectionView.setOnConnectionVerifiedListener(object : PacsConnectionView.OnConnectionVerifiedListener {
-            override fun onVerified(host: String, port: Int, local: String, remote: String) {
-                listener?.onVerified(host, port, local, remote)
+            override fun onVerified(config: PacsConfig) {
+                listener?.onVerified(config)
                 dismiss()
             }
 

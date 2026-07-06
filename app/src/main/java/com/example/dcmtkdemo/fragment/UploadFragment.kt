@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.view.DicomUploadDialog
 import com.example.dcmtk.view.PacsConnectionDialog
 import com.example.dcmtk.view.PacsConnectionView
@@ -90,11 +91,7 @@ class UploadFragment : Fragment() {
 
             verifyConnection {
                 val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
-                val dialog = DicomUploadDialog.newInstance(paths, true,
-                viewModel.host.value,
-                viewModel.port.value ?: 0,
-                viewModel.localAet.value,
-                viewModel.remoteAet.value)
+                val dialog = DicomUploadDialog.newInstance(paths, true, viewModel.pacsConfig.value)
                 dialog.setOnUploadFinishedListener(object :
                     DicomUploadDialog.OnUploadFinishedListener {
                     override fun onFinished(successCount: Int, totalCount: Int) {
@@ -192,18 +189,12 @@ class UploadFragment : Fragment() {
     private fun verifyConnection(onSuccess: (() -> Unit)? = null) {
         PacsConnectionDialog(
             requireContext(),
-            viewModel.host.value,
-            viewModel.port.value,
-            viewModel.localAet.value,
-            viewModel.remoteAet.value,
+            viewModel.pacsConfig.value,
             object : PacsConnectionView.OnConnectionVerifiedListener {
-                override fun onVerified(host: String, port: Int, local: String, remote: String) {
+                override fun onVerified(config: PacsConfig) {
                     // 更新 ViewModel 中的连接信息。使用 .value 直接同步更新，
                     // 确保后续操作（如弹出上传对话框）能立即读取到最新配置。
-                    viewModel.host.value = host
-                    viewModel.port.value = port
-                    viewModel.localAet.value = local
-                    viewModel.remoteAet.value = remote
+                    viewModel.pacsConfig.value = config
                     onSuccess?.invoke()
                 }
 

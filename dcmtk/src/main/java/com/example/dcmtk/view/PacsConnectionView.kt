@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import com.example.dcmtk.PacsManager
 import com.example.dcmtk.databinding.ViewPacsConnectionBinding
+import com.example.dcmtk.model.PacsConfig
 import kotlinx.coroutines.*
 
 class PacsConnectionView @JvmOverloads constructor(
@@ -23,7 +24,7 @@ class PacsConnectionView @JvmOverloads constructor(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     interface OnConnectionVerifiedListener {
-        fun onVerified(host: String, port: Int, local: String, remote: String)
+        fun onVerified(config: PacsConfig)
         fun onCancel()
     }
 
@@ -34,27 +35,19 @@ class PacsConnectionView @JvmOverloads constructor(
 
     private fun initView() {
         binding.btnVerify.setOnClickListener {
-            val host = getHost()
-            val port = getPort()
-            val local = getLocalAet()
-            val remote = getRemoteAet()
-
-            if (host.isEmpty() || port == 0 || local.isEmpty() || remote.isEmpty()) {
-                showError("Please fill all fields")
-                return@setOnClickListener
-            }
+            val config = getConfig() ?: return@setOnClickListener
 
             binding.tvError.visibility = View.GONE
             binding.btnVerify.isEnabled = false
             binding.btnCancel.isEnabled = false
 
             scope.launch {
-                val echoSuccess = PacsManager.safeCEcho(host, port, local, remote, 2)
+                val echoSuccess = PacsManager.safeCEcho(config, 2)
                 
                 if (echoSuccess) {
                     binding.tvError.visibility = View.GONE
                     Toast.makeText(context, "Connection & C-ECHO Verified", Toast.LENGTH_SHORT).show()
-                    listener?.onVerified(host, port, local, remote)
+                    listener?.onVerified(config)
                 } else {
                     showError("Verification Failed (Check Network or AETs)")
                 }
@@ -77,25 +70,36 @@ class PacsConnectionView @JvmOverloads constructor(
         binding.tvError.visibility = View.VISIBLE
     }
 
-    fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
-        binding.etHost.setText(host ?: "")
-        binding.etPort.setText(port.toString())
-        binding.etLocalAet.setText(local ?: "")
-        binding.etRemoteAet.setText(remote ?: "")
+    fun setConnectionInfo(config: PacsConfig?) {
+        binding.etHost.setText(config?.host ?: "")
+        binding.etPort.setText(config?.port?.toString() ?: "11112")
+        binding.etLocalAet.setText(config?.localAet ?: "")
+        binding.etRemoteAet.setText(config?.remoteAet ?: "")
     }
 
-    fun getHost(): String = binding.etHost.text.toString()
-    
-    fun getPort(): Int {
-        return try {
-            binding.etPort.text.toString().toInt()
-        } catch (e: Exception) {
-            0
-        }
+    fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
+        setConnectionInfo(PacsConfig(host ?: "", port, local ?: "", remote ?: ""))
     }
-    
-    fun getLocalAet(): String = binding.etLocalAet.text.toString()
-    fun getRemoteAet(): String = binding.etRemoteAet.text.toString()
+
+    fun getConfig(): PacsConfig? {
+        val host = binding.etHost.text.toString().trim()
+        val portStr = binding.etPort.text.toString().trim()
+        val local = binding.etLocalAet.text.toString().trim()
+        val remote = binding.etRemoteAet.text.toString().trim()
+
+        if (host.isEmpty() || portStr.isEmpty() || local.isEmpty() || remote.isEmpty()) {
+            showError("Please fill all fields")
+            return null
+        }
+
+        val port = portStr.toIntOrNull() ?: 0
+        if (port <= 0) {
+            showError("Invalid port number")
+            return null
+        }
+
+        return PacsConfig(host, port, local, remote)
+    }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()

@@ -10,7 +10,9 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
+import com.example.dcmtk.PacsManager
 import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
 import com.example.dcmtk.utils.MwlTemplateHelper
 import com.example.dcmtk.view.PacsConnectionDialog
@@ -83,19 +85,9 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
+            val config = viewModel.pacsConfig.value ?: return@launch
             val finalResults = withContext(Dispatchers.IO) {
-                try {
-                    DcmtkJni.cFindMWL(
-                        viewModel.host.value!!,
-                        viewModel.port.value!!,
-                        viewModel.localAet.value!!,
-                        viewModel.remoteAet.value!!,
-                        modality
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "MWL Query failed", e)
-                    null
-                }
+                PacsManager.cFindMWL(config, modality)
             }
 
             if (activity == null || binding == null) return@launch
@@ -138,14 +130,12 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
+            val config = viewModel.pacsConfig.value ?: return@launch
             val exportedFiles = withContext(Dispatchers.IO) {
                 MwlTemplateHelper.prepareTemplates(requireContext())
                 MwlTemplateHelper.executeMwlQuery(
                     requireContext(),
-                    viewModel.host.value!!,
-                    viewModel.port.value!!,
-                    viewModel.localAet.value!!,
-                    viewModel.remoteAet.value!!,
+                    config,
                     templateName
                 )
             }
@@ -194,20 +184,14 @@ class WorklistQueryFragment : Fragment() {
         binding?.btnQueryMwlTemplate?.isEnabled = enabled
     }
 
-    private fun verifyConnection(onVerified: Runnable?) {
+    private fun verifyConnection(onVerified: (() -> Unit)?) {
         val popupWindow = PacsConnectionDialog(
             requireContext(),
-            viewModel.host.value,
-            viewModel.port.value,
-            viewModel.localAet.value,
-            viewModel.remoteAet.value,
+            viewModel.pacsConfig.value,
             object : PacsConnectionView.OnConnectionVerifiedListener {
-                override fun onVerified(host: String, port: Int, local: String, remote: String) {
-                    viewModel.host.postValue(host)
-                    viewModel.port.postValue(port)
-                    viewModel.localAet.postValue(local)
-                    viewModel.remoteAet.postValue(remote)
-                    onVerified?.run()
+                override fun onVerified(config: PacsConfig) {
+                    viewModel.pacsConfig.postValue(config)
+                    onVerified?.invoke()
                 }
 
                 override fun onCancel() {}
