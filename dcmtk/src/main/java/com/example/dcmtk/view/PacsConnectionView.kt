@@ -4,18 +4,20 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.constraintlayout.widget.ConstraintLayout
 import com.example.dcmtk.PacsManager
+import com.example.dcmtk.R
 import com.example.dcmtk.databinding.ViewPacsConnectionBinding
 import com.example.dcmtk.model.PacsConfig
+import com.example.dcmtk.utils.PacsPrefs
 import kotlinx.coroutines.*
 
 class PacsConnectionView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : LinearLayout(context, attrs, defStyleAttr) {
+) : ConstraintLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewPacsConnectionBinding =
         ViewPacsConnectionBinding.inflate(LayoutInflater.from(context), this)
@@ -29,8 +31,13 @@ class PacsConnectionView @JvmOverloads constructor(
     }
 
     init {
-        orientation = VERTICAL
+        val p = (20 * resources.displayMetrics.density).toInt()
+        setPadding(p, p, p, p)
+        setBackgroundResource(R.drawable.connection_dialog_bg)
+
         initView()
+        // 自动填充本地保存的配置
+        loadSavedConfig()
     }
 
     private fun initView() {
@@ -47,6 +54,8 @@ class PacsConnectionView @JvmOverloads constructor(
                 if (echoSuccess) {
                     binding.tvError.visibility = View.GONE
                     Toast.makeText(context, "Connection & C-ECHO Verified", Toast.LENGTH_SHORT).show()
+                    // 验证成功后保存到 SP
+                    PacsPrefs.saveConfig(context, config)
                     listener?.onVerified(config)
                 } else {
                     showError("Verification Failed (Check Network or AETs)")
@@ -57,8 +66,15 @@ class PacsConnectionView @JvmOverloads constructor(
         }
 
         binding.btnCancel.setOnClickListener {
+            // 取消正在进行的验证协程
+            scope.coroutineContext.cancelChildren()
             listener?.onCancel()
         }
+    }
+
+    private fun loadSavedConfig() {
+        val savedConfig = PacsPrefs.getConfig(context)
+        setConnectionInfo(savedConfig)
     }
 
     fun setOnConnectionVerifiedListener(listener: OnConnectionVerifiedListener?) {

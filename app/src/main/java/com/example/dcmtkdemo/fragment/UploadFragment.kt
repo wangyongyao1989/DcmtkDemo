@@ -91,7 +91,8 @@ class UploadFragment : Fragment() {
 
             verifyConnection {
                 val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
-                val dialog = DicomUploadDialog.newInstance(paths, true, viewModel.pacsConfig.value)
+                val dialog = DicomUploadDialog.newInstance(paths, true
+                    , viewModel.pacsConfig.value)
                 dialog.setOnUploadFinishedListener(object :
                     DicomUploadDialog.OnUploadFinishedListener {
                     override fun onFinished(successCount: Int, totalCount: Int) {

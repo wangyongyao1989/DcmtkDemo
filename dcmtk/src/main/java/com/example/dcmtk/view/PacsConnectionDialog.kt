@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.view.Window
 import com.example.dcmtk.R
 import com.example.dcmtk.model.PacsConfig
+import androidx.core.graphics.drawable.toDrawable
 
 class PacsConnectionDialog(
     context: Context,
@@ -31,10 +32,7 @@ class PacsConnectionDialog(
         
         requestWindowFeature(Window.FEATURE_NO_TITLE)
 
-        val connectionView = PacsConnectionView(context).apply {
-            setBackgroundResource(R.drawable.popup_bg)
-            setPadding(40, 40, 40, 40)
-        }
+        val connectionView = PacsConnectionView(context)
 
         setContentView(connectionView)
 
@@ -42,12 +40,14 @@ class PacsConnectionDialog(
         setCanceledOnTouchOutside(false)
 
         window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val width = (context.resources.displayMetrics.widthPixels * 0.85).toInt()
+            setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+            val width = (context.resources.displayMetrics.widthPixels * 0.55).toInt()
             setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
-        connectionView.setConnectionInfo(config)
+        if (config != null) {
+            connectionView.setConnectionInfo(config)
+        }
 
         connectionView.setOnConnectionVerifiedListener(object : PacsConnectionView.OnConnectionVerifiedListener {
             override fun onVerified(config: PacsConfig) {
@@ -56,6 +56,7 @@ class PacsConnectionDialog(
             }
 
             override fun onCancel() {
+                // 用户取消验证，不执行后续逻辑
                 listener?.onCancel()
                 dismiss()
             }

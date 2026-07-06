@@ -113,7 +113,7 @@ class DicomUploadDialog : DialogFragment() {
             setCancelable(false)
             setCanceledOnTouchOutside(false)
             window?.apply {
-                val width = (resources.displayMetrics.widthPixels * 0.90).toInt()
+                val width = (resources.displayMetrics.widthPixels * 0.55).toInt()
                 setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setBackgroundDrawableResource(android.R.color.transparent)
             }

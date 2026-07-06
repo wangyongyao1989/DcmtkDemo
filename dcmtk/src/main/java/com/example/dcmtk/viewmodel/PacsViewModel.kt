@@ -1,14 +1,16 @@
 package com.example.dcmtk.viewmodel
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.utils.PacsPrefs
 
-class PacsViewModel : ViewModel() {
-    val pacsConfig = MutableLiveData(PacsConfig("192.168.10.153", 11112, "ANDROID_SCU", "ACME_STORE"))
+class PacsViewModel(application: Application) : AndroidViewModel(application) {
+    val pacsConfig = MutableLiveData(PacsPrefs.getConfig(application))
 
-    // Backwards compatibility or convenience getters (optional, but good for minimal changes in other files)
+    // Backwards compatibility or convenience getters
     val host get() = pacsConfig.value?.host ?: ""
     val port get() = pacsConfig.value?.port ?: 0
     val localAet get() = pacsConfig.value?.localAet ?: ""

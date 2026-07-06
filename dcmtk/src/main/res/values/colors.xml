@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#1057A7</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="transparent">#00000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="orange">#FE874A</color>
+    <color name="red">#E9828B</color>
+    <color name="grey">#7F7F7F</color>
+    <color name="blue">#1057A7</color>
+    <color name="colorTransparent">#00000000</color>
+
+    <color name="txt_title_white">#FFFFFF</color>
+    <color name="txt_level_white90">#E6FFFFFF</color>
+    <color name="txt_level_white70">#B3FFFFFF</color>
+    <color name="txt_level_white50">#80FFFFFF</color>
+    <color name="txt_ban_white40">#66FFFFFF</color>
+
+    <color name="txt_link">#4679FF</color>
+    <color name="txt_link_ban">#66FFFFFF</color>
+
+    <color name="bg_title">#33F2F4FF</color>
+    <color name="bg_list">#24F2F4FF</color>
+    <color name="bg_list_pressed">#4DF2F4FF</color>
+    <color name="bg_dialog">#35363A</color>
+    <color name="bg_link">#4679FF</color>
+    <color name="bg_link_pressed">#335BC3</color>
+
+    <color name="line_divide">#1AFFFFFF</color>
+    <color name="color_00BCD4">#00BCD4</color>
+</resources>

@@ -157,7 +157,9 @@ class QueryFragment : Fragment() {
                     onVerified?.invoke()
                 }
 
-                override fun onCancel() {}
+                override fun onCancel() {
+                    // 用户取消验证，不执行后续逻辑
+                }
             }
         )
         popupWindow.show()
