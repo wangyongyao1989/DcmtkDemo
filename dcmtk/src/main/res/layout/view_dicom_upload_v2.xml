@@ -89,6 +89,8 @@
         android:textAllCaps="false"
         android:textColor="@android:color/white"
         android:textSize="18sp"
-        app:layout_constraintTop_toBottomOf="@id/tv_current_progress" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_file_detail" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

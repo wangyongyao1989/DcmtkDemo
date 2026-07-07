@@ -88,33 +88,33 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/et_local_aet" />
 
-    <Button
+    <androidx.appcompat.widget.AppCompatButton
         android:id="@+id/btn_cancel"
         android:layout_width="0dp"
-        android:layout_height="45dp"
-        android:layout_marginTop="16dp"
+        android:layout_height="50dp"
+        android:layout_marginTop="32dp"
         android:layout_marginEnd="10dp"
-        android:background="@drawable/btn_selector"
+        android:background="@drawable/bg_red_button"
         android:text="取消"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
-        android:textSize="16sp"
+        android:textSize="18sp"
         app:layout_constraintEnd_toStartOf="@+id/btn_verify"
         app:layout_constraintHorizontal_chainStyle="spread"
         app:layout_constraintHorizontal_weight="1"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/et_remote_aet" />
 
-    <Button
+    <androidx.appcompat.widget.AppCompatButton
         android:id="@+id/btn_verify"
         android:layout_width="0dp"
-        android:layout_height="45dp"
+        android:layout_height="50dp"
         android:layout_marginStart="10dp"
         android:background="@drawable/btn_selector"
         android:text="验证"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
-        android:textSize="16sp"
+        android:textSize="18sp"
         app:layout_constraintBottom_toBottomOf="@+id/btn_cancel"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_weight="1"
