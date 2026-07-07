@@ -4,29 +4,27 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
-import android.view.View
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.example.dcmtk.PacsManager
+import com.example.dcmtk.R
 import com.example.dcmtk.callback.MultiProgressCallback
-import com.example.dcmtk.databinding.ViewDicomUploadBinding
+import com.example.dcmtk.databinding.ViewDicomUploadV2Binding
 import com.example.dcmtk.model.DicomImageRecord
 import com.example.dcmtk.model.PacsConfig
 import kotlinx.coroutines.*
-import java.io.File
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DicomUploadView @JvmOverloads constructor(
     context: Context,
     private var pacsConfig: PacsConfig? = null,
-    private var dcmPaths: Array<String>? = null,
+    private var records: Array<DicomImageRecord>? = null,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : ConstraintLayout(context, attrs, defStyleAttr) {
 
-    private val binding: ViewDicomUploadBinding =
-        ViewDicomUploadBinding.inflate(LayoutInflater.from(context)
-
+    private val binding: ViewDicomUploadV2Binding =
+        ViewDicomUploadV2Binding.inflate(LayoutInflater.from(context)
             , this, true)
     private val isCancelled = AtomicBoolean(false)
     private var isUploading = false
@@ -45,16 +43,22 @@ class DicomUploadView @JvmOverloads constructor(
     }
 
     private fun initView() {
-        binding.btnCancel.setOnClickListener {
+        binding.btnExit.setOnClickListener {
             if (isUploading) {
                 isCancelled.set(true)
-                binding.tvStatus.text = "Cancelling..."
-                binding.btnCancel.isEnabled = false
-                listener?.onCancel()
-            } else if (isFinished) {
+                binding.btnExit.isEnabled = false
                 listener?.onCancel()
             } else {
                 listener?.onCancel()
+            }
+        }
+        
+        records?.let {
+            val total = it.size
+            it.firstOrNull()?.let { first ->
+                binding.tvCurrentProgress.text = context.getString(
+                    R.string.dicom_upload_current_item, 1, total, first.name
+                )
             }
         }
     }
@@ -64,40 +68,26 @@ class DicomUploadView @JvmOverloads constructor(
         this.listener = listener
     }
 
-    fun setConnectionInfo(config: PacsConfig?) {
-        this.pacsConfig = config
-    }
-
-    fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
-        setConnectionInfo(PacsConfig(host ?: "", port, local ?: "", remote ?: ""))
-    }
-
     fun startUploadProcess() {
-        val paths = dcmPaths
+        val currentRecords = records
         val config = pacsConfig
-        if (paths.isNullOrEmpty()) {
-            showError("No records to upload")
-            return
-        }
-        if (config == null) {
-            showError("Connection info is missing")
+        if (currentRecords.isNullOrEmpty() || config == null) {
             return
         }
         isUploading = true
-        binding.layoutUploadProgress.visibility = View.VISIBLE
-        binding.tvTitle.text = "Uploading DICOM Files"
+        val paths = currentRecords.map { it.dcmPath }.toTypedArray()
+        val totalFiles = paths.size
 
         scope.launch {
             val echoOk = PacsManager.safeCEcho(config, 1)
             
             if (!echoOk) {
                 withContext(Dispatchers.Main) {
-                    showError("PACS Verification Failed (Check Network/AETs)")
+                    isUploading = false
+                    // Handle error if needed
                 }
                 return@launch
             }
-
-            val totalFiles = paths.size
 
             val successCount = PacsManager.safeCStoreMulti(config, paths
                 , object : MultiProgressCallback {
@@ -107,31 +97,43 @@ class DicomUploadView @JvmOverloads constructor(
                         var percent = if (total > 0) (sent * 100 / total).toInt() else 0
                         if (percent > 100) percent = 100
                         binding.progressBar.progress = percent
-                        binding.tvStatus.text = String.format(
-                            Locale.getDefault(), "Uploading (%d/%d): %s\n%s / %s (%d%%)",
-                            index + 1, totalFiles, File(paths[index]).name,
+                        
+                        val currentRecord = currentRecords[index]
+                        binding.tvCurrentProgress.text = context.getString(
+                            R.string.dicom_upload_current_item,
+                            index + 1, totalFiles, currentRecord.name
+                        )
+                        binding.tvFileDetail.text = String.format(
+                            Locale.getDefault(), "%s / %s (%d%%)",
                             formatBytes(sent), formatBytes(total), percent
                         )
                     }
                     return true
+                }
+
+                override fun onItemStatus(index: Int, success: Boolean) {
+                    launch(Dispatchers.Main) {
+                        if (success) {
+                            currentRecords[index].isUploaded = true
+                            currentRecords[index].isSelected = false
+                        }
+                    }
                 }
             }, 1)
 
             withContext(Dispatchers.Main) {
                 isUploading = false
                 isFinished = true
-                binding.btnCancel.isEnabled = true
-                binding.btnCancel.text = "确定"
-                binding.tvStatus.text = "Upload Finished: $successCount/$totalFiles successful"
+                binding.btnExit.isEnabled = true
+                binding.tvCurrentProgress.text = context.getString(R.string.dicom_upload_finished)
+                val failedCount = totalFiles - successCount
+                binding.tvFileDetail.text = context.getString(
+                    R.string.dicom_upload_result_summary,
+                    successCount, failedCount, totalFiles
+                )
                 listener?.onFinished(successCount, totalFiles)
             }
         }
-    }
-
-    private fun showError(message: String) {
-        isUploading = false
-        binding.layoutUploadProgress.visibility = View.GONE
-        binding.tvTitle.text = "DICOM Upload"
     }
 
     @SuppressLint("DefaultLocale")

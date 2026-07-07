@@ -95,7 +95,6 @@ class UploadFragment : Fragment() {
                 dialog.setOnUploadFinishedListener(object :
                     DicomUploadDialog.OnUploadFinishedListener {
                     override fun onFinished(successCount: Int, totalCount: Int) {
-                        selectedRecords.forEach { it.isSelected = false }
                         adapter.notifyDataSetChanged()
                         binding?.tvUploadStatus?.text = String.format(
                             Locale.getDefault(),

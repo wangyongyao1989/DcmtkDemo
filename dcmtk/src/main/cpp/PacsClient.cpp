@@ -253,7 +253,7 @@ bool PacsClient::cStore(const std::string &host, int port,
 int PacsClient::cStoreMulti(const std::string &host, int port,
                             const std::string &localAet, const std::string &remoteAet,
                             const std::vector<std::string> &dcmPaths,
-                            std::function<bool(int index, unsigned long sent, unsigned long total)> callback) {
+                            std::function<bool(int index, unsigned long sent, unsigned long total, bool finished, bool success)> callback) {
     resetCancel();
     if (dcmPaths.empty()) return 0;
 
@@ -331,6 +331,9 @@ int PacsClient::cStoreMulti(const std::string &host, int port,
         DcmFileFormat dfile;
         if (dfile.loadFile(path.c_str()).bad()) {
             LOGE("native_cStoreMulti: Failed to load file #%d: %s", i, path.c_str());
+            if (callback) {
+                callback(i, 0, 0, true, false);
+            }
             continue;
         }
 
@@ -341,15 +344,17 @@ int PacsClient::cStoreMulti(const std::string &host, int port,
 
         T_ASC_PresentationContextID presId = scu.findPresentationContextID(sopClass.c_str(), "");
         if (presId > 0) {
+            unsigned long fileSize = 0;
             struct stat st;
             if (stat(path.c_str(), &st) == 0) {
-                scu.setTotalBytes((unsigned long) st.st_size);
+                fileSize = (unsigned long) st.st_size;
+                scu.setTotalBytes(fileSize);
             }
 
             if (callback) {
                 // Wrap the multi-callback into the single-file callback expected by ProgressScu
                 scu.setProgressCallback([&callback, i, &aborted](unsigned long sent, unsigned long total) {
-                    if (!callback(i, sent, total)) {
+                    if (!callback(i, sent, total, false, false)) {
                         aborted = true;
                     }
                 });
@@ -360,16 +365,26 @@ int PacsClient::cStoreMulti(const std::string &host, int port,
                                                          , rspStatus);
 
             // 0x0000 = Success, 0xB0xx = Warning (often treated as success in PACS)
-            if (storeCond.good() && (rspStatus == 0 || (rspStatus & 0xf000) == 0xb000)) {
+            bool success = storeCond.good() && (rspStatus == 0 || (rspStatus & 0xf000) == 0xb000);
+            if (success) {
                 successCount++;
                 LOGD("native_cStoreMulti: File #%d stored successfully (%s)", i, path.c_str());
             } else {
                 LOGE("native_cStoreMulti: File #%d storage failed. Status: 0x%04X, Error: %s",
                      i, rspStatus, storeCond.text());
             }
+
+            if (callback) {
+                if (!callback(i, fileSize, fileSize, true, success)) {
+                    aborted = true;
+                }
+            }
         } else {
             LOGE("native_cStoreMulti: No negotiated presentation context for SOP Class %s (File #%d)",
                  sopClass.c_str(), i);
+            if (callback) {
+                callback(i, 0, 0, true, false);
+            }
         }
     }
 

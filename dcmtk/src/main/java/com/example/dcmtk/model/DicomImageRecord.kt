@@ -15,10 +15,11 @@ data class DicomImageRecord(
     val studyDesc: String,
     val dcmPath: String,
     val jpgPath: String,
-    var isSelected: Boolean = false
+    var isSelected: Boolean = false,
+    var isUploaded: Boolean = false
 ) : Serializable {
     /** 转换后的 jpg 是否已存在 */
     fun hasJpg(): Boolean {
-        return jpgPath != null && File(jpgPath).exists()
+        return File(jpgPath).exists()
     }
 }

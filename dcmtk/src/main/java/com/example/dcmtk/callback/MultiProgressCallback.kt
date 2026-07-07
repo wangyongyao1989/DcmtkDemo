@@ -5,4 +5,9 @@ interface MultiProgressCallback {
      * @return true to continue, false to cancel
      */
     fun onProgress(index: Int, sent: Long, total: Long): Boolean
+
+    /**
+     * Called when an item finish uploading
+     */
+    fun onItemStatus(index: Int, success: Boolean)
 }

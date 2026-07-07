@@ -45,6 +45,7 @@ class DcmUploadAdapter(
 
         holder.cbSelect.visibility = if (isUploadMode) View.VISIBLE else View.GONE
         holder.cbSelect.isChecked = record.isSelected
+        holder.ivUploaded.visibility = if (record.isUploaded) View.VISIBLE else View.GONE
 
         Glide.with(holder.itemView.context)
             .load(record.jpgPath?.let { File(it) })
@@ -81,6 +82,7 @@ class DcmUploadAdapter(
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val ivThumb: ImageView = view.findViewById(R.id.iv_dcm_thumb)
+        val ivUploaded: ImageView = view.findViewById(R.id.iv_uploaded)
         val tvName: TextView = view.findViewById(R.id.tv_dcm_name)
         val tvId: TextView = view.findViewById(R.id.tv_dcm_id)
         val tvSex: TextView = view.findViewById(R.id.tv_dcm_sex)

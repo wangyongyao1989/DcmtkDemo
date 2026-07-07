@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.ViewModelProvider
-import com.example.dcmtk.R
 import com.example.dcmtk.PacsManager
 import com.example.dcmtk.model.DicomImageRecord
 import com.example.dcmtk.model.PacsConfig
@@ -14,7 +13,7 @@ import com.example.dcmtk.viewmodel.PacsViewModel
 
 class DicomUploadDialog : DialogFragment() {
 
-    private var uploadView: DicomUploadViewV2? = null
+    private var uploadView: DicomUploadView? = null
     private lateinit var viewModel: PacsViewModel
     private var records: Array<DicomImageRecord>? = null
     private var listener: OnUploadFinishedListener? = null
@@ -82,7 +81,7 @@ class DicomUploadDialog : DialogFragment() {
         savedInstanceState: Bundle?
     ): View? {
         viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
-        uploadView = DicomUploadViewV2(requireContext(), pacsConfig ?: viewModel.pacsConfig.value
+        uploadView = DicomUploadView(requireContext(), pacsConfig ?: viewModel.pacsConfig.value
             , records).apply {
             // Background is already set in XML for the new view
         }
@@ -93,7 +92,7 @@ class DicomUploadDialog : DialogFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         uploadView?.apply {
-            setOnUploadEventListener(object : DicomUploadViewV2.OnUploadEventListener {
+            setOnUploadEventListener(object : DicomUploadView.OnUploadEventListener {
                 override fun onFinished(successCount: Int, totalCount: Int) {
                     listener?.onFinished(successCount, totalCount)
                 }

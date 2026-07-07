@@ -64,8 +64,8 @@ static void native_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
 /**
  * Native implementation for DcmtkJni.loadDicomFileInfo(String filePath)
  */
-static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz
-                                        , jstring file_path) {
+static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz,
+                                        jstring file_path) {
     jclass mapClass = env->FindClass("java/util/HashMap");
     jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
     jobject hashMap = env->NewObject(mapClass, mapInit);
@@ -79,7 +79,7 @@ static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz
     }
 
     std::map<std::string, std::string> info = DicomFileIO::loadFileInfo(path.c_str());
-    for (const auto &kv : info) {
+    for (const auto &kv: info) {
         jstring key = env->NewStringUTF(kv.first.c_str());
         jstring val = env->NewStringUTF(kv.second.c_str());
         env->CallObjectMethod(hashMap, putMethod, key, val);
@@ -176,15 +176,23 @@ static jint native_cStoreMulti(JNIEnv *env, jclass clazz, jstring host, jint por
         env->DeleteLocalRef(pathObj);
     }
 
-    auto multiCallback = [env, callback](int index, unsigned long sent
-            , unsigned long total) -> bool {
+    auto multiCallback = [env, callback](int index,
+                                         unsigned long sent, unsigned long total,
+                                         bool finished, bool success) -> bool {
         if (callback) {
             jclass cls = env->GetObjectClass(callback);
             if (cls) {
+                if (finished) {
+                    jmethodID midStatus = env->GetMethodID(cls, "onItemStatus", "(IZ)V");
+                    if (midStatus) {
+                        env->CallVoidMethod(callback, midStatus, (jint) index, (jboolean) success);
+                    }
+                }
+
                 jmethodID mid = env->GetMethodID(cls, "onProgress", "(IJJ)Z");
                 if (mid) {
-                    jboolean result = env->CallBooleanMethod(callback, mid
-                                                             , (jint) index, (jlong) sent, (jlong) total);
+                    jboolean result = env->CallBooleanMethod(callback, mid, (jint) index,
+                                                             (jlong) sent, (jlong) total);
                     env->DeleteLocalRef(cls);
                     return (result == JNI_TRUE);
                 }
@@ -223,7 +231,8 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
 }
 
 static jobjectArray native_cFindByAccession(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                            jstring local_aet, jstring remote_aet, jstring accession_number) {
+                                            jstring local_aet, jstring remote_aet,
+                                            jstring accession_number) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);

@@ -23,6 +23,16 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|end" />
+
+        <ImageView
+            android:id="@+id/iv_uploaded"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:src="@android:drawable/stat_sys_upload_done"
+            android:visibility="gone"
+            android:contentDescription="Upload successful" />
     </FrameLayout>
 
     <TextView
