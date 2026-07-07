@@ -1,3 +1,8 @@
 <resources>
-
+    <string name="dicom_upload_title">文件上传</string>
+    <string name="dicom_upload_progress_label">上传进度:</string>
+    <string name="dicom_upload_current_item">当前上传(%1$d/%2$d): %3$s</string>
+    <string name="dicom_upload_exit">退出</string>
+    <string name="dicom_upload_finished">上传完成</string>
+    <string name="dicom_upload_result_summary">成功: %1$d, 失败: %2$d (共 %3$d 个)</string>
 </resources>

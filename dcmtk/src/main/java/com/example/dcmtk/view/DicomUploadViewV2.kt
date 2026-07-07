@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.example.dcmtk.PacsManager
+import com.example.dcmtk.R
 import com.example.dcmtk.callback.MultiProgressCallback
 import com.example.dcmtk.databinding.ViewDicomUploadV2Binding
 import com.example.dcmtk.model.DicomImageRecord
@@ -54,8 +55,13 @@ class DicomUploadViewV2 @JvmOverloads constructor(
             }
         }
         
-        records?.firstOrNull()?.let {
-            binding.tvCurrentProgress.text = "当前上传: ${it.name}"
+        records?.let {
+            val total = it.size
+            it.firstOrNull()?.let { first ->
+                binding.tvCurrentProgress.text = context.getString(
+                    R.string.dicom_upload_current_item, 1, total, first.name
+                )
+            }
         }
     }
 
@@ -95,7 +101,10 @@ class DicomUploadViewV2 @JvmOverloads constructor(
                         binding.progressBar.progress = percent
                         
                         val currentRecord = currentRecords[index]
-                        binding.tvCurrentProgress.text = "当前上传: ${currentRecord.name}"
+                        binding.tvCurrentProgress.text = context.getString(
+                            R.string.dicom_upload_current_item,
+                            index + 1, totalFiles, currentRecord.name
+                        )
                         binding.tvFileDetail.text = String.format(
                             Locale.getDefault(), "%s / %s (%d%%)",
                             formatBytes(sent), formatBytes(total), percent
@@ -109,8 +118,12 @@ class DicomUploadViewV2 @JvmOverloads constructor(
                 isUploading = false
                 isFinished = true
                 binding.btnExit.isEnabled = true
-                binding.tvCurrentProgress.text = "上传完成"
-                binding.tvFileDetail.text = "共成功上传 $successCount 个文件"
+                binding.tvCurrentProgress.text = context.getString(R.string.dicom_upload_finished)
+                val failedCount = totalFiles - successCount
+                binding.tvFileDetail.text = context.getString(
+                    R.string.dicom_upload_result_summary,
+                    successCount, failedCount, totalFiles
+                )
                 listener?.onFinished(successCount, totalFiles)
             }
         }
