@@ -5,7 +5,7 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.LinearLayout
+import androidx.constraintlayout.widget.ConstraintLayout
 import com.example.dcmtk.PacsManager
 import com.example.dcmtk.callback.MultiProgressCallback
 import com.example.dcmtk.databinding.ViewDicomUploadBinding
@@ -18,17 +18,20 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class DicomUploadView @JvmOverloads constructor(
     context: Context,
+    private var pacsConfig: PacsConfig? = null,
     private var dcmPaths: Array<String>? = null,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : LinearLayout(context, attrs, defStyleAttr) {
+) : ConstraintLayout(context, attrs, defStyleAttr) {
 
     private val binding: ViewDicomUploadBinding =
-        ViewDicomUploadBinding.inflate(LayoutInflater.from(context), this, true)
+        ViewDicomUploadBinding.inflate(LayoutInflater.from(context)
+
+            , this, true)
     private val isCancelled = AtomicBoolean(false)
     private var isUploading = false
+    private var isFinished = false
     private var listener: OnUploadEventListener? = null
-    private var pacsConfig: PacsConfig? = null
     
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -38,35 +41,24 @@ class DicomUploadView @JvmOverloads constructor(
     }
 
     init {
-        orientation = VERTICAL
         initView()
     }
 
     private fun initView() {
-        binding.btnAction.setOnClickListener {
-            if (!isUploading) {
-                startUploadProcess()
-            }
-        }
-
         binding.btnCancel.setOnClickListener {
             if (isUploading) {
                 isCancelled.set(true)
                 binding.tvStatus.text = "Cancelling..."
                 binding.btnCancel.isEnabled = false
+                listener?.onCancel()
+            } else if (isFinished) {
+                listener?.onCancel()
             } else {
                 listener?.onCancel()
             }
         }
     }
 
-    fun setDcmPaths(paths: Array<String>?) {
-        this.dcmPaths = paths
-    }
-
-    fun setUploadRecords(records: List<DicomImageRecord>?) {
-        this.dcmPaths = records?.map { it.dcmPath }?.toTypedArray()
-    }
 
     fun setOnUploadEventListener(listener: OnUploadEventListener?) {
         this.listener = listener
@@ -74,7 +66,6 @@ class DicomUploadView @JvmOverloads constructor(
 
     fun setConnectionInfo(config: PacsConfig?) {
         this.pacsConfig = config
-        (binding.connectionView as? PacsConnectionView)?.setConnectionInfo(config)
     }
 
     fun setConnectionInfo(host: String?, port: Int, local: String?, remote: String?) {
@@ -83,37 +74,33 @@ class DicomUploadView @JvmOverloads constructor(
 
     fun startUploadProcess() {
         val paths = dcmPaths
+        val config = pacsConfig
         if (paths.isNullOrEmpty()) {
             showError("No records to upload")
             return
         }
-
-        val connView = binding.connectionView as? PacsConnectionView
-        val config = connView?.getConfig() ?: pacsConfig
-        
         if (config == null) {
-            showError("Please fill all fields")
+            showError("Connection info is missing")
             return
         }
-
-        binding.tvError.visibility = View.GONE
         isUploading = true
-        binding.connectionView.visibility = View.GONE
         binding.layoutUploadProgress.visibility = View.VISIBLE
-        binding.btnAction.visibility = View.GONE
         binding.tvTitle.text = "Uploading DICOM Files"
 
         scope.launch {
             val echoOk = PacsManager.safeCEcho(config, 1)
             
             if (!echoOk) {
-                showError("PACS Verification Failed (Check Network/AETs)")
+                withContext(Dispatchers.Main) {
+                    showError("PACS Verification Failed (Check Network/AETs)")
+                }
                 return@launch
             }
 
             val totalFiles = paths.size
 
-            val successCount = PacsManager.safeCStoreMulti(config, paths, object : MultiProgressCallback {
+            val successCount = PacsManager.safeCStoreMulti(config, paths
+                , object : MultiProgressCallback {
                 override fun onProgress(index: Int, sent: Long, total: Long): Boolean {
                     if (isCancelled.get()) return false
                     launch(Dispatchers.Main) {
@@ -130,17 +117,20 @@ class DicomUploadView @JvmOverloads constructor(
                 }
             }, 1)
 
-            listener?.onFinished(successCount, totalFiles)
+            withContext(Dispatchers.Main) {
+                isUploading = false
+                isFinished = true
+                binding.btnCancel.isEnabled = true
+                binding.btnCancel.text = "确定"
+                binding.tvStatus.text = "Upload Finished: $successCount/$totalFiles successful"
+                listener?.onFinished(successCount, totalFiles)
+            }
         }
     }
 
     private fun showError(message: String) {
-        binding.tvError.text = message
-        binding.tvError.visibility = View.VISIBLE
         isUploading = false
-        binding.connectionView.visibility = View.VISIBLE
         binding.layoutUploadProgress.visibility = View.GONE
-        binding.btnAction.visibility = View.VISIBLE
         binding.tvTitle.text = "DICOM Upload"
     }
 

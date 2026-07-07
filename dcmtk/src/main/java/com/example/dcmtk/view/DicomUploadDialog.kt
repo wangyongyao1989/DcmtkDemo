@@ -60,7 +60,8 @@ class DicomUploadDialog : DialogFragment() {
             localAet: String?,
             remoteAet: String?
         ): DicomUploadDialog {
-            return newInstance(paths, autoStart, PacsConfig(host ?: "", port, localAet ?: "", remoteAet ?: ""))
+            return newInstance(paths, autoStart, PacsConfig(host ?: ""
+                , port, localAet ?: "", remoteAet ?: ""))
         }
     }
 
@@ -78,7 +79,8 @@ class DicomUploadDialog : DialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        uploadView = DicomUploadView(requireContext(), dcmPaths).apply {
+        viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
+        uploadView = DicomUploadView(requireContext(), pacsConfig ?: viewModel.pacsConfig.value, dcmPaths).apply {
             setBackgroundResource(R.drawable.popup_bg)
         }
         return uploadView
@@ -86,14 +88,11 @@ class DicomUploadDialog : DialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
 
         uploadView?.apply {
-            setConnectionInfo(pacsConfig ?: viewModel.pacsConfig.value)
             setOnUploadEventListener(object : DicomUploadView.OnUploadEventListener {
                 override fun onFinished(successCount: Int, totalCount: Int) {
                     listener?.onFinished(successCount, totalCount)
-                    dismiss()
                 }
 
                 override fun onCancel() {
