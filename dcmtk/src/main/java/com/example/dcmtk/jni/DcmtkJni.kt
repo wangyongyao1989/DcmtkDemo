@@ -124,4 +124,7 @@ object DcmtkJni {
 
     @JvmStatic
     external fun dcmToJpg(dir: String): Int
+
+    @JvmStatic
+    external fun cancelOperation()
 }

@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.ViewModelProvider
 import com.example.dcmtk.R
+import com.example.dcmtk.PacsManager
 import com.example.dcmtk.model.DicomImageRecord
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.viewmodel.PacsViewModel
@@ -98,6 +99,7 @@ class DicomUploadDialog : DialogFragment() {
                 }
 
                 override fun onCancel() {
+                    PacsManager.cancelOperation()
                     dismiss()
                 }
             })

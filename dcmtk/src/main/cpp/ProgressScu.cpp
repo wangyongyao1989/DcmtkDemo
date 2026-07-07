@@ -1,5 +1,7 @@
 #include "dcmtk/config/osconfig.h"
+#include <android/log.h>
 #include "ProgressScu.h"
+#include "PacsClient.h"
 
 ProgressScu::ProgressScu()
         : DcmSCU()
@@ -22,6 +24,10 @@ void ProgressScu::notifyRECEIVEProgress(const unsigned long byteCount) {
 }
 
 void ProgressScu::notify(unsigned long sent, unsigned long total) {
+    if (PacsClient::isCancelled()) {
+        __android_log_print(ANDROID_LOG_WARN, "DcmtkJni", "Operation cancelled by user. Aborting association.");
+        this->abortAssociation();
+    }
     if (m_callback) {
         m_callback(sent, total);
     }

@@ -29,6 +29,9 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// Initialize the static member
+std::atomic<bool> PacsClient::m_isCancelled(false);
+
 // Increase PDU size from default 16KB to 64KB for better performance on Android
 #define MAX_PDU_SIZE 65536
 
@@ -127,6 +130,7 @@ bool PacsClient::cEcho(const std::string &host, int port,
 bool PacsClient::cStore(const std::string &host, int port,
                         const std::string &localAet, const std::string &remoteAet,
                         const std::string &dcmPath, ProgressCallback callback) {
+    resetCancel();
     auto startTime = std::chrono::steady_clock::now();
     LOGD("native_cStore: [START] Sending %s to %s:%d", dcmPath.c_str(), host.c_str(), port);
 
@@ -250,6 +254,7 @@ int PacsClient::cStoreMulti(const std::string &host, int port,
                             const std::string &localAet, const std::string &remoteAet,
                             const std::vector<std::string> &dcmPaths,
                             std::function<bool(int index, unsigned long sent, unsigned long total)> callback) {
+    resetCancel();
     if (dcmPaths.empty()) return 0;
 
     LOGD("native_cStoreMulti: [START] Sending %zu files to %s:%d (L:%s, R:%s)",
@@ -317,7 +322,10 @@ int PacsClient::cStoreMulti(const std::string &host, int port,
     // 2. Send each file over the established association
     bool aborted = false;
     for (int i = 0; i < (int) dcmPaths.size(); ++i) {
-        if (aborted) break;
+        if (aborted || isCancelled()) {
+            aborted = true;
+            break;
+        }
 
         const std::string &path = dcmPaths[i];
         DcmFileFormat dfile;
@@ -376,9 +384,10 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
                                            const std::string &localAet,
                                            const std::string &remoteAet,
                                            const std::string &patientName) {
+    resetCancel();
     LOGD("native_cFind: Query for PatientName=%s", patientName.c_str());
 
-    DcmSCU scu;
+    ProgressScu scu;
     scu.setPeerHostName(host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
@@ -446,9 +455,10 @@ std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, i
                                                       const std::string &localAet,
                                                       const std::string &remoteAet,
                                                       const std::string &accessionNumber) {
+    resetCancel();
     LOGD("native_cFindByAccession: Query for AccessionNumber=%s", accessionNumber.c_str());
 
-    DcmSCU scu;
+    ProgressScu scu;
     scu.setPeerHostName(host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
@@ -518,9 +528,10 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
                                               const std::string &localAet,
                                               const std::string &remoteAet,
                                               const std::string &modality) {
+    resetCancel();
     LOGD("native_cFindMWL: [START] Query for Modality=%s", modality.c_str());
 
-    DcmSCU scu;
+    ProgressScu scu;
     scu.setPeerHostName(host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
@@ -628,6 +639,7 @@ std::vector<std::string> PacsClient::cFindMWLByTemplate(const std::string &host,
                                                        const std::string &remoteAet,
                                                        const std::string &templatePath,
                                                        const std::string &outputDir) {
+    resetCancel();
     LOGD("native_cFindMWLByTemplate: [START] Template=%s, OutputDir=%s", templatePath.c_str()
          , outputDir.c_str());
 
@@ -643,7 +655,7 @@ std::vector<std::string> PacsClient::cFindMWLByTemplate(const std::string &host,
     DcmDataset *queryDataset = templateFile.getDataset();
 
     // 2. Initialize SCU
-    DcmSCU scu;
+    ProgressScu scu;
     scu.setPeerHostName(host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());
@@ -717,9 +729,10 @@ std::vector<std::string> PacsClient::cFindMWLByTemplate(const std::string &host,
 bool PacsClient::cMove(const std::string &host, int port,
                        const std::string &localAet, const std::string &remoteAet,
                        const std::string &patientId, const std::string &destAet) {
+    resetCancel();
     LOGD("native_cMove: Requesting move of PatID=%s to %s", patientId.c_str(), destAet.c_str());
 
-    DcmSCU scu;
+    ProgressScu scu;
     scu.setPeerHostName(host.c_str());
     scu.setPeerPort(port);
     scu.setAETitle(localAet.c_str());

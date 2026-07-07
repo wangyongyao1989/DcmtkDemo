@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <atomic>
 
 // PACS network operations (DICOM SCU). All methods are blocking and use
 // pure C++ types, so this class is independent of JNI and can be read/tested
@@ -11,6 +12,12 @@
 class PacsClient {
 public:
     using ProgressCallback = std::function<void(unsigned long sent, unsigned long total)>;
+
+    // Global cancellation flag
+    static std::atomic<bool> m_isCancelled;
+    static void cancelOperation() { m_isCancelled = true; }
+    static void resetCancel() { m_isCancelled = false; }
+    static bool isCancelled() { return m_isCancelled.load(); }
 
     // Test-only association: negotiate then immediately release.
     static bool connectPACS(const std::string &host, int port,

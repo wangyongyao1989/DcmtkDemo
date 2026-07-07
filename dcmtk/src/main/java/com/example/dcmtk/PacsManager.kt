@@ -57,7 +57,8 @@ object PacsManager {
         while (attempt <= maxRetries) {
             if (attempt > 0) delay(2000)
             
-            val result = DcmtkJni.cStoreMulti(config.host, config.port, config.localAet, config.remoteAet, dcmPaths, callback)
+            val result = DcmtkJni.cStoreMulti(config.host, config.port
+                , config.localAet, config.remoteAet, dcmPaths, callback)
             if (result > 0 || dcmPaths.isEmpty()) {
                 successCount = result
                 break
@@ -78,7 +79,8 @@ object PacsManager {
         queryVal: String
     ): Array<String>? = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cFind(config.host, config.port, config.localAet, config.remoteAet, queryVal)
+            DcmtkJni.cFind(config.host, config.port, config.localAet
+                , config.remoteAet, queryVal)
         } catch (e: Exception) {
             Log.e(TAG, "cFind failed", e)
             null
@@ -94,7 +96,8 @@ object PacsManager {
         accession: String
     ): Array<String>? = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cFindByAccession(config.host, config.port, config.localAet, config.remoteAet, accession)
+            DcmtkJni.cFindByAccession(config.host, config.port, config.localAet
+                , config.remoteAet, accession)
         } catch (e: Exception) {
             Log.e(TAG, "cFindByAccession failed", e)
             null
@@ -112,7 +115,8 @@ object PacsManager {
         callback: com.example.dcmtk.callback.ProgressCallback
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.cGet(config.host, config.port, config.localAet, config.remoteAet, patId, saveDir, callback)
+            DcmtkJni.cGet(config.host, config.port, config.localAet, config.remoteAet
+                , patId, saveDir, callback)
         } catch (e: Exception) {
             Log.e(TAG, "cGet failed", e)
             false
@@ -166,5 +170,14 @@ object PacsManager {
             Log.e(TAG, "loadDicomFileInfo failed", e)
             null
         }
+    }
+
+    /**
+     * 取消当前正在进行的 PACS 网络操作
+     */
+    @JvmStatic
+    fun cancelOperation() {
+        Log.i(TAG, "cancelOperation requested.")
+        DcmtkJni.cancelOperation()
     }
 }

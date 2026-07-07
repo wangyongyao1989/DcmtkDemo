@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.view.Window
 import com.example.dcmtk.R
+import com.example.dcmtk.PacsManager
 import com.example.dcmtk.model.PacsConfig
 import androidx.core.graphics.drawable.toDrawable
 
@@ -57,6 +58,7 @@ class PacsConnectionDialog(
 
             override fun onCancel() {
                 // 用户取消验证，不执行后续逻辑
+                PacsManager.cancelOperation()
                 listener?.onCancel()
                 dismiss()
             }

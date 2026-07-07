@@ -333,6 +333,10 @@ static jint native_dcmToJpg(JNIEnv *env, jclass clazz, jstring dir_path) {
     return DicomFileIO::dcmToJpg(c_dir.c_str() ? c_dir.c_str() : "");
 }
 
+static void native_cancelOperation(JNIEnv *env, jclass clazz) {
+    PacsClient::cancelOperation();
+}
+
 // JNI Registration
 static const char *const kClassName = "com/example/dcmtk/jni/DcmtkJni";
 
@@ -382,6 +386,9 @@ static const JNINativeMethod kMethods[] = {
         {"dcmToJpg",
                 "(Ljava/lang/String;)I",
                 (void *) native_dcmToJpg},
+        {"cancelOperation",
+                "()V",
+                (void *) native_cancelOperation},
 
 };
 
