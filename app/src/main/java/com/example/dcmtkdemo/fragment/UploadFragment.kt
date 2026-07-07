@@ -90,8 +90,7 @@ class UploadFragment : Fragment() {
             }
 
             verifyConnection {
-                val paths = selectedRecords.map { it.dcmPath }.toTypedArray()
-                val dialog = DicomUploadDialog.newInstance(paths, true
+                val dialog = DicomUploadDialog.newInstance(selectedRecords.toTypedArray(), true
                     , viewModel.pacsConfig.value)
                 dialog.setOnUploadFinishedListener(object :
                     DicomUploadDialog.OnUploadFinishedListener {

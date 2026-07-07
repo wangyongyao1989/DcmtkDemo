@@ -1,6 +1,7 @@
 package com.example.dcmtk.model
 
 import java.io.File
+import java.io.Serializable
 
 /**
  * 用于 DICOM 文件信息传递。
@@ -15,7 +16,7 @@ data class DicomImageRecord(
     val dcmPath: String,
     val jpgPath: String,
     var isSelected: Boolean = false
-) {
+) : Serializable {
     /** 转换后的 jpg 是否已存在 */
     fun hasJpg(): Boolean {
         return jpgPath != null && File(jpgPath).exists()
