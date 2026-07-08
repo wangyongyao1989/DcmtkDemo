@@ -11,6 +11,10 @@ import com.example.dcmtk.model.DicomImageRecord
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.viewmodel.PacsViewModel
 
+/**
+ * A dialog fragment that displays the DICOM upload progress.
+ * It uses [DicomUploadView] to handle the actual upload process and UI.
+ */
 class DicomUploadDialog : DialogFragment() {
 
     private var uploadView: DicomUploadView? = null
@@ -23,13 +27,17 @@ class DicomUploadDialog : DialogFragment() {
 
     interface OnUploadFinishedListener {
         fun onFinished(successCount: Int, totalCount: Int)
+
+        fun onItemStatus(index: Int, success: Boolean) {}
     }
 
     companion object {
+
         @JvmStatic
         fun newInstance(records: Array<DicomImageRecord>): DicomUploadDialog {
             return newInstance(records, false)
         }
+
 
         @JvmStatic
         fun newInstance(records: Array<DicomImageRecord>, autoStart: Boolean): DicomUploadDialog {
@@ -51,6 +59,7 @@ class DicomUploadDialog : DialogFragment() {
                 this.pacsConfig = config
             }
         }
+
 
         @JvmStatic
         fun newInstance(
@@ -100,6 +109,10 @@ class DicomUploadDialog : DialogFragment() {
                 override fun onCancel() {
                     PacsManager.cancelOperation()
                     dismiss()
+                }
+
+                override fun onItemStatus(index: Int, success: Boolean) {
+                    listener?.onItemStatus(index, success)
                 }
             })
 

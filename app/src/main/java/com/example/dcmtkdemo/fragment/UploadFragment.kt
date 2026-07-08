@@ -101,6 +101,12 @@ class UploadFragment : Fragment() {
                             "Last Upload: %d/%d success", successCount, totalCount
                         )
                     }
+
+                    override fun onItemStatus(index: Int, success: Boolean) {
+                        Log.d("UploadFragment", "Item $index upload status: $success")
+                        // Update individual item in the adapter if necessary
+                        // adapter.notifyItemChanged(index)
+                    }
                 })
                 dialog.show(parentFragmentManager, "DicomUploadDialog")
             }

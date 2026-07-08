@@ -36,6 +36,7 @@ class DicomUploadView @JvmOverloads constructor(
     interface OnUploadEventListener {
         fun onFinished(successCount: Int, totalCount: Int)
         fun onCancel()
+        fun onItemStatus(index: Int, success: Boolean) {}
     }
 
     init {
@@ -117,6 +118,7 @@ class DicomUploadView @JvmOverloads constructor(
                             currentRecords[index].isUploaded = true
                             currentRecords[index].isSelected = false
                         }
+                        listener?.onItemStatus(index, success)
                     }
                 }
             }, 1)
