@@ -15,8 +15,8 @@ import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
 import com.example.dcmtk.utils.MwlTemplateHelper
-import com.example.dcmtk.view.PacsConnectionDialog
-import com.example.dcmtk.view.PacsConnectionView
+import com.example.dcmtk.view.WorkListConnectionDialog
+import com.example.dcmtk.view.WorkListConnectionView
 import com.example.dcmtk.viewmodel.PacsViewModel
 import com.example.dcmtkdemo.adapter.PatientAdapter
 import com.example.dcmtkdemo.databinding.FragmentWorklistQueryBinding
@@ -85,7 +85,7 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.pacsConfig.value ?: return@launch
+            val config = viewModel.worklistConfig.value ?: return@launch
             val finalResults = withContext(Dispatchers.IO) {
                 PacsManager.cFindMWL(config, modality)
             }
@@ -130,7 +130,7 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.pacsConfig.value ?: return@launch
+            val config = viewModel.worklistConfig.value ?: return@launch
             val exportedFiles = withContext(Dispatchers.IO) {
                 MwlTemplateHelper.prepareTemplates(requireContext())
                 MwlTemplateHelper.executeMwlQuery(
@@ -185,12 +185,12 @@ class WorklistQueryFragment : Fragment() {
     }
 
     private fun verifyConnection(onVerified: (() -> Unit)?) {
-        val popupWindow = PacsConnectionDialog(
+        val popupWindow = WorkListConnectionDialog(
             requireContext(),
-            viewModel.pacsConfig.value,
-            object : PacsConnectionView.OnConnectionVerifiedListener {
+            viewModel.worklistConfig.value,
+            object : WorkListConnectionView.OnConnectionVerifiedListener {
                 override fun onVerified(config: PacsConfig) {
-                    viewModel.pacsConfig.postValue(config)
+                    viewModel.worklistConfig.postValue(config)
                     onVerified?.invoke()
                 }
 

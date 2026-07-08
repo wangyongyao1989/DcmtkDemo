@@ -9,6 +9,7 @@ import com.example.dcmtk.utils.PacsPrefs
 
 class PacsViewModel(application: Application) : AndroidViewModel(application) {
     val pacsConfig = MutableLiveData(PacsPrefs.getConfig(application))
+    val worklistConfig = MutableLiveData(PacsPrefs.getWorklistConfig(application))
 
     // Backwards compatibility or convenience getters
     val host get() = pacsConfig.value?.host ?: ""

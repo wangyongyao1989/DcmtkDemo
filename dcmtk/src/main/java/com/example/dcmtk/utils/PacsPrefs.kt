@@ -10,6 +10,11 @@ object PacsPrefs {
     private const val KEY_LOCAL_AET = "pacs_local_aet"
     private const val KEY_REMOTE_AET = "pacs_remote_aet"
 
+    private const val KEY_WL_HOST = "wl_host"
+    private const val KEY_WL_PORT = "wl_port"
+    private const val KEY_WL_LOCAL_AET = "wl_local_aet"
+    private const val KEY_WL_REMOTE_AET = "wl_remote_aet"
+
     fun saveConfig(context: Context, config: PacsConfig) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
@@ -27,6 +32,26 @@ object PacsPrefs {
             port = prefs.getInt(KEY_PORT, 11112),
             localAet = prefs.getString(KEY_LOCAL_AET, "ANDROID_SCU") ?: "ANDROID_SCU",
             remoteAet = prefs.getString(KEY_REMOTE_AET, "ACME_STORE") ?: "ACME_STORE"
+        )
+    }
+
+    fun saveWorklistConfig(context: Context, config: PacsConfig) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_WL_HOST, config.host)
+            .putInt(KEY_WL_PORT, config.port)
+            .putString(KEY_WL_LOCAL_AET, config.localAet)
+            .putString(KEY_WL_REMOTE_AET, config.remoteAet)
+            .apply()
+    }
+
+    fun getWorklistConfig(context: Context): PacsConfig {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return PacsConfig(
+            host = prefs.getString(KEY_WL_HOST, "192.168.10.110") ?: "192.168.10.153",
+            port = prefs.getInt(KEY_WL_PORT, 11112),
+            localAet = prefs.getString(KEY_WL_LOCAL_AET, "ANDROID_SCU") ?: "ANDROID_SCU",
+            remoteAet = prefs.getString(KEY_WL_REMOTE_AET, "OFFIS") ?: "OFFIS"
         )
     }
 }

@@ -13,7 +13,7 @@ import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.utils.PacsPrefs
 import kotlinx.coroutines.*
 
-class PacsConnectionView @JvmOverloads constructor(
+class WorkListConnectionView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
@@ -44,7 +44,7 @@ class PacsConnectionView @JvmOverloads constructor(
         binding.btnVerify.setOnClickListener {
             val config = getConfig() ?: return@setOnClickListener
 
-            binding.tvError.visibility = View.GONE
+            binding.tvError.visibility = GONE
             binding.btnVerify.isEnabled = false
 
             scope.launch {
@@ -52,9 +52,9 @@ class PacsConnectionView @JvmOverloads constructor(
                     val echoSuccess = PacsManager.safeCEcho(config, 2)
                     
                     if (echoSuccess) {
-                        binding.tvError.visibility = View.GONE
-                        // 验证成功后保存到 SP
-                        PacsPrefs.saveConfig(context, config)
+                        binding.tvError.visibility = GONE
+                        // 验证成功后保存到 Worklist 专用配置
+                        PacsPrefs.saveWorklistConfig(context, config)
                         listener?.onVerified(config)
                     } else {
                         showError("Verification Failed (Check Network or AETs)")
@@ -73,7 +73,7 @@ class PacsConnectionView @JvmOverloads constructor(
     }
 
     private fun loadSavedConfig() {
-        val savedConfig = PacsPrefs.getConfig(context)
+        val savedConfig = PacsPrefs.getWorklistConfig(context)
         setConnectionInfo(savedConfig)
     }
 
@@ -83,7 +83,7 @@ class PacsConnectionView @JvmOverloads constructor(
 
     private fun showError(message: String) {
         binding.tvError.text = message
-        binding.tvError.visibility = View.VISIBLE
+        binding.tvError.visibility = VISIBLE
     }
 
     fun setConnectionInfo(config: PacsConfig?) {
