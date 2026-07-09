@@ -21,7 +21,8 @@ object MwlTemplateHelper {
     suspend fun prepareTemplates(context: Context) = withContext(Dispatchers.IO) {
         val targetDir = File(context.filesDir, TEMPLATE_LOCAL_DIR)
         if (!targetDir.exists()) {
-            targetDir.mkdirs()
+            val created = targetDir.mkdirs()
+            Log.d(TAG, "Creating templates dir: ${targetDir.absolutePath}, success: $created")
         }
 
         try {

@@ -539,7 +539,7 @@ std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, i
     return results;
 }
 
-std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
+std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
                                               const std::string &localAet,
                                               const std::string &remoteAet,
                                               const std::string &modality) {
@@ -561,7 +561,7 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
     addCommonTransferSyntaxes(ts);
     scu.addPresentationContext(UID_FINDModalityWorklistInformationModel, ts);
 
-    std::vector<std::string> results;
+    std::vector<DcmDataset*> results;
     OFCondition cond = scu.initNetwork();
     if (cond.good()) {
         LOGD("native_cFindMWL: Network initialized, negotiating association...");
@@ -602,31 +602,8 @@ std::vector<std::string> PacsClient::cFindMWL(const std::string &host, int port,
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            OFString name, id, acc, sex, birth, studyUid, mod, spsDesc;
-                            ds->findAndGetOFString(DCM_PatientName, name);
-                            ds->findAndGetOFString(DCM_PatientID, id);
-                            ds->findAndGetOFString(DCM_AccessionNumber, acc);
-                            ds->findAndGetOFString(DCM_PatientSex, sex);
-                            ds->findAndGetOFString(DCM_PatientBirthDate, birth);
-                            ds->findAndGetOFString(DCM_StudyInstanceUID, studyUid);
-
-                            // Modality and other details are inside the sequence
-                            DcmItem *item = nullptr;
-                            if (ds->findAndGetSequenceItem(DCM_ScheduledProcedureStepSequence, item, 0).good()) {
-                                item->findAndGetOFString(DCM_Modality, mod);
-                                item->findAndGetOFString(DCM_ScheduledProcedureStepDescription, spsDesc);
-                            }
-
-                            // Format: "Name | ID:id | Acc:acc | Sex:sex | Birth:birth | Mod:mod | Desc:desc"
-                            std::string res = std::string(name.c_str()) + " | ID:" + id.c_str();
-                            if (!acc.empty()) res += " | Acc:" + std::string(acc.c_str());
-                            if (!sex.empty()) res += " | Sex:" + std::string(sex.c_str());
-                            if (!birth.empty()) res += " | Birth:" + std::string(birth.c_str());
-                            if (!mod.empty()) res += " | Mod:" + std::string(mod.c_str());
-                            if (!spsDesc.empty()) res += " | Desc:" + std::string(spsDesc.c_str());
-
-                            LOGD("native_cFindMWL: Found record: %s", res.c_str());
-                            results.push_back(res);
+                            // Clone the dataset to take ownership
+                            results.push_back(new DcmDataset(*ds));
                         }
                     }
                 } else {

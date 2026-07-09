@@ -130,7 +130,7 @@ object PacsManager {
     suspend fun cFindMWL(
         config: PacsConfig,
         modality: String
-    ): Array<String>? = withContext(Dispatchers.IO) {
+    ): Array<HashMap<String, String>>? = withContext(Dispatchers.IO) {
         try {
             DcmtkJni.cFindMWL(config.host, config.port, config.localAet, config.remoteAet, modality)
         } catch (e: Exception) {

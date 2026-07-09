@@ -260,17 +260,49 @@ static jobjectArray native_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jin
     JniString c_remote(env, remote_aet);
     JniString c_mod(env, modality);
 
-    std::vector<std::string> results = PacsClient::cFindMWL(
+    std::vector<DcmDataset*> results = PacsClient::cFindMWL(
             c_host.c_str() ? c_host.c_str() : "", port,
             c_local.c_str() ? c_local.c_str() : "",
             c_remote.c_str() ? c_remote.c_str() : "",
             c_mod.c_str() ? c_mod.c_str() : "");
 
-    jobjectArray ret = (jobjectArray) env->NewObjectArray(results.size(),
-                                                          env->FindClass("java/lang/String"),
-                                                          env->NewStringUTF(""));
+    jclass mapClass = env->FindClass("java/util/HashMap");
+    jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
+    jmethodID putMethod = env->GetMethodID(mapClass, "put",
+                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+
+    jobjectArray ret = (jobjectArray) env->NewObjectArray(results.size(), mapClass, nullptr);
+
     for (size_t i = 0; i < results.size(); ++i) {
-        env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
+        DcmDataset *ds = results[i];
+        jobject hashMap = env->NewObject(mapClass, mapInit);
+        if (ds) {
+            DcmStack stack;
+            while (ds->nextObject(stack, OFTrue).good()) {
+                DcmObject *obj = stack.top();
+                if (obj && obj->isLeaf()) {
+                    auto *element = dynamic_cast<DcmElement *>(obj);
+                    if (element) {
+                        DcmTag tag = element->getTag();
+                        char tagStr[32];
+                        snprintf(tagStr, sizeof(tagStr), "(%04X,%04X)",
+                                 tag.getGroup(), tag.getElement());
+
+                        OFString valueStr;
+                        element->getOFStringArray(valueStr);
+
+                        jstring key = env->NewStringUTF(tagStr);
+                        jstring val = env->NewStringUTF(valueStr.c_str());
+                        env->CallObjectMethod(hashMap, putMethod, key, val);
+                        env->DeleteLocalRef(key);
+                        env->DeleteLocalRef(val);
+                    }
+                }
+            }
+            delete ds; // Important: delete cloned dataset
+        }
+        env->SetObjectArrayElement(ret, i, hashMap);
+        env->DeleteLocalRef(hashMap);
     }
     return ret;
 }
@@ -381,7 +413,7 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
                 (void *) native_cFindByAccession},
         {"cFindMWL",
-                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
+                "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/util/HashMap;",
                 (void *) native_cFindMWL},
         {"cFindMWLByTemplate",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",

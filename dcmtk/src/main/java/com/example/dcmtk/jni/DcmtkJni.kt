@@ -89,7 +89,7 @@ object DcmtkJni {
         localAET: String,
         remoteAET: String,
         modality: String
-    ): Array<String>?
+    ): Array<HashMap<String, String>>?
 
     @JvmStatic
     external fun cFindMWLByTemplate(

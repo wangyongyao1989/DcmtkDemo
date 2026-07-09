@@ -6,6 +6,8 @@
 #include <vector>
 #include <atomic>
 
+class DcmDataset;
+
 // PACS network operations (DICOM SCU). All methods are blocking and use
 // pure C++ types, so this class is independent of JNI and can be read/tested
 // in isolation. The JNI bridge layer handles Java<->C++ marshaling.
@@ -56,8 +58,8 @@ public:
                                                      const std::string &remoteAet,
                                                      const std::string &accessionNumber);
 
-    // C-FIND Modality Worklist (MWL). Returns summary of scheduled procedures.
-    static std::vector<std::string> cFindMWL(const std::string &host, int port,
+    // C-FIND Modality Worklist (MWL). Returns a collection of datasets.
+    static std::vector<DcmDataset*> cFindMWL(const std::string &host, int port,
                                              const std::string &localAet,
                                              const std::string &remoteAet,
                                              const std::string &modality);

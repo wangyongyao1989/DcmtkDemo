@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.*
+import kotlin.math.log
 
 class WorklistQueryFragment : Fragment() {
 
@@ -48,6 +49,11 @@ class WorklistQueryFragment : Fragment() {
         viewModel = ViewModelProvider(requireActivity()).get(PacsViewModel::class.java)
 
         setupRecyclerView()
+
+        // 进入页面即初始化模板和目录
+        viewLifecycleOwner.lifecycleScope.launch {
+            MwlTemplateHelper.prepareTemplates(requireContext())
+        }
 
         binding?.btnQueryMwl?.setOnClickListener {
             verifyConnection {
@@ -97,24 +103,14 @@ class WorklistQueryFragment : Fragment() {
 
             val records = ArrayList<PatientRecord>()
             if (finalResults != null) {
-                for (res in finalResults) {
-                    val parts = res.split(" | ".toRegex()).toTypedArray()
-                    var name = "N/A"
-                    var id = "N/A"
-                    var sex = "N/A"
-                    var birth = "N/A"
-                    var acc = ""
-                    var mod = ""
-                    if (parts.isNotEmpty()) name = parts[0]
-                    for (p in parts) {
-                        when {
-                            p.startsWith("ID:") -> id = p.substring(3).trim { it <= ' ' }
-                            p.startsWith("Acc:") -> acc = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Mod:") -> mod = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Sex:") -> sex = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Birth:") -> birth = p.substring(6).trim { it <= ' ' }
-                        }
-                    }
+                for (map in finalResults) {
+                    val name = map["(0010,0010)"] ?: "N/A"
+                    val id = map["(0010,0020)"] ?: "N/A"
+                    val acc = map["(0008,0050)"] ?: ""
+                    val sex = map["(0010,0040)"] ?: "N/A"
+                    val birth = map["(0010,0030)"] ?: "N/A"
+                    val mod = map["(0008,0060)"] ?: ""
+
                     records.add(PatientRecord(name, id, sex, birth, acc, mod))
                 }
             }
@@ -148,6 +144,7 @@ class WorklistQueryFragment : Fragment() {
             if (exportedFiles.isNotEmpty()) {
                 val records = ArrayList<PatientRecord>()
                 for (path in exportedFiles) {
+                    Log.e(TAG, "path: "+path)
                     val record = withContext(Dispatchers.IO) { parseDicomFile(path) }
                     if (record != null) {
                         records.add(record)
