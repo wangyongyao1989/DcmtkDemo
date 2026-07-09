@@ -14,6 +14,7 @@ import com.example.dcmtk.PacsManager
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.utils.DicomTag
 import com.example.dcmtk.utils.MwlTemplateHelper
 import com.example.dcmtk.view.WorkListConnectionDialog
 import com.example.dcmtk.view.WorkListConnectionView
@@ -103,13 +104,19 @@ class WorklistQueryFragment : Fragment() {
 
             val records = ArrayList<PatientRecord>()
             if (finalResults != null) {
+                finalResults.forEachIndexed { index, map ->
+                    Log.d(TAG, "MWL Result #$index:")
+                    map.forEach { (tag, value) ->
+                        Log.d(TAG, "  $tag -> $value")
+                    }
+                }
                 for (map in finalResults) {
-                    val name = map["(0010,0010)"] ?: "N/A"
-                    val id = map["(0010,0020)"] ?: "N/A"
-                    val acc = map["(0008,0050)"] ?: ""
-                    val sex = map["(0010,0040)"] ?: "N/A"
-                    val birth = map["(0010,0030)"] ?: "N/A"
-                    val mod = map["(0008,0060)"] ?: ""
+                    val name = map[DicomTag.PatientName.formattedTag] ?: "N/A"
+                    val id = map[DicomTag.PatientID.formattedTag] ?: "N/A"
+                    val acc = map[DicomTag.AccessionNumber.formattedTag] ?: ""
+                    val sex = map[DicomTag.PatientSex.formattedTag] ?: "N/A"
+                    val birth = map[DicomTag.PatientBirthDate.formattedTag] ?: "N/A"
+                    val mod = map[DicomTag.Modality.formattedTag] ?: ""
 
                     records.add(PatientRecord(name, id, sex, birth, acc, mod))
                 }
@@ -162,12 +169,12 @@ class WorklistQueryFragment : Fragment() {
         return try {
             val info = DcmtkJni.loadDicomFileInfo(path)
             if (info != null && info.isNotEmpty()) {
-                val name = info.getOrDefault("(0010,0010)", "N/A")
-                val id = info.getOrDefault("(0010,0020)", "N/A")
-                val sex = info.getOrDefault("(0010,0040)", "N/A")
-                val birth = info.getOrDefault("(0010,0030)", "N/A")
-                val acc = info.getOrDefault("(0008,0050)", "")
-                val mod = info.getOrDefault("(0008,0060)", "")
+                val name = info.getOrDefault(DicomTag.PatientName.formattedTag, "N/A")
+                val id = info.getOrDefault(DicomTag.PatientID.formattedTag, "N/A")
+                val sex = info.getOrDefault(DicomTag.PatientSex.formattedTag, "N/A")
+                val birth = info.getOrDefault(DicomTag.PatientBirthDate.formattedTag, "N/A")
+                val acc = info.getOrDefault(DicomTag.AccessionNumber.formattedTag, "")
+                val mod = info.getOrDefault(DicomTag.Modality.formattedTag, "")
                 PatientRecord(name, id, sex, birth, acc, mod)
             } else null
         } catch (e: Exception) {

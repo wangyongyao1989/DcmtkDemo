@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.utils.DicomTag
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -112,22 +113,22 @@ class DcmtkGetTest {
             validDicomCount++
 
             // 打印重要 DICOM 信息
-            val patientName = safeGet(info, "(0010,0010)")
-            val patId = safeGet(info, "(0010,0020)")
-            val patientSex = safeGet(info, "(0010,0040)")
-            val birthDate = safeGet(info, "(0010,0030)")
-            val studyDate = safeGet(info, "(0008,0020)")
-            val studyTime = safeGet(info, "(0008,0030)")
-            val studyDesc = safeGet(info, "(0008,1030)")
-            val modality = safeGet(info, "(0008,0060)")
-            val seriesDesc = safeGet(info, "(0008,103E)")
-            val sopClassUid = safeGet(info, "(0008,0016)")
-            val sopInstUid = safeGet(info, "(0008,0018)")
-            val rows = safeGet(info, "(0028,0010)")
-            val columns = safeGet(info, "(0028,0011)")
-            val bitsAlloc = safeGet(info, "(0028,0100)")
-            val bitsStored = safeGet(info, "(0028,0101)")
-            val pixelSpacing = safeGet(info, "(0028,0030)")
+            val patientName = safeGet(info, DicomTag.PatientName.formattedTag)
+            val patId = safeGet(info, DicomTag.PatientID.formattedTag)
+            val patientSex = safeGet(info, DicomTag.PatientSex.formattedTag)
+            val birthDate = safeGet(info, DicomTag.PatientBirthDate.formattedTag)
+            val studyDate = safeGet(info, DicomTag.StudyDate.formattedTag)
+            val studyTime = safeGet(info, DicomTag.StudyTime.formattedTag)
+            val studyDesc = safeGet(info, DicomTag.StudyDescription.formattedTag)
+            val modality = safeGet(info, DicomTag.Modality.formattedTag)
+            val seriesDesc = safeGet(info, DicomTag.SeriesDescription.formattedTag)
+            val sopClassUid = safeGet(info, DicomTag.SOPClassUID.formattedTag)
+            val sopInstUid = safeGet(info, DicomTag.SOPInstanceUID.formattedTag)
+            val rows = safeGet(info, DicomTag.Rows.formattedTag)
+            val columns = safeGet(info, DicomTag.Columns.formattedTag)
+            val bitsAlloc = safeGet(info, DicomTag.BitsAllocated.formattedTag)
+            val bitsStored = safeGet(info, DicomTag.BitsStored.formattedTag)
+            val pixelSpacing = safeGet(info, DicomTag.PixelSpacing.formattedTag)
 
             Log.d(TAG, "  -- Patient Info --")
             Log.d(TAG, "    Patient Name  : $patientName")
@@ -163,13 +164,13 @@ class DcmtkGetTest {
         files?.forEach { file ->
             val info = DcmtkJni.loadDicomFileInfo(file.absolutePath)
             if (info != null && info.isNotEmpty()) {
-                assertNotNull("Patient Name tag should exist", info["(0010,0010)"])
-                assertNotNull("Patient ID tag should exist", info["(0010,0020)"])
-                assertNotNull("Modality tag should exist", info["(0008,0060)"])
-                assertNotNull("SOP Class UID tag should exist", info["(0008,0016)"])
-                assertNotNull("Rows tag should exist", info["(0028,0010)"])
-                assertNotNull("Columns tag should exist", info["(0028,0011)"])
-                assertNotNull("Bits Allocated tag should exist", info["(0028,0100)"])
+                assertNotNull("Patient Name tag should exist", info[DicomTag.PatientName.formattedTag])
+                assertNotNull("Patient ID tag should exist", info[DicomTag.PatientID.formattedTag])
+                assertNotNull("Modality tag should exist", info[DicomTag.Modality.formattedTag])
+                assertNotNull("SOP Class UID tag should exist", info[DicomTag.SOPClassUID.formattedTag])
+                assertNotNull("Rows tag should exist", info[DicomTag.Rows.formattedTag])
+                assertNotNull("Columns tag should exist", info[DicomTag.Columns.formattedTag])
+                assertNotNull("Bits Allocated tag should exist", info[DicomTag.BitsAllocated.formattedTag])
                 Log.d(TAG, "Assertion passed: all important tags are present in ${file.name}")
                 return@testCGetAndDisplayInfo
             }

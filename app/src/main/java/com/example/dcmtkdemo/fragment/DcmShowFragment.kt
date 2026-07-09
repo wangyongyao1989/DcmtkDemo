@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.DicomImageRecord
+import com.example.dcmtk.utils.DicomTag
 import com.example.dcmtkdemo.activity.DetailActivity
 import com.example.dcmtkdemo.adapter.DcmImageAdapter
 import com.example.dcmtkdemo.databinding.FragmentDcmShowBinding
@@ -107,11 +108,11 @@ class DcmShowFragment : Fragment() {
                     try {
                         val info = DcmtkJni.loadDicomFileInfo(dcmPath)
                         if (info != null && info.isNotEmpty()) {
-                            name = safeGet(info, "(0010,0010)")
-                            id = safeGet(info, "(0010,0020)")
-                            sex = safeGet(info, "(0010,0040)")
-                            studyDate = safeGet(info, "(0008,0020)")
-                            studyDesc = safeGet(info, "(0008,1030)")
+                            name = safeGet(info, DicomTag.PatientName.formattedTag)
+                            id = safeGet(info, DicomTag.PatientID.formattedTag)
+                            sex = safeGet(info, DicomTag.PatientSex.formattedTag)
+                            studyDate = safeGet(info, DicomTag.StudyDate.formattedTag)
+                            studyDesc = safeGet(info, DicomTag.StudyDescription.formattedTag)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error loading info for ${f.name}", e)
