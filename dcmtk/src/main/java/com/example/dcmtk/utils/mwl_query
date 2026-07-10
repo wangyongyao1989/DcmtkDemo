@@ -1,0 +1,513 @@
+ public static async Task FindWorklistItems(bool showMsg)
+        {
+            string serverIP = "";
+            int serverPort = 0;
+            string serverAET = "";
+            string clientAET = "";
+            //获取workList配置信息
+            List<CodeMasterModel> list = CommonController.GetConfigInfo();
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].CodeName.Equals("WlServerIP"))
+                {
+                    serverIP = list[i].CodeValue;
+                }
+                else if (list[i].CodeName.Equals("WlServerPort"))
+                {
+                    serverPort = int.Parse(list[i].CodeValue);
+                }
+                else if (list[i].CodeName.Equals("WlServerAET"))
+                {
+                    serverAET = list[i].CodeValue;
+                }
+                else if (list[i].CodeName.Equals("WlClientAET"))
+                {
+                    clientAET = list[i].CodeValue;
+                }
+            }
+            //var worklistItems = await GetAllItemsFromWorklistAsync(serverIP, serverPort, serverAET, clientAET);
+            try
+            {
+                var worklistItems = new List<DicomDataset>();
+                var cfind = DicomCFindRequest.CreateWorklistQuery(); // no filter, so query all awailable entries
+                cfind.OnResponseReceived = (DicomCFindRequest rq, DicomCFindResponse rp) =>
+                {
+                    if (rp.HasDataset)
+                    {
+                        //Console.WriteLine("Study UID: {0}", rp.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID));
+                        try
+                        {
+                            Console.WriteLine("Study UID: {0}", rp.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID));
+                        }
+                        catch (Exception e)
+                        {
+                            Common.Logger.WriteErrorLog("rp.Dataset.GetSingleValue<string>(DicomTag.StudyInstanceUID) faulure: " + e.Message, "WorkList" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                        }
+                        worklistItems.Add(rp.Dataset);
+                    }
+                    else
+                    {
+                        Console.WriteLine(rp.Status.ToString());
+                    }
+                };
+
+                var client = new DicomClient(serverIP, serverPort, false, clientAET, serverAET);
+
+                await client.AddRequestAsync(cfind);
+                //await client.SendAsync();
+
+                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // 设置超时为30秒
+                try
+                {
+                    await client.SendAsync(cts.Token, DicomClientCancellationMode.ImmediatelyAbortAssociation); // 假设SendAsync接受CancellationToken
+                }
+                catch (OperationCanceledException e)
+                {
+                    string strErrorMsg = e.Message;
+                    if (showMsg)
+                    {
+                        MsgInvok.SysMsgShowDialog(ServiceConstClass.MsgTypeError, 0, Application.Current.FindResource("MSG057").ToString());
+                        return;
+                    }
+                    else
+                    {
+                        Common.Logger.WriteErrorLog(Application.Current.FindResource("MSG057").ToString() + "\n" + e.Message, "WorkList" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                        return;
+                    }
+                }
+                catch (Exception e)
+                {
+                    if (showMsg)
+                    {
+                        MsgInvok.SysMsgShowDialog(ServiceConstClass.MsgTypeError, 0, Application.Current.FindResource("MSG058").ToString());
+                        return;
+                    }
+                    else
+                    {
+                        Common.Logger.WriteErrorLog(Application.Current.FindResource("MSG057").ToString() + "," + Application.Current.FindResource("MSG058").ToString() + "\n" + e.Message, "WorkList" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                        return;
+                    }
+                }
+
+
+                try
+                {
+
+
+                    bool bCheckStudyUidEnable = false;
+                    Model.CodeMasterModel cmSynCheckStudyInstanceUID = new ModelView.CodeMaster().GetSettingInfo("47");
+                    if (cmSynCheckStudyInstanceUID != null)
+                    {
+                        if (cmSynCheckStudyInstanceUID.CodeValue.Equals("1"))
+                        {
+                            bCheckStudyUidEnable = true;
+                        }
+                    }
+
+                    bool bCheckAccessionNumberEnable = false;
+                    Model.CodeMasterModel cmSynCheckAccessionNumber = new ModelView.CodeMaster().GetSettingInfo("48");
+                    if (cmSynCheckAccessionNumber != null)
+                    {
+                        if (cmSynCheckAccessionNumber.CodeValue.Equals("1"))
+                        {
+                            bCheckAccessionNumberEnable = true;
+                        }
+                    }
+
+                    if(!bCheckStudyUidEnable)
+                    {
+                        if(!bCheckAccessionNumberEnable)
+                        {
+                            bCheckStudyUidEnable = true;
+                        }
+                    }
+
+                    bool bCheckModalityEnable = false;
+                    Model.CodeMasterModel cmSynCheckModality = new ModelView.CodeMaster().GetSettingInfo("49");
+                    if (cmSynCheckModality != null)
+                    {
+                        if (cmSynCheckModality.CodeValue.Equals("1"))
+                        {
+                            bCheckModalityEnable = true;
+                        }
+                    }
+
+                    //2025.12.03 E看牙连机同步检查记录重复追加查因
+                    if (worklistItems.Count > 0)
+                    {
+                        StreamWriter swCsvFile = new StreamWriter("./worklistSynIfo" + DateTime.Now.ToString("yyyyMMdd") + ".csv", true, Encoding.UTF8);
+                        swCsvFile.Write("\t\n");
+                        swCsvFile.Write("    bCheckStudyUidEnable:" + bCheckStudyUidEnable + " \t\n");
+                        swCsvFile.Write("    bCheckAccessionNumberEnable:" + bCheckAccessionNumberEnable + " \t\n");
+                        swCsvFile.Write(DateTime.Now.ToString("yyyyMMddHHmmss") + "worklis syn worklistItems.Count is " + worklistItems.Count.ToString() + " \t\n");
+                        swCsvFile.Close();
+                    }
+
+                    //保存获取到的信息
+                    for (int i = 0; i < worklistItems.Count; i++)
+                    {
+                        DicomDataset DataSet = worklistItems[i];
+
+                        //患者信息
+                        string PatientName = DataSet.GetSingleValueOrDefault<string>(DicomTag.PatientName, string.Empty);
+                        string PatientID = DataSet.GetSingleValueOrDefault<string>(DicomTag.PatientID, string.Empty);
+                        string PatientSex = DataSet.GetSingleValueOrDefault<string>(DicomTag.PatientSex, string.Empty);
+                        string PatientAge = DataSet.GetSingleValueOrDefault<string>(DicomTag.PatientAge, string.Empty);
+                        string PatientBirthDate = DataSet.GetSingleValueOrDefault<string>(DicomTag.PatientBirthDate, string.Empty);
+
+                        byte[] bytePatientName = DataSet.Get<byte[]>(DicomTag.PatientName, 0);
+                        string strPatientName = Encoding.GetEncoding("GB18030").GetString(bytePatientName);
+                        PatientName = strPatientName;
+
+                        string strPatientAge = System.Text.RegularExpressions.Regex.Replace(PatientAge, @"[^0-9]+", "");
+
+                        DateTime BirthDate = PatientBirthDate == "" ? DateTime.Now : DateTime.ParseExact(PatientBirthDate, "yyyyMMdd", System.Globalization.CultureInfo.CurrentCulture);
+                        //计算年龄
+                        DateTime NowDate = DateTime.Now;
+                        //利用TimeSpan计算时间差
+                        TimeSpan ts1 = new TimeSpan(NowDate.Ticks);
+                        TimeSpan ts2 = new TimeSpan(BirthDate.Ticks);
+                        TimeSpan ts3 = ts1.Subtract(ts2); //ts1-ts2
+                        double age = ts3.TotalSeconds / (24 * 60 * 60 * 365);
+                        int Age = (int)Math.Round(age, 0);
+
+
+                        string PregnancyStatus = DataSet.GetSingleValueOrDefault<string>(DicomTag.PregnancyStatus, string.Empty);
+                        string BodyPartExamined = DataSet.GetSingleValueOrDefault<string>(DicomTag.BodyPartExamined, string.Empty);
+                        BodyPartExamined = System.Text.RegularExpressions.Regex.Replace(BodyPartExamined, @"[^0-9,]+", "");
+
+                        //检查信息
+                        string AccessionNumber = DataSet.GetSingleValueOrDefault<string>(DicomTag.AccessionNumber, string.Empty);
+                        string Modality = DataSet.GetSingleValueOrDefault<string>(DicomTag.Modality, string.Empty);
+                        string StudyInstanceUID = DataSet.GetSingleValueOrDefault<string>(DicomTag.StudyInstanceUID, string.Empty);
+                        string ReferringPhysicianName = DataSet.GetSingleValueOrDefault<string>(DicomTag.ReferringPhysicianName, string.Empty);
+                        string PerformingPhysicianName = DataSet.GetSingleValueOrDefault<string>(DicomTag.PerformingPhysicianName, string.Empty);
+                        string StudyDescription = DataSet.GetSingleValueOrDefault<string>(DicomTag.StudyDescription, string.Empty);
+                        //string strExamineDoctorID = DataSet.GetSingleValueOrDefault<string>(DicomTag.ExamineDoctorID, string.Empty);
+                        //string strReviewDoctorID = DataSet.GetSingleValueOrDefault<string>(DicomTag.ReviewDoctorID, string.Empty);
+
+
+                        string ReferringPhysicianNamee = ReferringPhysicianName;
+                        byte[] byteReferringPhysicianName = DataSet.Get<byte[]>(DicomTag.ReferringPhysicianName, 0);
+                        string strReferringPhysicianName = Encoding.GetEncoding("GB18030").GetString(byteReferringPhysicianName);
+                        ReferringPhysicianName = strReferringPhysicianName;
+
+                        string StudyDescriptionn = StudyDescription;
+                        byte[] byteStudyDescription = DataSet.Get<byte[]>(DicomTag.StudyDescription, 0);
+                        string strStudyDescription = Encoding.GetEncoding("GB18030").GetString(byteStudyDescription);
+                        StudyDescription = strStudyDescription;
+
+
+                        DateTime submitDate = DateTime.Now;
+
+
+                        if (bCheckModalityEnable)
+                        {
+                            if (!(Modality.Equals("CR") || Modality.Equals("cr") || Modality.Equals("DR") || Modality.Equals("dr")))
+                            {
+                                continue;
+                            }
+                        }
+
+
+                        bool isExists = PatientID == "" ? false : new ModelView.Patient().Exists(PatientID);
+                        if (isExists)
+                        {
+                            //修改
+                            Model.Patient patient = new ModelView.Patient().GetModel(PatientID);
+                            patient.PatientId = PatientID;
+                            patient.PatientName = PatientName;
+                            patient.Height = "0";
+                            patient.Weight = "0";
+                            patient.Sex = PatientSex == "M"? "1" : "2";
+                            patient.BirthDate = PatientBirthDate == "" ? DateTime.Now : DateTime.ParseExact(PatientBirthDate, "yyyyMMdd", System.Globalization.CultureInfo.CurrentCulture);
+                            patient.Status = PregnancyStatus;
+                            patient.ToothType = "1";
+                            patient.ExamineStatus = "1";
+                            patient.BodyPart = BodyPartExamined;
+                            patient.Status = PregnancyStatus == "" ? "1" : "2";
+                            //patient.dcmPath = "";
+                            patient.PatientAge = PatientAge == "" ? Age.ToString() : PatientAge;
+                            new ModelView.Patient().Update(patient);
+                        }
+                        else
+                        {
+                            //保存
+                            Model.Patient patient = new Model.Patient();
+                            patient.PatientId = (PatientID == "" ? AutoGenerateIdController.GetAutoGeneratePatientId() : PatientID);
+                            patient.PatientName = PatientName;
+                            patient.Height = "0";
+                            patient.Weight = "0";
+                            patient.Sex = PatientSex == "M" ? "1" : "2";
+                            patient.BirthDate = PatientBirthDate == "" ? DateTime.Now : DateTime.ParseExact(PatientBirthDate, "yyyyMMdd", System.Globalization.CultureInfo.CurrentCulture); ;
+                            patient.BirthTime = PatientBirthDate == "" ? DateTime.Now : DateTime.ParseExact(PatientBirthDate, "yyyyMMdd", System.Globalization.CultureInfo.CurrentCulture); ;
+                            patient.Status = PregnancyStatus;
+                            patient.ToothType = "1"; ;
+                            patient.ExamineStatus = "1";
+                            patient.BodyPart = BodyPartExamined;
+                            patient.Status = PregnancyStatus == "" ? "1" : "2";
+                            //patient.dcmPath = "";
+                            patient.PatientAge = PatientAge == "" ? Age.ToString() : PatientAge;
+                            new ModelView.Patient().Add(patient);
+                        }
+
+
+                        //保存或修改检查信息
+
+
+                        //判断查询的数据是否已存在
+                        //DataTable ds = new ModelView.Study().GetList("studyInstanceID = '" + StudyInstanceUID + "'").Tables[0];
+                        //bool isStudyExist = StudyInstanceUID == "" ? false : ds.Rows.Count > 0 ? true : false;
+                        //string ID = "";
+                        //string strPatientAgeForStudy = strPatientAge;
+                        DataTable ds = new ModelView.Study().GetList("studyInstanceID = '" + StudyInstanceUID + "'").Tables[0];
+                        bool isStudyUidExist = StudyInstanceUID == "" ? false : ds.Rows.Count > 0 ? true : false;
+
+                        DataTable ds0 = new ModelView.Study().GetList("patientID = '" + PatientID + "'" + " AND " + "AccessionNumber = '" + AccessionNumber + "'").Tables[0];
+                        bool isAccessionNumberExist = AccessionNumber == "" ? false : ds0.Rows.Count > 0 ? true : false;
+
+                        bool isStudyExist = false;
+
+
+                        if (bCheckAccessionNumberEnable)
+                        {
+                            if (bCheckStudyUidEnable)
+                            {
+                                isStudyExist = isStudyUidExist || isAccessionNumberExist;
+                            }
+                            else
+                            {
+                                isStudyExist = isAccessionNumberExist;
+                            }
+
+                            if (ds.Rows.Count < 1 && ds0.Rows.Count > 0 && isStudyExist)
+                            {
+                                ds = ds0;
+                            }
+                        }
+                        else
+                        {
+                            isStudyExist = isStudyUidExist;
+                        }
+
+
+
+                        string ID = "";
+                        string strPatientAgeForStudy = strPatientAge;
+
+                        //2025.12.03 E看牙连机同步检查记录重复追加查因
+                        StreamWriter swCsvFile = new StreamWriter("./worklistSynIfo" + DateTime.Now.ToString("yyyyMMdd") + ".csv", true, Encoding.UTF8);
+                        //swCsvFile.Write("\t\n");
+                        swCsvFile.Write(">>>" + i.ToString() + ":\t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PatientName: " + PatientName + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PatientID: " + PatientID + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PatientSex: " + PatientSex + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PatientAge: " + PatientAge + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PatientBirthDate: " + PatientBirthDate + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PregnancyStatus: " + PregnancyStatus + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.BodyPartExamined: " + BodyPartExamined + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.AccessionNumber: " + AccessionNumber + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.StudyInstanceUID: " + StudyInstanceUID + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.Modality: " + Modality + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.ReferringPhysicianName: " + ReferringPhysicianName + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.PerformingPhysicianName: " + PerformingPhysicianName + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.StudyDescriptionn: " + StudyDescriptionn + " \t\n");
+                        swCsvFile.Write(">>>>> DicomTag.StudyDescription: " + StudyDescription + " \t\n");
+                        swCsvFile.Write("\t\n");
+                        swCsvFile.Write(">>>>> isExists: " + isExists + " \t\n");
+                        swCsvFile.Write(">>>>> isStudyUidExist: " + isStudyUidExist + " \t\n");
+                        swCsvFile.Write(">>>>> isAccessionNumberExist: " + isAccessionNumberExist + " \t\n");
+                        swCsvFile.Write(">>>>> isStudyExist: " + isStudyExist + " \t\n");
+                        swCsvFile.Write("\t\n");
+                        swCsvFile.Close();
+
+
+
+                        if (isStudyExist)
+                        {
+                            ID = ds.Rows[0]["ID"].ToString();
+                            //修改
+                            Model.Study study = new ModelView.Study().GetModel(ID);
+                            study.Modalities = Modality == "CR" || Modality == "" ? "1" : "2";
+                            study.BodyPart = BodyPartExamined;
+                            study.StudyDescription = StudyDescription;
+                            //study.PatientAge = PatientAge == "" ? Age.ToString() : PatientAge;
+                            study.PatientAge = strPatientAgeForStudy == "" ? Age.ToString() : strPatientAgeForStudy;
+                            //study.ExamineDoctorID = "admin";
+                            //study.ReviewDoctorID = "admin";
+                            if (ReferringPhysicianName != null)
+                            {
+                                study.ExamineDoctorID = ReferringPhysicianName;
+                            }
+                            else
+                            {
+                                study.ExamineDoctorID = LoginWinClass.UserId;
+                            }
+
+                            if (PerformingPhysicianName != null)
+                            {
+                                study.ReviewDoctorID = PerformingPhysicianName;
+                            }
+                            else
+                            {
+                                study.ReviewDoctorID = LoginWinClass.UserId;
+                            }
+
+                            study.PatientID = PatientID;
+                            study.Tag = "";
+                            study.AccessionNumber = AccessionNumber;
+
+                            //study.StudyID = AutoGenerateIdController.GetAutoGenerateStudyId();
+                            string strStudyID = "";
+                            string strAccessionNumber = System.Text.RegularExpressions.Regex.Replace(AccessionNumber, @"[^0-9]+", "");
+                            if (strAccessionNumber.Length < 1)
+                            {
+                                string strStudyIdTmp = AutoGenerateIdController.GetAutoGenerateStudyId();
+                                if (i < 10)
+                                {
+                                    string strStudyIdTmpp = strStudyIdTmp.Substring(strStudyIdTmp.Length - 12);
+                                    string strStudyIdPart0 = i.ToString();
+                                    string strStudyIdPart1 = strStudyIdPart0.Substring(strStudyIdPart0.Length - 1);
+                                    strStudyIdTmp = strStudyIdTmpp + "0" + strStudyIdPart1;
+                                }
+                                else
+                                {
+                                    string strStudyIdTmpp = strStudyIdTmp.Substring(strStudyIdTmp.Length - 12);
+                                    string strStudyIdPart0 = i.ToString();
+                                    string strStudyIdPart1 = strStudyIdPart0.Substring(strStudyIdPart0.Length - 2);
+                                    strStudyIdTmp = strStudyIdTmpp + strStudyIdPart1;
+                                }
+                                strStudyID = "CR" + strStudyIdTmp;
+                            }
+                            else if (strAccessionNumber.Length < 15)
+                            {
+                                strStudyID = "CR" + strAccessionNumber;
+                            }
+                            else
+                            {
+                                strStudyID = strAccessionNumber.Substring(strAccessionNumber.Length - 14);
+                                strStudyID = "CR" + strStudyID;
+                            }
+                            study.StudyID = strStudyID;
+
+                            study.StudyInstanceID = StudyInstanceUID;
+                            study.SubmitDate = submitDate;
+                            study.ExamineDescription = "";
+                            study.dcmPath = "";
+                            new ModelView.Study().Update(study);
+                        }
+                        else
+                        {
+                            //新增
+                            ID = new ModelView.Study().GetMaxId() + "";
+                            Model.Study study = new Model.Study();
+                            study.Id = ID;
+                            study.PatientID = PatientID;
+                            study.Tag = "";
+                            study.AccessionNumber = AccessionNumber;
+                            //study.StudyID = AutoGenerateIdController.GetAutoGenerateStudyId();
+                            string strStudyID = "";
+                            string strAccessionNumber = System.Text.RegularExpressions.Regex.Replace(AccessionNumber, @"[^0-9]+", "");
+                            if (strAccessionNumber.Length < 1)
+                            {
+                                string strStudyIdTmp = AutoGenerateIdController.GetAutoGenerateStudyId();
+                                if(i < 10)
+                                {
+                                    string strStudyIdTmpp = strStudyIdTmp.Substring(strStudyIdTmp.Length - 12);
+                                    string strStudyIdPart0 = i.ToString();
+                                    string strStudyIdPart1 = strStudyIdPart0.Substring(strStudyIdPart0.Length - 1);
+                                    strStudyIdTmp = strStudyIdTmpp + "0" + strStudyIdPart1;
+                                }
+                                else
+                                {
+                                    string strStudyIdTmpp = strStudyIdTmp.Substring(strStudyIdTmp.Length - 12);
+                                    string strStudyIdPart0 = i.ToString();
+                                    string strStudyIdPart1 = strStudyIdPart0.Substring(strStudyIdPart0.Length - 2);
+                                    strStudyIdTmp = strStudyIdTmpp + strStudyIdPart1;
+                                }
+                                strStudyID = "CR" + strStudyIdTmp;
+                            }
+                            else if (strAccessionNumber.Length < 15)
+                            {
+                                strStudyID = "CR" + strAccessionNumber;
+                            }
+                            else
+                            {
+                                strStudyID = strAccessionNumber.Substring(strAccessionNumber.Length - 14);
+                                strStudyID = "CR" + strStudyID;
+                            }
+                            study.StudyID = strStudyID;
+
+                            study.StudyInstanceID = StudyInstanceUID;
+                            study.SubmitDate = submitDate;
+                            study.Modalities = Modality == "CR" || Modality=="" ? "1" :"2";
+                            study.BodyPart = BodyPartExamined;
+                            study.StudyDescription = StudyDescription;
+                            study.ExamineDescription = "";
+                            //study.PatientAge = PatientAge == ""? Age.ToString(): PatientAge;
+                            study.PatientAge = strPatientAgeForStudy == "" ? Age.ToString() : strPatientAgeForStudy;
+                            //study.ExamineDoctorID = "admin";
+                            //study.ReviewDoctorID = "admin";
+                            if (ReferringPhysicianName != null)
+                            {
+                                study.ExamineDoctorID = ReferringPhysicianName;
+                            }
+                            else
+                            {
+                                study.ExamineDoctorID = LoginWinClass.UserId;
+                            }
+
+                            if (PerformingPhysicianName != null)
+                            {
+                                study.ReviewDoctorID = PerformingPhysicianName;
+                            }
+                            else
+                            {
+                                study.ReviewDoctorID = LoginWinClass.UserId;
+                            }
+
+                            study.Status = "1";
+                            study.dcmPath = "";
+                            study.SmaType = "1";
+                            new ModelView.Study().Add(study);
+
+                        }
+                    }
+
+
+                    Common.Logger.WriteErrorLog(Application.Current.FindResource("MSG056").ToString(), "WorkList" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                    return;
+
+                }
+                catch (Exception e )
+                {
+                    if (showMsg)
+                    {
+                        MsgInvok.SysMsgShowDialog(ServiceConstClass.MsgTypeError, 0, Application.Current.FindResource("MSG057").ToString());
+                        return;
+                    }
+                    else
+                    {
+                        Common.Logger.WriteErrorLog(Application.Current.FindResource("MSG057").ToString()+"\n" + e.Message, "WorkList"+ DateTime.Now.ToString("yyyyMMdd")+".log");
+                        return;
+                    }
+
+                }
+            }
+            catch (SocketException e)
+            {
+
+                if (showMsg)
+                {
+                    MsgInvok.SysMsgShowDialog(ServiceConstClass.MsgTypeError, 0, Application.Current.FindResource("MSG058").ToString());
+                    return;
+                }
+                else
+                {
+                    Common.Logger.WriteErrorLog(Application.Current.FindResource("MSG057").ToString() + "," + Application.Current.FindResource("MSG058").ToString()+ "\n" + e.Message, "WorkList" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                    return;
+                }
+            }
+
+        }
+

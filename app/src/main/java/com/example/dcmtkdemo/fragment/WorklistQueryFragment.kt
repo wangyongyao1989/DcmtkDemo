@@ -11,9 +11,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import com.example.dcmtk.PacsManager
+import com.example.dcmtk.db.MwlSyncConfig
+import com.example.dcmtk.db.MwlSyncRepository
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.model.WorklistItemMapper
 import com.example.dcmtk.utils.DicomTag
 import com.example.dcmtk.utils.MwlTemplateHelper
 import com.example.dcmtk.view.WorkListConnectionDialog
@@ -93,37 +96,72 @@ class WorklistQueryFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             val config = viewModel.worklistConfig.value ?: return@launch
-            val finalResults = withContext(Dispatchers.IO) {
+
+            // 1. C-FIND 查询 MWL
+            val rawResults = withContext(Dispatchers.IO) {
                 PacsManager.cFindMWL(config, modality)
             }
 
             if (activity == null || binding == null) return@launch
-            
+
+            // 2. 映射为 WorklistItem 列表（统一数据模型）
+            val worklistItems = if (rawResults != null) {
+                WorklistItemMapper.fromMapList(rawResults)
+            } else emptyList()
+
+            worklistItems.forEachIndexed { index, item ->
+                Log.d(TAG, "MWL Result #$index: ${item.patientName} (${item.patientID}), " +
+                        "acc=${item.accessionNumber}, modality=${item.modality}, " +
+                        "studyUID=${item.studyInstanceUID}")
+            }
+
+            // 3. 同步到数据库 — "查询-匹配-存在则修改-不存在则插入"
+            val syncConfig = buildMwlSyncConfig()
+            val syncResult = withContext(Dispatchers.IO) {
+                MwlSyncRepository.getInstance(requireContext())
+                    .syncWorklistItems(worklistItems, syncConfig)
+            }
+            Log.i(TAG, "MWL DB sync result: $syncResult")
+
+            // 4. 转换为 PatientRecord 供 UI 显示
+            val records = ArrayList<PatientRecord>()
+            for (item in worklistItems) {
+                records.add(PatientRecord(
+                    name = item.patientName.ifEmpty { "N/A" },
+                    id = item.patientID.ifEmpty { "N/A" },
+                    sex = item.patientSex.ifEmpty { "N/A" },
+                    birthDate = item.patientBirthDate.ifEmpty { "N/A" },
+                    accessionNumber = item.accessionNumber,
+                    modality = item.modality
+                ))
+            }
+
             binding?.progressBar?.visibility = View.GONE
             setButtonsEnabled(true)
 
-            val records = ArrayList<PatientRecord>()
-            if (finalResults != null) {
-                finalResults.forEachIndexed { index, map ->
-                    Log.d(TAG, "MWL Result #$index:")
-                    map.forEach { (tag, value) ->
-                        Log.d(TAG, "  $tag -> $value")
-                    }
-                }
-                for (map in finalResults) {
-                    val name = map[DicomTag.PatientName.formattedTag] ?: "N/A"
-                    val id = map[DicomTag.PatientID.formattedTag] ?: "N/A"
-                    val acc = map[DicomTag.AccessionNumber.formattedTag] ?: ""
-                    val sex = map[DicomTag.PatientSex.formattedTag] ?: "N/A"
-                    val birth = map[DicomTag.PatientBirthDate.formattedTag] ?: "N/A"
-                    val mod = map[DicomTag.Modality.formattedTag] ?: ""
-
-                    records.add(PatientRecord(name, id, sex, birth, acc, mod))
+            viewModel.mwlResults.value = records
+            binding?.tvWorklistResults?.text = buildString {
+                append("Found ${records.size} records via MWL C-FIND.\n")
+                append("DB Sync: patient[ins=${syncResult.patientInserted}, upd=${syncResult.patientUpdated}], ")
+                append("study[ins=${syncResult.studyInserted}, upd=${syncResult.studyUpdated}]")
+                if (syncResult.errors.isNotEmpty()) {
+                    append(", errors=${syncResult.errors.size}")
                 }
             }
-            viewModel.mwlResults.value = records
-            binding?.tvWorklistResults?.text = "Found ${records.size} records via MWL C-FIND."
         }
+    }
+
+    /**
+     * 构建 MWL 同步配置（对应 C# CodeMaster Code 47/48/49）。
+     * 后续可改为从 SharedPreferences 或服务端配置读取。
+     */
+    private fun buildMwlSyncConfig(): MwlSyncConfig {
+        return MwlSyncConfig(
+            checkStudyInstanceUIDEnable = true,
+            checkAccessionNumberEnable = true,
+            checkModalityEnable = false,
+            fallbackUserId = "admin"
+        )
     }
 
     @SuppressLint("SetTextI18n")

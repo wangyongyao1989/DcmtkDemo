@@ -288,6 +288,8 @@ object DicomTag {
     )
     val StudyDescription =
         DicomTagInfo(0x0008, 0x1030, "StudyDescription", "LO", "1", "3", "GeneralStudyModule")
+    val PerformingPhysicianName =
+        DicomTagInfo(0x0008, 0x1050, "PerformingPhysicianName", "PN", "1", "3", "GeneralStudyModule")
     val PhysiciansOfRecord =
         DicomTagInfo(0x0008, 0x1048, "PhysiciansOfRecord", "PN", "1-n", "3", "GeneralStudyModule")
     val PhysiciansOfRecordIdentificationSequence = DicomTagInfo(
@@ -519,6 +521,10 @@ object DicomTag {
         "3",
         "ClinicalTrialStudyModule"
     )
+
+    // --- GeneralSeriesModule (M) ---
+    val BodyPartExamined =
+        DicomTagInfo(0x0018, 0x0015, "BodyPartExamined", "CS", "1", "2", "GeneralSeriesModule")
 
     // --- RTSeriesModule (M) ---
     val Modality = DicomTagInfo(0x0008, 0x0060, "Modality", "CS", "1", "1", "RTSeriesModule")
