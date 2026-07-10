@@ -544,7 +544,9 @@ std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
                                               const std::string &remoteAet,
                                               const std::string &modality) {
     resetCancel();
-    LOGD("native_cFindMWL: [START] Query for Modality=%s", modality.c_str());
+    LOGD("native_cFindMWL: [START] host=%s:%d, localAET=%s, remoteAET=%s, modality=%s",
+         host.c_str(), port, localAet.c_str(), remoteAet.c_str(),
+         modality.empty() ? "*" : modality.c_str());
 
     ProgressScu scu;
     scu.setPeerHostName(host.c_str());
@@ -563,66 +565,156 @@ std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
 
     std::vector<DcmDataset*> results;
     OFCondition cond = scu.initNetwork();
-    if (cond.good()) {
-        LOGD("native_cFindMWL: Network initialized, negotiating association...");
-        cond = scu.negotiateAssociation();
-        if (cond.good()) {
-            LOGD("native_cFindMWL: Association established.");
-            DcmDataset query;
-            // Standard MWL return keys at top level
-            query.putAndInsertString(DCM_AccessionNumber, "");
-            query.putAndInsertString(DCM_PatientName, "");
-            query.putAndInsertString(DCM_PatientID, "");
-            query.putAndInsertString(DCM_PatientSex, "");
-            query.putAndInsertString(DCM_PatientBirthDate, "");
-            query.putAndInsertString(DCM_StudyInstanceUID, "");
-
-            // MWL requires ScheduledProcedureStepSequence for filtering and return keys
-            DcmItem *spssItem = nullptr;
-            query.findOrCreateSequenceItem(DCM_ScheduledProcedureStepSequence, spssItem);
-            if (spssItem) {
-                // Matching keys
-                spssItem->putAndInsertString(DCM_Modality, modality.empty() ? "*" : modality.c_str());
-                spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartDate, "");
-                spssItem->putAndInsertString(DCM_ScheduledStationAETitle, "");
-
-                // Return keys inside sequence
-                spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartTime, "");
-                spssItem->putAndInsertString(DCM_ScheduledProcedureStepDescription, "");
-            }
-
-            T_ASC_PresentationContextID presId = scu.findPresentationContextID(
-                    UID_FINDModalityWorklistInformationModel, "");
-            if (presId > 0) {
-                OFList<QRResponse *> responses;
-                LOGD("native_cFindMWL: Sending C-FIND request...");
-                cond = scu.sendFINDRequest(presId, &query, &responses);
-                if (cond.good()) {
-                    LOGD("native_cFindMWL: Received %zu responses", responses.size());
-                    for (auto it = responses.begin(); it != responses.end(); ++it) {
-                        DcmDataset *ds = (*it)->m_dataset;
-                        if (ds) {
-                            // Clone the dataset to take ownership
-                            results.push_back(new DcmDataset(*ds));
-                        }
-                    }
-                } else {
-                    LOGE("native_cFindMWL: C-FIND request failed: %s", cond.text());
-                }
-                for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
-            } else {
-                LOGE("native_cFindMWL: No suitable presentation context found");
-                cond = EC_TagNotFound;
-            }
-            scu.releaseAssociation();
-        } else {
-            LOGE("native_cFindMWL: Association negotiation failed: %s", cond.text());
-        }
-    } else {
+    if (cond.bad()) {
         LOGE("native_cFindMWL: Network init failed: %s", cond.text());
+        return results;
     }
 
-    LOGD("native_cFindMWL: [DONE] Found %zu results, status: %s", results.size(), cond.text());
+    LOGD("native_cFindMWL: Network initialized, negotiating association...");
+    cond = scu.negotiateAssociation();
+    if (cond.bad()) {
+        LOGE("native_cFindMWL: Association negotiation failed: %s", cond.text());
+        return results;
+    }
+    LOGD("native_cFindMWL: Association established.");
+
+    // ====================================================================
+    // Build comprehensive MWL C-FIND query dataset
+    //
+    // DICOM MWL (PS3.4 Annex K) uses two categories of keys:
+    //   - Matching keys: non-empty values used by SCP to filter results
+    //   - Return keys:   empty values ("") requesting SCP to return those
+    //                    attributes in each matching response
+    //
+    // The SCP only returns attributes that appear in the query identifier.
+    // Missing return keys = missing data in the response. This is why a
+    // comprehensive set of return keys is critical for downstream consumers
+    // (WorklistItemMapper expects 13 specific tags).
+    // ====================================================================
+
+    DcmDataset query;
+
+    // ---- Top-level return keys: Type 2 (shall be returned if known) ----
+    // These are mandatory MWL attributes per PS3.4 Table K.6-1.
+    query.putAndInsertString(DCM_AccessionNumber, "");
+    query.putAndInsertString(DCM_PatientName, "");
+    query.putAndInsertString(DCM_PatientID, "");
+    query.putAndInsertString(DCM_PatientBirthDate, "");
+    query.putAndInsertString(DCM_PatientSex, "");
+    query.putAndInsertString(DCM_StudyInstanceUID, "");
+    query.putAndInsertString(DCM_ReferringPhysicianName, "");
+    query.putAndInsertString(DCM_RequestingPhysician, "");
+    query.putAndInsertString(DCM_RequestedProcedureID, "");
+    query.putAndInsertString(DCM_RequestedProcedureDescription, "");
+
+    // ---- Top-level return keys: Type 3 (optional, returned if requested) ----
+    // These cover all fields expected by WorklistItemMapper that aren't Type 2,
+    // plus additional clinically relevant attributes from the .wl template.
+    query.putAndInsertString(DCM_PatientAge, "");
+    query.putAndInsertString(DCM_PregnancyStatus, "");
+    query.putAndInsertString(DCM_BodyPartExamined, "");
+    query.putAndInsertString(DCM_StudyDescription, "");
+    query.putAndInsertString(DCM_PerformingPhysicianName, "");
+    query.putAndInsertString(DCM_PatientWeight, "");
+    query.putAndInsertString(DCM_MedicalAlerts, "");
+    query.putAndInsertString(DCM_Allergies, "");
+    query.putAndInsertString(DCM_AdmittingDiagnosesDescription, "");
+    query.putAndInsertString(DCM_RequestedProcedurePriority, "");
+
+    // ---- ScheduledProcedureStepSequence (Type 1 — mandatory in MWL) ----
+    // The entry point of the MWL model is the Scheduled Procedure Step.
+    // Contains matching keys (filter) and return keys (data to retrieve).
+    DcmItem *spssItem = nullptr;
+    query.findOrCreateSequenceItem(DCM_ScheduledProcedureStepSequence, spssItem);
+    if (spssItem) {
+        // Matching keys (non-empty value = filter criterion;
+        // empty value = universal match / "match any")
+        spssItem->putAndInsertString(DCM_Modality,
+                                     modality.empty() ? "*" : modality.c_str());
+        spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartDate, "");
+        spssItem->putAndInsertString(DCM_ScheduledStationAETitle, "");
+
+        // Return keys inside SPSS (Type 2)
+        spssItem->putAndInsertString(DCM_ScheduledProcedureStepStartTime, "");
+        spssItem->putAndInsertString(DCM_ScheduledPerformingPhysicianName, "");
+        spssItem->putAndInsertString(DCM_ScheduledProcedureStepID, "");
+        spssItem->putAndInsertString(DCM_ScheduledStationName, "");
+
+        // Return keys inside SPSS (Type 3)
+        spssItem->putAndInsertString(DCM_ScheduledProcedureStepDescription, "");
+        spssItem->putAndInsertString(DCM_ScheduledProcedureStepLocation, "");
+    } else {
+        LOGE("native_cFindMWL: Failed to create ScheduledProcedureStepSequence item");
+    }
+
+    LOGD("native_cFindMWL: Query dataset built — top-level return keys: 19, "
+         "SPSS matching keys: 3 (Modality=%s, Date=*, StationAE=*), "
+         "SPSS return keys: 6",
+         modality.empty() ? "*" : modality.c_str());
+
+    T_ASC_PresentationContextID presId = scu.findPresentationContextID(
+            UID_FINDModalityWorklistInformationModel, "");
+    if (presId == 0) {
+        LOGE("native_cFindMWL: No suitable presentation context found for MWL SOP Class");
+        scu.releaseAssociation();
+        return results;
+    }
+    LOGD("native_cFindMWL: Presentation context ID=%d", presId);
+
+    OFList<QRResponse *> responses;
+    LOGD("native_cFindMWL: Sending C-FIND request...");
+    cond = scu.sendFINDRequest(presId, &query, &responses);
+    if (cond.bad()) {
+        LOGE("native_cFindMWL: C-FIND request failed: %s", cond.text());
+        for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+        scu.releaseAssociation();
+        return results;
+    }
+
+    LOGD("native_cFindMWL: Received %zu raw responses", responses.size());
+    int validCount = 0;
+    for (auto it = responses.begin(); it != responses.end(); ++it) {
+        DcmDataset *ds = (*it)->m_dataset;
+        if (ds) {
+            // Log key fields from each response for troubleshooting
+            OFString name, id, acc, studyUID, refPhys;
+            ds->findAndGetOFString(DCM_PatientName, name);
+            ds->findAndGetOFString(DCM_PatientID, id);
+            ds->findAndGetOFString(DCM_AccessionNumber, acc);
+            ds->findAndGetOFString(DCM_StudyInstanceUID, studyUID);
+            ds->findAndGetOFString(DCM_ReferringPhysicianName, refPhys);
+
+            // Modality and scheduled date/time are inside the SPSS
+            OFString mod, spsDate, spsTime, spsDesc;
+            DcmItem *spsItem = nullptr;
+            ds->findAndGetSequenceItem(DCM_ScheduledProcedureStepSequence, spsItem);
+            if (spsItem) {
+                spsItem->findAndGetOFString(DCM_Modality, mod);
+                spsItem->findAndGetOFString(DCM_ScheduledProcedureStepStartDate, spsDate);
+                spsItem->findAndGetOFString(DCM_ScheduledProcedureStepStartTime, spsTime);
+                spsItem->findAndGetOFString(DCM_ScheduledProcedureStepDescription, spsDesc);
+            }
+
+            LOGD("native_cFindMWL: Response #%d: patient=%s, id=%s, acc=%s, "
+                 "modality=%s, studyUID=%s, spsDate=%s, spsTime=%s, refPhys=%s, spsDesc=%s",
+                 validCount, name.c_str(), id.c_str(), acc.c_str(),
+                 mod.c_str(), studyUID.c_str(),
+                 spsDate.c_str(), spsTime.c_str(), refPhys.c_str(), spsDesc.c_str());
+
+            // Clone the dataset to take ownership (caller / JNI bridge must delete)
+            results.push_back(new DcmDataset(*ds));
+            validCount++;
+        }
+    }
+    LOGD("native_cFindMWL: Valid datasets: %d (out of %zu raw responses)",
+         validCount, responses.size());
+
+    // Cleanup QRResponse objects (datasets already cloned)
+    for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
+
+    scu.releaseAssociation();
+    LOGD("native_cFindMWL: [DONE] Found %zu results, final status: %s",
+         results.size(), cond.text());
     return results;
 }
 
