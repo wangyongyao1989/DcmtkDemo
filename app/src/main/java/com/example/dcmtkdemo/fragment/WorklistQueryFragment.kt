@@ -98,15 +98,28 @@ class WorklistQueryFragment : Fragment() {
             val config = viewModel.worklistConfig.value ?: return@launch
 
             // 1. C-FIND 查询 MWL
-            val rawResults = withContext(Dispatchers.IO) {
+            val finalResults = withContext(Dispatchers.IO) {
                 PacsManager.cFindMWL(config, modality)
             }
 
             if (activity == null || binding == null) return@launch
 
+            if (finalResults != null) {
+                for (map in finalResults) {
+                    val name = map["(0010,0010)"] ?: "N/A"
+                    val id = map["(0010,0020)"] ?: "N/A"
+                    val acc = map["(0008,0050)"] ?: "N/A"
+                    val sex = map["(0010,0040)"] ?: "N/A"
+                    val birth = map["(0010,0030)"] ?: "N/A"
+                    val mod = map["(0008,0060)"] ?: "N/A"
+                    Log.d(TAG, "executeMwlQuery map loop: name=$name, id=$id" +
+                            ", acc=$acc, sex=$sex, birth=$birth, mod=$mod")
+                }
+            }
+
             // 2. 映射为 WorklistItem 列表（统一数据模型）
-            val worklistItems = if (rawResults != null) {
-                WorklistItemMapper.fromMapList(rawResults)
+            val worklistItems = if (finalResults != null) {
+                WorklistItemMapper.fromMapList(finalResults)
             } else emptyList()
 
             worklistItems.forEachIndexed { index, item ->

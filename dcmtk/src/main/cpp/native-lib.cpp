@@ -2,6 +2,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <android/bitmap.h>
 #include <android/log.h>
 
 #include <functional>
@@ -378,6 +379,183 @@ static void native_cancelOperation(JNIEnv *env, jclass clazz) {
     PacsClient::cancelOperation();
 }
 
+// =============================================================================
+// 对应 dcm4che3 版 DicomFileUtils.kt 的新增 JNI 方法
+// =============================================================================
+
+// HashMap 构造辅助：把 std::map<string,string> 填入新建的 java.util.HashMap
+static jobject buildStringMap(JNIEnv *env, const std::map<std::string, std::string> &m) {
+    jclass mapClass = env->FindClass("java/util/HashMap");
+    jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
+    jobject hashMap = env->NewObject(mapClass, mapInit);
+    jmethodID putMethod = env->GetMethodID(mapClass, "put",
+                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    for (const auto &kv: m) {
+        jstring key = env->NewStringUTF(kv.first.c_str());
+        jstring val = env->NewStringUTF(kv.second.c_str());
+        env->CallObjectMethod(hashMap, putMethod, key, val);
+        env->DeleteLocalRef(key);
+        env->DeleteLocalRef(val);
+    }
+    return hashMap;
+}
+
+static jobject native_loadDicomFileInfoEx(JNIEnv *env, jclass clazz, jstring file_path) {
+    JniString path(env, file_path);
+    auto info = DicomFileIO::loadFileInfoNamed(path.c_str() ? path.c_str() : "");
+    return buildStringMap(env, info);
+}
+
+static jobject native_readDicomWindowSettingsNative(JNIEnv *env, jclass clazz, jstring file_path) {
+    JniString path(env, file_path);
+    auto info = DicomFileIO::readWindowSettings(path.c_str() ? path.c_str() : "");
+    return buildStringMap(env, info);
+}
+
+// 用 RGBA8888 数据创建 android.graphics.Bitmap
+static jobject createRgbaBitmap(JNIEnv *env, int width, int height,
+                                const std::vector<uint8_t> &rgba) {
+    jclass bmpCls = env->FindClass("android/graphics/Bitmap");
+    jmethodID createBmp = env->GetStaticMethodID(
+            bmpCls, "createBitmap",
+            "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;");
+    jclass cfgCls = env->FindClass("android/graphics/Bitmap$Config");
+    jfieldID argbField = env->GetStaticFieldID(cfgCls, "ARGB_8888",
+                                               "Landroid/graphics/Bitmap$Config;");
+    jobject config = env->GetStaticObjectField(cfgCls, argbField);
+    jobject bitmap = env->CallStaticObjectMethod(bmpCls, createBmp, width, height, config);
+    env->DeleteLocalRef(config);
+    if (!bitmap) return nullptr;
+
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) {
+        LOGE("createRgbaBitmap: getInfo failed");
+        return bitmap;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) {
+        LOGE("createRgbaBitmap: lockPixels failed");
+        return bitmap;
+    }
+    memcpy(pixels, rgba.data(), rgba.size());
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return bitmap;
+}
+
+static jobject native_dicomFile2Bitmap(JNIEnv *env, jclass clazz, jstring file_path) {
+    JniString path(env, file_path);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    if (!DicomFileIO::dicomFileToBitmapRgba(path.c_str() ? path.c_str() : "",
+                                            false, 0.0, 0.0, rgba, w, h)) {
+        return nullptr;
+    }
+    return createRgbaBitmap(env, w, h, rgba);
+}
+
+static jobject native_dicomFile2BitmapWW(JNIEnv *env, jclass clazz, jstring file_path,
+                                         jdouble ww, jdouble wc) {
+    JniString path(env, file_path);
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    if (!DicomFileIO::dicomFileToBitmapRgba(path.c_str() ? path.c_str() : "",
+                                            true, ww, wc, rgba, w, h)) {
+        return nullptr;
+    }
+    return createRgbaBitmap(env, w, h, rgba);
+}
+
+// 读取 ScanRecord 各字段
+struct ScanRecordFields {
+    jint examineNo;
+    std::string patientName;
+    std::string patientAge;
+    std::string patientSex;
+    std::string toothPosition;
+};
+
+static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
+    if (!record) return false;
+    jclass cls = env->GetObjectClass(record);
+    jfieldID fExamine = env->GetFieldID(cls, "examineNo", "I");
+    jfieldID fName = env->GetFieldID(cls, "patientName", "Ljava/lang/String;");
+    jfieldID fAge = env->GetFieldID(cls, "patientAge", "Ljava/lang/String;");
+    jfieldID fSex = env->GetFieldID(cls, "patientSex", "Ljava/lang/String;");
+    jfieldID fTooth = env->GetFieldID(cls, "toothPosition", "Ljava/lang/String;");
+    if (!fExamine || !fName || !fAge || !fSex || !fTooth) {
+        env->DeleteLocalRef(cls);
+        LOGE("readScanRecord: field id missing");
+        return false;
+    }
+    out.examineNo = env->GetIntField(record, fExamine);
+
+    auto readStr = [&](jfieldID fid) -> std::string {
+        jstring s = (jstring) env->GetObjectField(record, fid);
+        if (!s) return std::string();
+        JniString js(env, s);
+        std::string v = js.c_str() ? js.c_str() : "";
+        env->DeleteLocalRef(s);
+        return v;
+    };
+    out.patientName = readStr(fName);
+    out.patientAge = readStr(fAge);
+    out.patientSex = readStr(fSex);
+    out.toothPosition = readStr(fTooth);
+    env->DeleteLocalRef(cls);
+    return true;
+}
+
+static jobject native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
+                                   jstring raw_path, jstring dcm_path,
+                                   jint width, jint height) {
+    ScanRecordFields rec;
+    if (!readScanRecord(env, record, rec)) {
+        return nullptr;
+    }
+    DicomFileIO::ScanRecordInfo info;
+    info.examineNo = rec.examineNo;
+    info.patientName = rec.patientName;
+    info.patientAge = rec.patientAge;
+    info.patientSex = rec.patientSex;
+    info.toothPosition = rec.toothPosition;
+
+    JniString raw(env, raw_path);
+    JniString dcm(env, dcm_path);
+    DicomFileIO::PixelDataInfo px;
+    if (!DicomFileIO::writeDcmFileFull(raw.c_str() ? raw.c_str() : "",
+                                       dcm.c_str() ? dcm.c_str() : "",
+                                       width, height, info, px)) {
+        return nullptr;
+    }
+
+    // 构造 PixelData(rows, columns, data:ByteArray, win_width, win_center,
+    //                exposure_leve, largestImagePixelValue)
+    jclass pxClass = env->FindClass("com/example/dcmtk/model/PixelData");
+    if (!pxClass) {
+        LOGE("native_writeDcmFile: PixelData class not found");
+        return nullptr;
+    }
+    jmethodID ctor = env->GetMethodID(pxClass, "<init>",
+                                      "(II[BDDII)V");
+    if (!ctor) {
+        LOGE("native_writeDcmFile: PixelData ctor not found");
+        return nullptr;
+    }
+    jbyteArray dataArr = env->NewByteArray((jsize) px.data.size());
+    if (!dataArr) {
+        LOGE("native_writeDcmFile: NewByteArray failed");
+        return nullptr;
+    }
+    env->SetByteArrayRegion(dataArr, 0, (jsize) px.data.size(),
+                            (const jbyte *) px.data.data());
+    jobject result = env->NewObject(pxClass, ctor,
+                                    (jint) px.rows, (jint) px.columns, dataArr,
+                                    (jdouble) px.win_width, (jdouble) px.win_center,
+                                    (jint) px.exposure_leve, (jint) px.largestImagePixelValue);
+    env->DeleteLocalRef(dataArr);
+    return result;
+}
+
 // JNI Registration
 static const char *const kClassName = "com/example/dcmtk/jni/DcmtkJni";
 
@@ -430,6 +608,21 @@ static const JNINativeMethod kMethods[] = {
         {"cancelOperation",
                 "()V",
                 (void *) native_cancelOperation},
+        {"loadDicomFileInfoEx",
+                "(Ljava/lang/String;)Ljava/util/HashMap;",
+                (void *) native_loadDicomFileInfoEx},
+        {"readDicomWindowSettingsNative",
+                "(Ljava/lang/String;)Ljava/util/HashMap;",
+                (void *) native_readDicomWindowSettingsNative},
+        {"dicomFile2Bitmap",
+                "(Ljava/lang/String;)Landroid/graphics/Bitmap;",
+                (void *) native_dicomFile2Bitmap},
+        {"dicomFile2BitmapWW",
+                "(Ljava/lang/String;DD)Landroid/graphics/Bitmap;",
+                (void *) native_dicomFile2BitmapWW},
+        {"writeDcmFile",
+                "(Lcom/example/dcmtk/model/ScanRecord;Ljava/lang/String;Ljava/lang/String;II)Lcom/example/dcmtk/model/PixelData;",
+                (void *) native_writeDcmFile},
 
 };
 

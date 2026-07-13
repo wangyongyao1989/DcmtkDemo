@@ -8,8 +8,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
 #include <map>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "dcmtk/dcmdata/dctk.h"
 #include "dcmtk/dcmimgle/dcmimage.h"
@@ -238,4 +243,385 @@ int DicomFileIO::dcmToJpg(const std::string &dir) {
 
     LOGD("native_dcmToJpg: done, converted=%d, failed=%d", converted, failed);
     return converted;
+}
+
+// =============================================================================
+// 对应 dcm4che3 版 DicomFileUtils.kt 的新增方法
+// =============================================================================
+
+namespace {
+// 取 dataset/item 中某 tag 的字符串值，缺失返回 default
+std::string getStr(DcmItem *item, const DcmTagKey &key, const char *def = "") {
+    OFString s;
+    if (item && item->findAndGetOFString(key, s).good() && s.length() > 0) {
+        return s.c_str();
+    }
+    return def;
+}
+
+// 按 '\' 拆分多值字符串
+std::vector<std::string> splitBackslash(const std::string &s) {
+    std::vector<std::string> out;
+    if (s.empty()) return out;
+    std::string cur;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\') {
+            out.push_back(cur);
+            cur.clear();
+        } else {
+            cur.push_back(s[i]);
+        }
+    }
+    out.push_back(cur);
+    return out;
+}
+} // namespace
+
+std::map<std::string, std::string> DicomFileIO::loadFileInfoNamed(const std::string &filePath) {
+    LOGD("loadFileInfoNamed: %s", filePath.c_str());
+    std::map<std::string, std::string> result;
+
+    DcmFileFormat ff;
+    if (ff.loadFile(filePath.c_str()).bad()) {
+        LOGE("loadFileInfoNamed: loadFile failed: %s", filePath.c_str());
+        return result;
+    }
+    DcmDataset *ds = ff.getDataset();
+    ds->loadAllDataIntoMemory();
+
+    result["ExposureIndex"] = getStr(ds, DCM_ExposureIndex);
+    result["PatientName"] = getStr(ds, DCM_PatientName);
+    result["PatientBirthDate"] = getStr(ds, DCM_PatientBirthDate);
+    result["InstitutionName"] = getStr(ds, DCM_InstitutionName);
+
+    // StudyDate + StudyTime -> "YYYY-MM-DD HH:MM:SS"
+    std::string studyDate = getStr(ds, DCM_StudyDate);
+    std::string studyTime = getStr(ds, DCM_StudyTime);
+    if (!studyTime.empty()) studyTime.resize(6, '0'); // padEnd(6,'0')
+    if (studyDate.size() == 8 && studyTime.size() >= 6) {
+        result["StudyDate"] = studyDate.substr(0, 4) + "-" + studyDate.substr(4, 2) + "-" +
+                              studyDate.substr(6, 2) + " " + studyTime.substr(0, 2) + ":" +
+                              studyTime.substr(2, 2) + ":" + studyTime.substr(4, 2);
+    } else {
+        result["StudyDate"] = "0000-00-00 00:00:00";
+    }
+
+    result["PatientID"] = getStr(ds, DCM_PatientID);
+    result["StudyID"] = getStr(ds, DCM_StudyID);
+    result["PatientAge"] = getStr(ds, DCM_PatientAge);
+
+    std::string sex = getStr(ds, DCM_PatientSex);
+    if (sex == "M") result["PatientSex"] = "男";
+    else if (sex == "F") result["PatientSex"] = "女";
+    else result["PatientSex"] = "";
+
+    result["BodyPartExamined"] = getStr(ds, DCM_BodyPartExamined);
+
+    LOGD("loadFileInfoNamed: done, %zu keys", result.size());
+    return result;
+}
+
+std::map<std::string, std::string> DicomFileIO::readWindowSettings(const std::string &filePath) {
+    LOGD("readWindowSettings: %s", filePath.c_str());
+    std::map<std::string, std::string> result;
+
+    DcmFileFormat ff;
+    if (ff.loadFile(filePath.c_str()).bad()) {
+        LOGE("readWindowSettings: loadFile failed: %s", filePath.c_str());
+        return result;
+    }
+    DcmDataset *ds = ff.getDataset();
+
+    Uint16 smallest = 0, largest = 4095;
+    ds->findAndGetUint16(DCM_SmallestImagePixelValue, smallest);
+    ds->findAndGetUint16(DCM_LargestImagePixelValue, largest);
+
+    result["smallestPixelValue"] = std::to_string(smallest);
+    result["largestPixelValue"] = std::to_string(largest);
+
+    double autoCenter = (smallest + largest) / 2.0;
+    double autoWidth = (double) largest - (double) smallest;
+    if (autoWidth < 1.0) autoWidth = 1.0;
+    {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.6f", autoCenter);
+        result["autoCenter"] = buf;
+        snprintf(buf, sizeof(buf), "%.6f", autoWidth);
+        result["autoWidth"] = buf;
+    }
+
+    // 优先标准 WindowCenter/WindowWidth
+    std::vector<std::string> centers = splitBackslash(getStr(ds, DCM_WindowCenter));
+    std::vector<std::string> widths = splitBackslash(getStr(ds, DCM_WindowWidth));
+    std::vector<std::string> descs = splitBackslash(getStr(ds, DCM_WindowCenterWidthExplanation));
+
+    std::vector<std::string> winCenters, winWidths, winDescs;
+    if (!centers.empty() && !widths.empty()) {
+        size_t count = std::min(centers.size(), widths.size());
+        for (size_t i = 0; i < count; ++i) {
+            winCenters.push_back(centers[i]);
+            winWidths.push_back(widths[i]);
+            winDescs.push_back(i < descs.size() ? descs[i] : "");
+        }
+    } else {
+        // 回退 VOI LUT Sequence
+        DcmSequenceOfItems *seq = nullptr;
+        if (ds->findAndGetSequence(DCM_VOILUTSequence, seq).good() && seq) {
+            unsigned long card = seq->card();
+            for (unsigned long i = 0; i < card; ++i) {
+                DcmItem *item = seq->getItem(i);
+                if (!item) continue;
+                std::vector<std::string> lutDesc = splitBackslash(getStr(item, DCM_LUTDescriptor));
+                if (lutDesc.size() >= 3) {
+                    long numEntries = atol(lutDesc[0].c_str());
+                    long firstInput = atol(lutDesc[1].c_str());
+                    double w = (double) numEntries;
+                    double c = firstInput + w / 2.0;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.6f", c);
+                    winCenters.push_back(buf);
+                    snprintf(buf, sizeof(buf), "%.6f", w);
+                    winWidths.push_back(buf);
+                    winDescs.push_back(getStr(item, DCM_LUTExplanation));
+                }
+            }
+        }
+    }
+
+    result["windowCount"] = std::to_string(winCenters.size());
+    for (size_t i = 0; i < winCenters.size(); ++i) {
+        char key[64];
+        snprintf(key, sizeof(key), "window_%zu_center", i);
+        result[key] = winCenters[i];
+        snprintf(key, sizeof(key), "window_%zu_width", i);
+        result[key] = winWidths[i];
+        snprintf(key, sizeof(key), "window_%zu_desc", i);
+        result[key] = winDescs[i];
+    }
+
+    LOGD("readWindowSettings: done, windows=%zu", winCenters.size());
+    return result;
+}
+
+bool DicomFileIO::dicomFileToBitmapRgba(const std::string &filePath, bool useCustomWindow,
+                                        double ww, double wc,
+                                        std::vector<uint8_t> &outRgba,
+                                        int &outW, int &outH) {
+    LOGD("dicomFileToBitmapRgba: %s custom=%d ww=%.2f wc=%.2f",
+         filePath.c_str(), useCustomWindow ? 1 : 0, ww, wc);
+
+    DicomImage img(filePath.c_str());
+    if (img.getStatus() != EIS_Normal) {
+        LOGE("dicomFileToBitmapRgba: DicomImage load failed: %s",
+             DicomImage::getString(img.getStatus()));
+        return false;
+    }
+
+    int w = (int) img.getWidth();
+    int h = (int) img.getHeight();
+    if (w <= 0 || h <= 0) {
+        LOGE("dicomFileToBitmapRgba: invalid dims %dx%d", w, h);
+        return false;
+    }
+
+    if (useCustomWindow) {
+        if (ww < 1.0 || !img.setWindow(wc, ww)) {
+            LOGW("dicomFileToBitmapRgba: setWindow(custom) failed, fallback minmax");
+            img.setMinMaxWindow();
+        }
+    } else {
+        // 显式读取文件自带 WindowCenter/WindowWidth，匹配 dcm4che 自行解析行为
+        DcmFileFormat ff;
+        if (ff.loadFile(filePath.c_str()).good()) {
+            DcmDataset *ds = ff.getDataset();
+            std::string wcStr = getStr(ds, DCM_WindowCenter);
+            std::string wwStr = getStr(ds, DCM_WindowWidth);
+            std::vector<std::string> wcs = splitBackslash(wcStr);
+            std::vector<std::string> wws = splitBackslash(wwStr);
+            if (!wcs.empty() && !wws.empty()) {
+                double c = atof(wcs[0].c_str());
+                double wd = atof(wws[0].c_str());
+                if (wd >= 1.0 && img.setWindow(c, wd)) {
+                    // applied
+                } else {
+                    img.setMinMaxWindow();
+                }
+            } else {
+                img.setMinMaxWindow();
+            }
+        } else {
+            img.setMinMaxWindow();
+        }
+    }
+
+    const void *data = img.getOutputData(8, 0);
+    if (!data) {
+        LOGE("dicomFileToBitmapRgba: getOutputData(8) returned null");
+        return false;
+    }
+
+    const uint8_t *gray = (const uint8_t *) data;
+    size_t total = (size_t) w * (size_t) h;
+    outRgba.resize(total * 4);
+    for (size_t i = 0; i < total; ++i) {
+        uint8_t v = gray[i];
+        size_t o = i * 4;
+        outRgba[o] = v;
+        outRgba[o + 1] = v;
+        outRgba[o + 2] = v;
+        outRgba[o + 3] = 0xFF;
+    }
+    img.deleteOutputData();
+
+    outW = w;
+    outH = h;
+    LOGD("dicomFileToBitmapRgba: ok %dx%d, rgba=%zu bytes", w, h, outRgba.size());
+    return true;
+}
+
+bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string &dcmPath,
+                                   int width, int height, const ScanRecordInfo &record,
+                                   PixelDataInfo &outPixelData) {
+    LOGD("writeDcmFileFull: raw=%s dcm=%s %dx%d", rawPath.c_str(), dcmPath.c_str(), width, height);
+
+    FILE *f = fopen(rawPath.c_str(), "rb");
+    if (!f) {
+        LOGE("writeDcmFileFull: open raw failed: %s", strerror(errno));
+        return false;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size <= 0) {
+        fclose(f);
+        LOGE("writeDcmFileFull: empty raw file");
+        return false;
+    }
+    std::vector<uint8_t> rawBytes(size);
+    size_t rd = fread(rawBytes.data(), 1, size, f);
+    fclose(f);
+    LOGD("writeDcmFileFull: read %zu bytes", rd);
+
+    // ProcessPixelData 等价：min/max 窗宽窗位
+    Uint16 minVal = 65535, maxVal = 0;
+    size_t numPixels = rd / 2;
+    if (numPixels > 0) {
+        for (size_t i = 0; i < numPixels; ++i) {
+            Uint16 v = (Uint16) ((rawBytes[i * 2 + 1] << 8) | rawBytes[i * 2]);
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+        }
+    } else {
+        minVal = 0;
+        maxVal = 0;
+    }
+    double winWidth = (double) maxVal - (double) minVal;
+    if (winWidth < 1.0) winWidth = 1.0;
+    double winCenter = minVal + winWidth / 2.0;
+    int largestImagePixelValue = maxVal;
+    int exposureLeve = maxVal;
+
+    LOGD("writeDcmFileFull: min=%u max=%u -> WC=%.2f WW=%.2f", minVal, maxVal, winCenter, winWidth);
+
+    DcmFileFormat ff;
+    DcmDataset *ds = ff.getDataset();
+
+    ds->putAndInsertString(DCM_SpecificCharacterSet, "ISO_IR 192"); // UTF-8
+    ds->putAndInsertString(DCM_InstitutionName, "momo");
+    ds->putAndInsertString(DCM_Manufacturer, "VRN");
+    ds->putAndInsertString(DCM_ManufacturerModelName, "EQ800");
+
+    ds->putAndInsertString(DCM_PatientID, std::to_string(record.examineNo).c_str());
+    ds->putAndInsertString(DCM_PatientName, record.patientName.c_str());
+    ds->putAndInsertString(DCM_PatientAge, record.patientAge.c_str());
+    const char *sexCode = (record.patientSex == "男") ? "M" :
+                          (record.patientSex == "女") ? "F" : "O";
+    ds->putAndInsertString(DCM_PatientSex, sexCode);
+
+    ds->putAndInsertString(DCM_StudyID, std::to_string(record.examineNo).c_str());
+
+    std::time_t now = std::time(nullptr);
+    std::tm *lt = std::localtime(&now);
+    char dateBuf[16], timeBuf[16];
+    snprintf(dateBuf, sizeof(dateBuf), "%04d%02d%02d", lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday);
+    snprintf(timeBuf, sizeof(timeBuf), "%02d%02d%02d", lt->tm_hour, lt->tm_min, lt->tm_sec);
+    ds->putAndInsertString(DCM_StudyDate, dateBuf);
+    ds->putAndInsertString(DCM_StudyTime, timeBuf);
+
+    ds->putAndInsertString(DCM_Modality, "CR");
+    ds->putAndInsertString(DCM_BodyPartExamined, record.toothPosition.c_str());
+    ds->putAndInsertString(DCM_SeriesNumber, "1");
+    ds->putAndInsertString(DCM_InstanceNumber, "1");
+    ds->putAndInsertString(DCM_ImageType, "ORIGINAL\\PRIMARY");
+
+    ds->putAndInsertUint16(DCM_Rows, (Uint16) height);
+    ds->putAndInsertUint16(DCM_Columns, (Uint16) width);
+    ds->putAndInsertUint16(DCM_SamplesPerPixel, 1);
+    ds->putAndInsertString(DCM_PhotometricInterpretation, "MONOCHROME1");
+    ds->putAndInsertUint16(DCM_BitsAllocated, 16);
+    ds->putAndInsertUint16(DCM_BitsStored, 16);
+    ds->putAndInsertUint16(DCM_HighBit, 15);
+    ds->putAndInsertUint16(DCM_PixelRepresentation, 0);
+
+    {
+        char ps[64];
+        snprintf(ps, sizeof(ps), "%.8f\\%.8f", 0.03369563, 0.03346939);
+        ds->putAndInsertString(DCM_PixelSpacing, ps);
+        ds->putAndInsertString(DCM_ImagerPixelSpacing, ps);
+    }
+
+    // PixelData（16-bit）
+    if (rd % 2 == 0) {
+        ds->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) rawBytes.data(),
+                                    (Uint32) (rd / 2));
+    } else {
+        ds->putAndInsertUint8Array(DCM_PixelData, rawBytes.data(), (Uint32) rd);
+    }
+
+    {
+        char w[32], c[32];
+        snprintf(w, sizeof(w), "%.2f", winWidth);
+        snprintf(c, sizeof(c), "%.2f", winCenter);
+        ds->putAndInsertString(DCM_WindowWidth, w);
+        ds->putAndInsertString(DCM_WindowCenter, c);
+    }
+    {
+        char e[32];
+        snprintf(e, sizeof(e), "%d", exposureLeve);
+        ds->putAndInsertString(DCM_ExposureIndex, e);
+    }
+    ds->putAndInsertString(DCM_TargetExposureIndex, "28000");
+    ds->putAndInsertString(DCM_DeviationIndex, "1000");
+    ds->putAndInsertUint16(DCM_LargestImagePixelValue, (Uint16) largestImagePixelValue);
+
+    ds->putAndInsertString(DCM_SoftwareVersions, "DCMTK 3.6.9");
+    ds->putAndInsertString(DCM_StationName, "VRN-EQ800");
+    ds->putAndInsertString(DCM_StudyDescription, "Dental X-Ray");
+    ds->putAndInsertString(DCM_SeriesDescription, "Tooth Region Scan");
+    ds->putAndInsertString(DCM_PositionReferenceIndicator, "HFS");
+
+    char sopUid[100], studyUid[100], seriesUid[100];
+    dcmGenerateUniqueIdentifier(sopUid, SITE_INSTANCE_UID_ROOT);
+    dcmGenerateUniqueIdentifier(studyUid, SITE_STUDY_UID_ROOT);
+    dcmGenerateUniqueIdentifier(seriesUid, SITE_SERIES_UID_ROOT);
+    ds->putAndInsertString(DCM_SOPClassUID, UID_ComputedRadiographyImageStorage);
+    ds->putAndInsertString(DCM_SOPInstanceUID, sopUid);
+    ds->putAndInsertString(DCM_StudyInstanceUID, studyUid);
+    ds->putAndInsertString(DCM_SeriesInstanceUID, seriesUid);
+
+    OFCondition st = ff.saveFile(dcmPath.c_str(), EXS_LittleEndianExplicit);
+    if (st.bad()) {
+        LOGE("writeDcmFileFull: saveFile failed: %s", st.text());
+        return false;
+    }
+    LOGD("writeDcmFileFull: saved %s", dcmPath.c_str());
+
+    outPixelData.rows = height;
+    outPixelData.columns = width;
+    outPixelData.data = rawBytes;
+    outPixelData.win_width = winWidth;
+    outPixelData.win_center = winCenter;
+    outPixelData.exposure_leve = exposureLeve;
+    outPixelData.largestImagePixelValue = largestImagePixelValue;
+    return true;
 }

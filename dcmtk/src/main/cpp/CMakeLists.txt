@@ -43,6 +43,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         # Android 系统依赖
         log
         android
+        jnigraphics
         z
         m
         atomic

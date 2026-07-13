@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_worklist -> WorklistQueryFragment()
                 R.id.nav_retrieve -> RetrieveFragment()
                 R.id.nav_show -> DcmShowFragment()
+                R.id.nav_compare -> FileCompareFragment()
                 else -> null
             }
 
