@@ -492,8 +492,13 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     auto readStr = [&](jfieldID fid) -> std::string {
         jstring s = (jstring) env->GetObjectField(record, fid);
         if (!s) return std::string();
-        JniString js(env, s);
-        std::string v = js.c_str() ? js.c_str() : "";
+        std::string v;
+        {
+            // JniString 析构时会调用 ReleaseStringUTFChars(jstr, ...)，
+            // 必须在 DeleteLocalRef(s) 之前销毁，否则传入的是已删除的本地引用。
+            JniString js(env, s);
+            v = js.c_str() ? js.c_str() : "";
+        }
         env->DeleteLocalRef(s);
         return v;
     };
