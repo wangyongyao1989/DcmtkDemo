@@ -5,10 +5,10 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.example.dcmtk.callback.MultiProgressCallback
 import com.example.dcmtk.callback.ProgressCallback
-import com.example.dcmtk.model.PixelData
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.utils.DcmtkFileUtil
 import com.example.dcmtk.data.DicomWindowSettings
+import com.example.dcmtk.model.PixelData
 import java.io.IOException
 
 object DcmtkJni {

@@ -251,30 +251,30 @@ int DicomFileIO::dcmToJpg(const std::string &dir) {
 
 namespace {
 // 取 dataset/item 中某 tag 的字符串值，缺失返回 default
-std::string getStr(DcmItem *item, const DcmTagKey &key, const char *def = "") {
-    OFString s;
-    if (item && item->findAndGetOFString(key, s).good() && s.length() > 0) {
-        return s.c_str();
+    std::string getStr(DcmItem *item, const DcmTagKey &key, const char *def = "") {
+        OFString s;
+        if (item && item->findAndGetOFString(key, s).good() && s.length() > 0) {
+            return s.c_str();
+        }
+        return def;
     }
-    return def;
-}
 
 // 按 '\' 拆分多值字符串
-std::vector<std::string> splitBackslash(const std::string &s) {
-    std::vector<std::string> out;
-    if (s.empty()) return out;
-    std::string cur;
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\') {
-            out.push_back(cur);
-            cur.clear();
-        } else {
-            cur.push_back(s[i]);
+    std::vector<std::string> splitBackslash(const std::string &s) {
+        std::vector<std::string> out;
+        if (s.empty()) return out;
+        std::string cur;
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == '\\') {
+                out.push_back(cur);
+                cur.clear();
+            } else {
+                cur.push_back(s[i]);
+            }
         }
+        out.push_back(cur);
+        return out;
     }
-    out.push_back(cur);
-    return out;
-}
 } // namespace
 
 std::map<std::string, std::string> DicomFileIO::loadFileInfoNamed(const std::string &filePath) {
@@ -503,10 +503,9 @@ bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordI
     std::time_t now = std::time(nullptr);
     std::tm *lt = std::localtime(&now);
     char dateBuf[16], timeBuf[16];
-    snprintf(dateBuf, sizeof(dateBuf), "%04d%02d%02d"
-             , lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday);
-    snprintf(timeBuf, sizeof(timeBuf), "%02d%02d%02d"
-             , lt->tm_hour, lt->tm_min, lt->tm_sec);
+    snprintf(dateBuf, sizeof(dateBuf), "%04d%02d%02d", lt->tm_year + 1900, lt->tm_mon + 1,
+             lt->tm_mday);
+    snprintf(timeBuf, sizeof(timeBuf), "%02d%02d%02d", lt->tm_hour, lt->tm_min, lt->tm_sec);
     ds->putAndInsertString(DCM_StudyDate, dateBuf);
     ds->putAndInsertString(DCM_StudyTime, timeBuf);
 
@@ -543,8 +542,8 @@ bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordI
 
     {
         char w[32], c[32];
-        snprintf(w, sizeof(w), "%.2f", pixelData.win_width);
-        snprintf(c, sizeof(c), "%.2f", pixelData.win_center);
+        snprintf(w, sizeof(w), "%.2d", pixelData.win_width);
+        snprintf(c, sizeof(c), "%.2d", pixelData.win_center);
         ds->putAndInsertString(DCM_WindowWidth, w);
         ds->putAndInsertString(DCM_WindowCenter, c);
     }

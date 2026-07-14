@@ -198,6 +198,7 @@ class FileCompareFragment : Fragment() {
                 )
                 val dcmFile = File(dir, "compare_synth.dcm")
                 val pixelData = ProcessPixelData.process(raw, w, h)
+
                 val success = DicomManager.writeDcmFile(record, pixelData, dcmFile.absolutePath)
 
                 if (!success) {

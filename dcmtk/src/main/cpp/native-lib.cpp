@@ -514,8 +514,8 @@ static bool readPixelData(JNIEnv *env, jobject pixelData, DicomFileIO::PixelData
     jfieldID fRows = env->GetFieldID(cls, "rows", "I");
     jfieldID fCols = env->GetFieldID(cls, "columns", "I");
     jfieldID fData = env->GetFieldID(cls, "data", "[B");
-    jfieldID fWW = env->GetFieldID(cls, "win_width", "D");
-    jfieldID fWC = env->GetFieldID(cls, "win_center", "D");
+    jfieldID fWW = env->GetFieldID(cls, "win_width", "I");
+    jfieldID fWC = env->GetFieldID(cls, "win_center", "I");
     jfieldID fExp = env->GetFieldID(cls, "exposure_leve", "I");
     jfieldID fMax = env->GetFieldID(cls, "largestImagePixelValue", "I");
 
@@ -527,8 +527,8 @@ static bool readPixelData(JNIEnv *env, jobject pixelData, DicomFileIO::PixelData
 
     out.rows = env->GetIntField(pixelData, fRows);
     out.columns = env->GetIntField(pixelData, fCols);
-    out.win_width = env->GetDoubleField(pixelData, fWW);
-    out.win_center = env->GetDoubleField(pixelData, fWC);
+    out.win_width = env->GetIntField(pixelData, fWW);
+    out.win_center = env->GetIntField(pixelData, fWC);
     out.exposure_leve = env->GetIntField(pixelData, fExp);
     out.largestImagePixelValue = env->GetIntField(pixelData, fMax);
 

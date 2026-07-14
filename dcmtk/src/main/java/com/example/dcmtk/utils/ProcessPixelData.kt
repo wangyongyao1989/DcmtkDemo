@@ -1,6 +1,7 @@
 package com.example.dcmtk.utils
 
 import com.example.dcmtk.model.PixelData
+import kotlin.math.roundToInt
 
 /**
  * 像素数据处理（dcm4che3 版 DicomFileUtils.kt 中引用，实现未给出）。
@@ -10,8 +11,6 @@ import com.example.dcmtk.model.PixelData
  */
 object ProcessPixelData {
     fun process(raw: ByteArray, imageWidth: Int, imageHeight: Int): PixelData {
-        val rows = imageHeight
-        val columns = imageWidth
         var minVal = 65535
         var maxVal = 0
         val numPixels = raw.size / 2
@@ -29,14 +28,20 @@ object ProcessPixelData {
         var width = (maxVal - minVal).toDouble()
         if (width < 1.0) width = 1.0
         val center = minVal + width / 2.0
+
+        // PixelData 是 Java 类，构造函数定义为：
+        // PixelData(int rows, int columns, byte[] data, int largestImagePixelValue
+        //           , int win_center, int win_width, int exposure_leve, double standardDeviation)
+        // 注意：Kotlin 调用 Java 构造函数不支持具名参数，且参数类型必须匹配。
         return PixelData(
-            rows = rows,
-            columns = columns,
-            data = raw,
-            win_width = width,
-            win_center = center,
-            exposure_leve = maxVal,
-            largestImagePixelValue = maxVal
+            imageHeight,
+            imageWidth,
+            raw,
+            maxVal,
+            center.roundToInt(),
+            width.roundToInt(),
+            maxVal,
+            0.0 // standardDeviation 传默认值
         )
     }
 }

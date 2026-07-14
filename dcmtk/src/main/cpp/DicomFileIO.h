@@ -61,8 +61,8 @@ public:
         int rows;
         int columns;
         std::vector<uint8_t> data;   // 16-bit 像素字节（小端）
-        double win_width;
-        double win_center;
+        int win_width;
+        int win_center;
         int exposure_leve;
         int largestImagePixelValue;
     };
