@@ -17,6 +17,7 @@ data class SeekBarConfig(
      * 将实际值转换为SeekBar进度
      */
     fun valueToProgress(value: Double): Int {
+        if (minValue >= maxValue) return 0
         val clampedValue = value.coerceIn(minValue, maxValue)
         val ratio = (clampedValue - minValue) / (maxValue - minValue)
         return (ratio * seekBarMax).toInt()
@@ -26,6 +27,7 @@ data class SeekBarConfig(
      * 将SeekBar进度转换为实际值
      */
     fun progressToValue(progress: Int): Double {
+        if (minValue >= maxValue) return minValue
         val clampedProgress = progress.coerceIn(0, seekBarMax)
         val ratio = clampedProgress.toDouble() / seekBarMax
         return minValue + ratio * (maxValue - minValue)
@@ -51,18 +53,22 @@ data class WindowSeekBarConfigs(
  */
 fun DicomWindowSettings.createSeekBarConfigs(): WindowSeekBarConfigs {
     // 窗宽(WW)范围设计：
-    // - 最小值：100（太小会导致图像变成黑白两色，无诊断价值）
-    // - 最大值：整个像素范围（允许用户看到所有内容）
-    val wwMin = 100.0
-    val wwMax = (largestPixelValue - smallestPixelValue).toDouble()
+    // - 最小值：尝试设为 100，但不能大于最大值
+    // - 最大值：整个像素范围（至少为 100，避免太小）
+    val pixelRange = (largestPixelValue - smallestPixelValue).toDouble().coerceAtLeast(0.0)
+    val wwMax = maxOf(100.0, pixelRange)
+    val wwMin = minOf(100.0, wwMax)
     val wwDefault = firstAvailableWindow.width
 
     // 窗位(WL)范围设计：
     // - 最小值：像素最小值
     // - 最大值：像素最大值
-    // 理论上窗位可以在整个像素范围内移动
+    // 如果两者相等，则增加一点范围避免空区间
     val wlMin = smallestPixelValue.toDouble()
-    val wlMax = largestPixelValue.toDouble()
+    var wlMax = largestPixelValue.toDouble()
+    if (wlMin >= wlMax) {
+        wlMax = wlMin + 1.0
+    }
     val wlDefault = firstAvailableWindow.center
 
     return WindowSeekBarConfigs(

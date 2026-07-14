@@ -483,7 +483,7 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     jfieldID fSex = env->GetFieldID(cls, "patientSex", "Ljava/lang/String;");
     jfieldID fTooth = env->GetFieldID(cls, "toothPosition", "Ljava/lang/String;");
     if (!fExamine || !fName || !fAge || !fSex || !fTooth) {
-        env->DeleteLocalRef(cls);
+        if (cls) env->DeleteLocalRef(cls);
         LOGE("readScanRecord: field id missing");
         return false;
     }
@@ -494,8 +494,6 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
         if (!s) return std::string();
         std::string v;
         {
-            // JniString 析构时会调用 ReleaseStringUTFChars(jstr, ...)，
-            // 必须在 DeleteLocalRef(s) 之前销毁，否则传入的是已删除的本地引用。
             JniString js(env, s);
             v = js.c_str() ? js.c_str() : "";
         }
@@ -510,12 +508,47 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     return true;
 }
 
-static jobject native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
-                                   jstring raw_path, jstring dcm_path,
-                                   jint width, jint height) {
+static bool readPixelData(JNIEnv *env, jobject pixelData, DicomFileIO::PixelDataInfo &out) {
+    if (!pixelData) return false;
+    jclass cls = env->GetObjectClass(pixelData);
+    jfieldID fRows = env->GetFieldID(cls, "rows", "I");
+    jfieldID fCols = env->GetFieldID(cls, "columns", "I");
+    jfieldID fData = env->GetFieldID(cls, "data", "[B");
+    jfieldID fWW = env->GetFieldID(cls, "win_width", "D");
+    jfieldID fWC = env->GetFieldID(cls, "win_center", "D");
+    jfieldID fExp = env->GetFieldID(cls, "exposure_leve", "I");
+    jfieldID fMax = env->GetFieldID(cls, "largestImagePixelValue", "I");
+
+    if (!fRows || !fCols || !fData || !fWW || !fWC || !fExp || !fMax) {
+        if (cls) env->DeleteLocalRef(cls);
+        LOGE("readPixelData: field id missing");
+        return false;
+    }
+
+    out.rows = env->GetIntField(pixelData, fRows);
+    out.columns = env->GetIntField(pixelData, fCols);
+    out.win_width = env->GetDoubleField(pixelData, fWW);
+    out.win_center = env->GetDoubleField(pixelData, fWC);
+    out.exposure_leve = env->GetIntField(pixelData, fExp);
+    out.largestImagePixelValue = env->GetIntField(pixelData, fMax);
+
+    jbyteArray dataArr = (jbyteArray) env->GetObjectField(pixelData, fData);
+    if (dataArr) {
+        jsize len = env->GetArrayLength(dataArr);
+        out.data.resize(len);
+        env->GetByteArrayRegion(dataArr, 0, len, (jbyte *) out.data.data());
+        env->DeleteLocalRef(dataArr);
+    }
+
+    env->DeleteLocalRef(cls);
+    return true;
+}
+
+static jboolean native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
+                                   jobject pixel_data, jstring dcm_path) {
     ScanRecordFields rec;
     if (!readScanRecord(env, record, rec)) {
-        return nullptr;
+        return JNI_FALSE;
     }
     DicomFileIO::ScanRecordInfo info;
     info.examineNo = rec.examineNo;
@@ -524,41 +557,15 @@ static jobject native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
     info.patientSex = rec.patientSex;
     info.toothPosition = rec.toothPosition;
 
-    JniString raw(env, raw_path);
-    JniString dcm(env, dcm_path);
     DicomFileIO::PixelDataInfo px;
-    if (!DicomFileIO::writeDcmFileFull(raw.c_str() ? raw.c_str() : "",
-                                       dcm.c_str() ? dcm.c_str() : "",
-                                       width, height, info, px)) {
-        return nullptr;
+    if (!readPixelData(env, pixel_data, px)) {
+        return JNI_FALSE;
     }
 
-    // 构造 PixelData(rows, columns, data:ByteArray, win_width, win_center,
-    //                exposure_leve, largestImagePixelValue)
-    jclass pxClass = env->FindClass("com/example/dcmtk/model/PixelData");
-    if (!pxClass) {
-        LOGE("native_writeDcmFile: PixelData class not found");
-        return nullptr;
-    }
-    jmethodID ctor = env->GetMethodID(pxClass, "<init>",
-                                      "(II[BDDII)V");
-    if (!ctor) {
-        LOGE("native_writeDcmFile: PixelData ctor not found");
-        return nullptr;
-    }
-    jbyteArray dataArr = env->NewByteArray((jsize) px.data.size());
-    if (!dataArr) {
-        LOGE("native_writeDcmFile: NewByteArray failed");
-        return nullptr;
-    }
-    env->SetByteArrayRegion(dataArr, 0, (jsize) px.data.size(),
-                            (const jbyte *) px.data.data());
-    jobject result = env->NewObject(pxClass, ctor,
-                                    (jint) px.rows, (jint) px.columns, dataArr,
-                                    (jdouble) px.win_width, (jdouble) px.win_center,
-                                    (jint) px.exposure_leve, (jint) px.largestImagePixelValue);
-    env->DeleteLocalRef(dataArr);
-    return result;
+    JniString dcm(env, dcm_path);
+    bool ok = DicomFileIO::writeDcmFileFull(dcm.c_str() ? dcm.c_str() : "",
+                                            info, px);
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 // JNI Registration
@@ -626,7 +633,8 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;DD)Landroid/graphics/Bitmap;",
                 (void *) native_dicomFile2BitmapWW},
         {"writeDcmFile",
-                "(Lcom/example/dcmtk/model/ScanRecord;Ljava/lang/String;Ljava/lang/String;II)Lcom/example/dcmtk/model/PixelData;",
+                "(Lcom/example/dcmtk/model/ScanRecord;Lcom/example/dcmtk/model/PixelData"
+                ";Ljava/lang/String;)Z",
                 (void *) native_writeDcmFile},
 
 };

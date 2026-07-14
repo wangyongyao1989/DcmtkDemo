@@ -67,11 +67,11 @@ public:
         int largestImagePixelValue;
     };
 
-    // 对应 writeDcmFile(record, rawFile, dcmFile, w, h): 写完整 CR DICOM，
-    // 返回处理后的 PixelData 信息。成功返回 true。
-    static bool writeDcmFileFull(const std::string &rawPath, const std::string &dcmPath,
-                                 int width, int height, const ScanRecordInfo &record,
-                                 PixelDataInfo &outPixelData);
+    // 对应 writeDcmFile(record, pixelData, dcmFile): 写完整 CR DICOM。
+    // 成功返回 true。
+    static bool writeDcmFileFull(const std::string &dcmPath,
+                                 const ScanRecordInfo &record,
+                                 const PixelDataInfo &pixelData);
 };
 
 #endif // DCMTKDEMO_DICOMFILEIO_H

@@ -13,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.dcmtk.DicomManager
 import com.example.dcmtk.data.createSeekBarConfigs
 import com.example.dcmtk.model.ScanRecord
+import com.example.dcmtk.utils.ProcessPixelData
 import com.example.dcmtkdemo.databinding.FragmentFileCompareBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -196,17 +197,17 @@ class FileCompareFragment : Fragment() {
                     toothPosition = "Tooth11"
                 )
                 val dcmFile = File(dir, "compare_synth.dcm")
-                val px = DicomManager.writeDcmFile(
-                    record, rawFile.absolutePath, dcmFile.absolutePath, w, h
-                )
-                if (px == null) {
-                    sb.append("writeDcmFile 返回 null")
+                val pixelData = ProcessPixelData.process(raw, w, h)
+                val success = DicomManager.writeDcmFile(record, pixelData, dcmFile.absolutePath)
+
+                if (!success) {
+                    sb.append("writeDcmFile 返回 false")
                 } else {
                     sb.append("writeDcmFile 成功\n")
-                    sb.append("  rows=${px.rows}, columns=${px.columns}\n")
-                    sb.append("  win_width=${px.win_width}, win_center=${px.win_center}\n")
-                    sb.append("  exposure_leve=${px.exposure_leve}, largest=${px.largestImagePixelValue}\n")
-                    sb.append("  data.size=${px.data.size}\n")
+                    sb.append("  rows=${pixelData.rows}, columns=${pixelData.columns}\n")
+                    sb.append("  win_width=${pixelData.win_width}, win_center=${pixelData.win_center}\n")
+                    sb.append("  exposure_leve=${pixelData.exposure_leve}, largest=${pixelData.largestImagePixelValue}\n")
+                    sb.append("  data.size=${pixelData.data.size}\n")
                     sb.append("  dcm: ${dcmFile.absolutePath} (${dcmFile.length()} bytes)\n")
 
                     // 回读验证

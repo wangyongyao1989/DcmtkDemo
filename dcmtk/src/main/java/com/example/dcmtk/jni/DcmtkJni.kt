@@ -180,14 +180,12 @@ object DcmtkJni {
 
     /**
      * 对应 writeDcmFile(record, rawFile, dcmFile, imageWidth, imageHeight)：
-     * 由 [ScanRecord] 与 raw 16-bit 像素文件写出完整 CR DICOM，返回处理后的 [PixelData]。
+     * 由 [ScanRecord] 与 [PixelData] 像素结构写出完整 CR DICOM。
      */
     @JvmStatic
     external fun writeDcmFile(
         record: ScanRecord,
-        rawPath: String,
-        dcmPath: String,
-        imageWidth: Int,
-        imageHeight: Int
-    ): PixelData?
+        pixelData: PixelData,
+        dcmPath: String
+    ): Boolean
 }

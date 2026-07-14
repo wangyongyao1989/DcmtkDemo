@@ -135,7 +135,7 @@ object DicomManager {
     }
 
     /**
-     * 由 [ScanRecord] 与 raw 16-bit 像素文件写出完整 CR DICOM（对应 dcm4che3 writeDcmFile）。
+     * 由 [ScanRecord] 与 [PixelData] 结构写出完整 CR DICOM（对应 dcm4che3 writeDcmFile）。
      *
      * 写入 tag 集合：PatientID/PatientName/PatientAge/PatientSex/InstitutionName/
      * Manufacturer/ManufacturerModelName/StudyDate/StudyTime/ToothPosition 等；
@@ -143,25 +143,21 @@ object DicomManager {
      * 输出传输语义为 Little Endian Explicit。
      *
      * @param record      检查记录（患者信息等元数据）
-     * @param rawPath     raw 16-bit 小端像素文件路径
+     * @param pixelData   像素数据处理结果（含 rows/columns/data/win_width/win_center 等）
      * @param dcmPath     输出 .dcm 文件路径
-     * @param imageWidth  图像宽度（像素）
-     * @param imageHeight 图像高度（像素）
-     * @return 处理后的 [PixelData]（含 rows/columns/data/win_width/win_center 等）；失败返回 null
+     * @return 成功返回 true
      */
     @JvmStatic
     suspend fun writeDcmFile(
         record: ScanRecord,
-        rawPath: String,
-        dcmPath: String,
-        imageWidth: Int,
-        imageHeight: Int
-    ): PixelData? = withContext(Dispatchers.IO) {
+        pixelData: PixelData,
+        dcmPath: String
+    ): Boolean = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.writeDcmFile(record, rawPath, dcmPath, imageWidth, imageHeight)
+            DcmtkJni.writeDcmFile(record, pixelData, dcmPath)
         } catch (e: Exception) {
-            Log.e(TAG, "writeDcmFile failed: $rawPath -> $dcmPath", e)
-            null
+            Log.e(TAG, "writeDcmFile failed: $dcmPath", e)
+            false
         }
     }
 }

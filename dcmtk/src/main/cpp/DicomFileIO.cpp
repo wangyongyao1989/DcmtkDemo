@@ -479,49 +479,9 @@ bool DicomFileIO::dicomFileToBitmapRgba(const std::string &filePath, bool useCus
     return true;
 }
 
-bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string &dcmPath,
-                                   int width, int height, const ScanRecordInfo &record,
-                                   PixelDataInfo &outPixelData) {
-    LOGD("writeDcmFileFull: raw=%s dcm=%s %dx%d", rawPath.c_str(), dcmPath.c_str(), width, height);
-
-    FILE *f = fopen(rawPath.c_str(), "rb");
-    if (!f) {
-        LOGE("writeDcmFileFull: open raw failed: %s", strerror(errno));
-        return false;
-    }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (size <= 0) {
-        fclose(f);
-        LOGE("writeDcmFileFull: empty raw file");
-        return false;
-    }
-    std::vector<uint8_t> rawBytes(size);
-    size_t rd = fread(rawBytes.data(), 1, size, f);
-    fclose(f);
-    LOGD("writeDcmFileFull: read %zu bytes", rd);
-
-    // ProcessPixelData 等价：min/max 窗宽窗位
-    Uint16 minVal = 65535, maxVal = 0;
-    size_t numPixels = rd / 2;
-    if (numPixels > 0) {
-        for (size_t i = 0; i < numPixels; ++i) {
-            Uint16 v = (Uint16) ((rawBytes[i * 2 + 1] << 8) | rawBytes[i * 2]);
-            if (v < minVal) minVal = v;
-            if (v > maxVal) maxVal = v;
-        }
-    } else {
-        minVal = 0;
-        maxVal = 0;
-    }
-    double winWidth = (double) maxVal - (double) minVal;
-    if (winWidth < 1.0) winWidth = 1.0;
-    double winCenter = minVal + winWidth / 2.0;
-    int largestImagePixelValue = maxVal;
-    int exposureLeve = maxVal;
-
-    LOGD("writeDcmFileFull: min=%u max=%u -> WC=%.2f WW=%.2f", minVal, maxVal, winCenter, winWidth);
+bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordInfo &record,
+                                   const PixelDataInfo &pixelData) {
+    LOGD("writeDcmFileFull: dcm=%s %dx%d", dcmPath.c_str(), pixelData.columns, pixelData.rows);
 
     DcmFileFormat ff;
     DcmDataset *ds = ff.getDataset();
@@ -556,8 +516,8 @@ bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string
     ds->putAndInsertString(DCM_InstanceNumber, "1");
     ds->putAndInsertString(DCM_ImageType, "ORIGINAL\\PRIMARY");
 
-    ds->putAndInsertUint16(DCM_Rows, (Uint16) height);
-    ds->putAndInsertUint16(DCM_Columns, (Uint16) width);
+    ds->putAndInsertUint16(DCM_Rows, (Uint16) pixelData.rows);
+    ds->putAndInsertUint16(DCM_Columns, (Uint16) pixelData.columns);
     ds->putAndInsertUint16(DCM_SamplesPerPixel, 1);
     ds->putAndInsertString(DCM_PhotometricInterpretation, "MONOCHROME1");
     ds->putAndInsertUint16(DCM_BitsAllocated, 16);
@@ -573,28 +533,29 @@ bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string
     }
 
     // PixelData（16-bit）
+    size_t rd = pixelData.data.size();
     if (rd % 2 == 0) {
-        ds->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) rawBytes.data(),
+        ds->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) pixelData.data.data(),
                                     (Uint32) (rd / 2));
     } else {
-        ds->putAndInsertUint8Array(DCM_PixelData, rawBytes.data(), (Uint32) rd);
+        ds->putAndInsertUint8Array(DCM_PixelData, pixelData.data.data(), (Uint32) rd);
     }
 
     {
         char w[32], c[32];
-        snprintf(w, sizeof(w), "%.2f", winWidth);
-        snprintf(c, sizeof(c), "%.2f", winCenter);
+        snprintf(w, sizeof(w), "%.2f", pixelData.win_width);
+        snprintf(c, sizeof(c), "%.2f", pixelData.win_center);
         ds->putAndInsertString(DCM_WindowWidth, w);
         ds->putAndInsertString(DCM_WindowCenter, c);
     }
     {
         char e[32];
-        snprintf(e, sizeof(e), "%d", exposureLeve);
+        snprintf(e, sizeof(e), "%d", pixelData.exposure_leve);
         ds->putAndInsertString(DCM_ExposureIndex, e);
     }
     ds->putAndInsertString(DCM_TargetExposureIndex, "28000");
     ds->putAndInsertString(DCM_DeviationIndex, "1000");
-    ds->putAndInsertUint16(DCM_LargestImagePixelValue, (Uint16) largestImagePixelValue);
+    ds->putAndInsertUint16(DCM_LargestImagePixelValue, (Uint16) pixelData.largestImagePixelValue);
 
     ds->putAndInsertString(DCM_SoftwareVersions, "DCMTK 3.6.9");
     ds->putAndInsertString(DCM_StationName, "VRN-EQ800");
@@ -618,12 +579,5 @@ bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string
     }
     LOGD("writeDcmFileFull: saved %s", dcmPath.c_str());
 
-    outPixelData.rows = height;
-    outPixelData.columns = width;
-    outPixelData.data = rawBytes;
-    outPixelData.win_width = winWidth;
-    outPixelData.win_center = winCenter;
-    outPixelData.exposure_leve = exposureLeve;
-    outPixelData.largestImagePixelValue = largestImagePixelValue;
     return true;
 }
