@@ -14,6 +14,7 @@ import com.example.dcmtk.DicomManager
 import com.example.dcmtk.data.createSeekBarConfigs
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.utils.ProcessPixelData
+import com.example.dcmtk.utils.ProcessPixelData.WindowCalcMethod
 import com.example.dcmtkdemo.databinding.FragmentFileCompareBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -48,6 +49,12 @@ class FileCompareFragment : Fragment() {
         binding?.btnBitmapDefault?.setOnClickListener { runBitmapDefault() }
         binding?.btnBitmapCustom?.setOnClickListener { runBitmapCustom() }
         binding?.btnWriteDcm?.setOnClickListener { runWriteDcm() }
+
+        // 窗位窗宽算法选择 Spinner
+        val methods = WindowCalcMethod.values().map { it.displayName }
+        binding?.spWinMethod?.adapter = ArrayAdapter(
+            requireContext(), android.R.layout.simple_spinner_dropdown_item, methods
+        )
 
         refreshFileList()
     }
@@ -184,7 +191,7 @@ class FileCompareFragment : Fragment() {
                         raw[idx++] = ((v shr 8) and 0xFF).toByte()
                     }
                 }
-                val rawFile = File(dir, "compare_synth.raw")
+                val rawFile = File(dir,"Data610.bin")
                 withContext(Dispatchers.IO) {
                     rawFile.writeBytes(raw)
                 }
@@ -197,7 +204,10 @@ class FileCompareFragment : Fragment() {
                     toothPosition = "Tooth11"
                 )
                 val dcmFile = File(dir, "compare_synth.dcm")
-                val pixelData = ProcessPixelData.process(raw, w, h)
+                val method = WindowCalcMethod.values()[
+                    (binding?.spWinMethod?.selectedItemPosition ?: 0).coerceAtLeast(0)
+                ]
+                val pixelData = ProcessPixelData.process(raw, w, h, method)
 
                 val success = DicomManager.writeDcmFile(record, pixelData, dcmFile.absolutePath)
 
@@ -205,6 +215,7 @@ class FileCompareFragment : Fragment() {
                     sb.append("writeDcmFile 返回 false")
                 } else {
                     sb.append("writeDcmFile 成功\n")
+                    sb.append("  算法: ${method.displayName}\n")
                     sb.append("  rows=${pixelData.rows}, columns=${pixelData.columns}\n")
                     sb.append("  win_width=${pixelData.win_width}, win_center=${pixelData.win_center}\n")
                     sb.append("  exposure_leve=${pixelData.exposure_leve}, largest=${pixelData.largestImagePixelValue}\n")
