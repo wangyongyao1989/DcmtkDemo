@@ -543,8 +543,10 @@ bool DicomFileIO::writeDcmFileFull(const std::string &rawPath, const std::string
     std::time_t now = std::time(nullptr);
     std::tm *lt = std::localtime(&now);
     char dateBuf[16], timeBuf[16];
-    snprintf(dateBuf, sizeof(dateBuf), "%04d%02d%02d", lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday);
-    snprintf(timeBuf, sizeof(timeBuf), "%02d%02d%02d", lt->tm_hour, lt->tm_min, lt->tm_sec);
+    snprintf(dateBuf, sizeof(dateBuf), "%04d%02d%02d"
+             , lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday);
+    snprintf(timeBuf, sizeof(timeBuf), "%02d%02d%02d"
+             , lt->tm_hour, lt->tm_min, lt->tm_sec);
     ds->putAndInsertString(DCM_StudyDate, dateBuf);
     ds->putAndInsertString(DCM_StudyTime, timeBuf);
 

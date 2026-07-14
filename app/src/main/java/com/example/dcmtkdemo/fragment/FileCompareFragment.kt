@@ -10,7 +10,7 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.example.dcmtk.jni.DcmtkJni
+import com.example.dcmtk.DicomManager
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtkdemo.databinding.FragmentFileCompareBinding
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +72,8 @@ class FileCompareFragment : Fragment() {
     }
 
     // ① loadDicomFileInfoEx
+    // DicomManager.loadDicomFileInfoEx 内部已切换至 Dispatchers.IO 并捕获异常，
+    // 此处直接在 lifecycleScope（Main）中调用即可，无需再包 withContext(Dispatchers.IO)。
     @SuppressLint("SetTextI18n")
     private fun runLoadInfo() {
         val file = selectedFile() ?: run {
@@ -79,21 +81,14 @@ class FileCompareFragment : Fragment() {
         }
         binding?.tvLoadInfo?.text = "运行中..."
         viewLifecycleOwner.lifecycleScope.launch {
-            val sb = withContext(Dispatchers.IO) {
-                val info = try {
-                    DcmtkJni.loadDicomFileInfoEx(file.absolutePath)
-                } catch (e: Exception) {
-                    Log.e(TAG, "loadDicomFileInfoEx", e); null
-                }
-                val s = StringBuilder()
-                if (info == null) {
-                    s.append("调用失败/返回 null")
-                } else if (info.isEmpty()) {
-                    s.append("返回空 map（可能加载失败）")
-                } else {
-                    info.forEach { (k, v) -> s.append("$k = $v\n") }
-                }
-                s
+            val info = DicomManager.loadDicomFileInfoEx(file.absolutePath)
+            val sb = StringBuilder()
+            if (info == null) {
+                sb.append("调用失败/返回 null")
+            } else if (info.isEmpty()) {
+                sb.append("返回空 map（可能加载失败）")
+            } else {
+                info.forEach { (k, v) -> sb.append("$k = $v\n") }
             }
             binding?.tvLoadInfo?.text = sb
         }
@@ -107,23 +102,19 @@ class FileCompareFragment : Fragment() {
         }
         binding?.tvWindowSettings?.text = "运行中..."
         viewLifecycleOwner.lifecycleScope.launch {
-            val sb = withContext(Dispatchers.IO) {
-                val s = StringBuilder()
-                try {
-                    val ws = DcmtkJni.readDicomWindowSettings(file.absolutePath)
-                    s.append("smallestPixelValue = ${ws.smallestPixelValue}\n")
-                    s.append("largestPixelValue  = ${ws.largestPixelValue}\n")
-                    s.append("autoCalculatedWindow: center=${ws.autoCalculatedWindow.center}, width=${ws.autoCalculatedWindow.width}\n")
-                    s.append("windows (${ws.windows.size}):\n")
-                    ws.windows.forEachIndexed { i, w ->
-                        s.append("  [$i] center=${w.center}, width=${w.width}, desc=${w.description ?: "无"}\n")
-                    }
-                    s.append("firstAvailableWindow: center=${ws.firstAvailableWindow.center}, width=${ws.firstAvailableWindow.width}\n")
-                } catch (e: Exception) {
-                    Log.e(TAG, "readDicomWindowSettings", e)
-                    s.append("异常：${e.message}")
+            val sb = StringBuilder()
+            val ws = DicomManager.readDicomWindowSettings(file.absolutePath)
+            if (ws == null) {
+                sb.append("调用失败/返回 null")
+            } else {
+                sb.append("smallestPixelValue = ${ws.smallestPixelValue}\n")
+                sb.append("largestPixelValue  = ${ws.largestPixelValue}\n")
+                sb.append("autoCalculatedWindow: center=${ws.autoCalculatedWindow.center}, width=${ws.autoCalculatedWindow.width}\n")
+                sb.append("windows (${ws.windows.size}):\n")
+                ws.windows.forEachIndexed { i, w ->
+                    sb.append("  [$i] center=${w.center}, width=${w.width}, desc=${w.description ?: "无"}\n")
                 }
-                s
+                sb.append("firstAvailableWindow: center=${ws.firstAvailableWindow.center}, width=${ws.firstAvailableWindow.width}\n")
             }
             binding?.tvWindowSettings?.text = sb
         }
@@ -136,13 +127,7 @@ class FileCompareFragment : Fragment() {
             toast("请先选择 .dcm 文件"); return
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            val bmp = withContext(Dispatchers.IO) {
-                try {
-                    DcmtkJni.dicomFile2Bitmap(file.absolutePath)
-                } catch (e: Exception) {
-                    Log.e(TAG, "dicomFile2Bitmap", e); null
-                }
-            }
+            val bmp = DicomManager.dicomFile2Bitmap(file.absolutePath)
             if (bmp != null) binding?.ivBitmapDefault?.setImageBitmap(bmp)
             else toast("默认窗渲染失败")
         }
@@ -160,82 +145,77 @@ class FileCompareFragment : Fragment() {
             toast("请输入合法 WW/WC"); return
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            val bmp = withContext(Dispatchers.IO) {
-                try {
-                    DcmtkJni.dicomFile2BitmapWW(file.absolutePath, ww, wc)
-                } catch (e: Exception) {
-                    Log.e(TAG, "dicomFile2BitmapWW", e); null
-                }
-            }
+            val bmp = DicomManager.dicomFile2Bitmap(file.absolutePath, ww, wc)
             if (bmp != null) binding?.ivBitmapCustom?.setImageBitmap(bmp)
             else toast("自定义窗渲染失败")
         }
     }
 
     // ④ writeDcmFile round-trip
+    // DicomManager 的 suspend 方法内部已切换至 Dispatchers.IO 并捕获异常，
+    // 此处直接在 lifecycleScope（Main）中调用；仅 raw 文件写入是 DicomManager 之外的
+    // 文件 I/O，需单独用 withContext(Dispatchers.IO) 包裹。
     @SuppressLint("SetTextI18n")
     private fun runWriteDcm() {
         binding?.tvWriteDcm?.text = "运行中..."
         binding?.ivWriteDcm?.setImageDrawable(null)
         viewLifecycleOwner.lifecycleScope.launch {
-            val sb = withContext(Dispatchers.IO) {
-                val s = StringBuilder()
-                try {
-                    val dir = requireContext().getExternalFilesDir(null)!!
-                    val w = 256
-                    val h = 256
-                    // 合成 16-bit 渐变 raw（小端）
-                    val raw = ByteArray(w * h * 2)
-                    var idx = 0
-                    for (y in 0 until h) {
-                        for (x in 0 until w) {
-                            val v = ((x + y) * 65535 / (w + h - 2)).coerceIn(0, 65535)
-                            raw[idx++] = (v and 0xFF).toByte()
-                            raw[idx++] = ((v shr 8) and 0xFF).toByte()
-                        }
+            val sb = StringBuilder()
+            try {
+                val dir = requireContext().getExternalFilesDir(null)!!
+                val w = 256
+                val h = 256
+                // 合成 16-bit 渐变 raw（小端）
+                val raw = ByteArray(w * h * 2)
+                var idx = 0
+                for (y in 0 until h) {
+                    for (x in 0 until w) {
+                        val v = ((x + y) * 65535 / (w + h - 2)).coerceIn(0, 65535)
+                        raw[idx++] = (v and 0xFF).toByte()
+                        raw[idx++] = ((v shr 8) and 0xFF).toByte()
                     }
-                    val rawFile = File(dir, "compare_synth.raw")
-                    rawFile.writeBytes(raw)
-
-                    val record = ScanRecord(
-                        examineNo = 12345,
-                        patientName = "测试^患者",
-                        patientAge = "030Y",
-                        patientSex = "男",
-                        toothPosition = "Tooth11"
-                    )
-                    val dcmFile = File(dir, "compare_synth.dcm")
-                    val px = DcmtkJni.writeDcmFile(
-                        record, rawFile.absolutePath, dcmFile.absolutePath, w, h
-                    )
-                    if (px == null) {
-                        s.append("writeDcmFile 返回 null")
-                    } else {
-                        s.append("writeDcmFile 成功\n")
-                        s.append("  rows=${px.rows}, columns=${px.columns}\n")
-                        s.append("  win_width=${px.win_width}, win_center=${px.win_center}\n")
-                        s.append("  exposure_leve=${px.exposure_leve}, largest=${px.largestImagePixelValue}\n")
-                        s.append("  data.size=${px.data.size}\n")
-                        s.append("  dcm: ${dcmFile.absolutePath} (${dcmFile.length()} bytes)\n")
-
-                        // 回读验证
-                        val back = DcmtkJni.loadDicomFileInfoEx(dcmFile.absolutePath)
-                        s.append("\n[回读 loadDicomFileInfoEx]\n")
-                        if (back.isNullOrEmpty()) s.append("  回读失败\n")
-                        else back.forEach { (k, v) -> s.append("  $k = $v\n") }
-
-                        val bmp = DcmtkJni.dicomFile2Bitmap(dcmFile.absolutePath)
-                        if (bmp != null) {
-                            withContext(Dispatchers.Main) {
-                                binding?.ivWriteDcm?.setImageBitmap(bmp)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "runWriteDcm", e)
-                    s.append("异常：${e.message}")
                 }
-                s
+                val rawFile = File(dir, "compare_synth.raw")
+                withContext(Dispatchers.IO) {
+                    rawFile.writeBytes(raw)
+                }
+
+                val record = ScanRecord(
+                    examineNo = 12345,
+                    patientName = "测试^患者",
+                    patientAge = "030Y",
+                    patientSex = "男",
+                    toothPosition = "Tooth11"
+                )
+                val dcmFile = File(dir, "compare_synth.dcm")
+                val px = DicomManager.writeDcmFile(
+                    record, rawFile.absolutePath, dcmFile.absolutePath, w, h
+                )
+                if (px == null) {
+                    sb.append("writeDcmFile 返回 null")
+                } else {
+                    sb.append("writeDcmFile 成功\n")
+                    sb.append("  rows=${px.rows}, columns=${px.columns}\n")
+                    sb.append("  win_width=${px.win_width}, win_center=${px.win_center}\n")
+                    sb.append("  exposure_leve=${px.exposure_leve}, largest=${px.largestImagePixelValue}\n")
+                    sb.append("  data.size=${px.data.size}\n")
+                    sb.append("  dcm: ${dcmFile.absolutePath} (${dcmFile.length()} bytes)\n")
+
+                    // 回读验证
+                    val back = DicomManager.loadDicomFileInfoEx(dcmFile.absolutePath)
+                    sb.append("\n[回读 loadDicomFileInfoEx]\n")
+                    if (back.isNullOrEmpty()) sb.append("  回读失败\n")
+                    else back.forEach { (k, v) -> sb.append("  $k = $v\n") }
+
+                    // DicomManager 返回后协程已回到 Main，可直接更新 ImageView
+                    val bmp = DicomManager.dicomFile2Bitmap(dcmFile.absolutePath)
+                    if (bmp != null) {
+                        binding?.ivWriteDcm?.setImageBitmap(bmp)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "runWriteDcm", e)
+                sb.append("异常：${e.message}")
             }
             binding?.tvWriteDcm?.text = sb
         }
