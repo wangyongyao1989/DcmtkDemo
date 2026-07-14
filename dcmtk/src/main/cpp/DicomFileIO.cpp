@@ -115,20 +115,22 @@ bool DicomFileIO::writeDicomFile(const std::string &rawPath, const std::string &
         // --- Calculate Optimal Window Center and Width (Min-Max algorithm) ---
         double minVal = 65535.0;
         double maxVal = 0.0;
-        Uint16 *ptr16 = (Uint16 *) pixelData;
         size_t numPixels = size / 2;
 
         if (numPixels > 0) {
             for (size_t i = 0; i < numPixels; ++i) {
-                Uint16 val = ptr16[i];
+                // 显式按大端序读取值用于计算
+                uint8_t high = pixelData[2 * i];
+                uint8_t low  = pixelData[2 * i + 1];
+                Uint16 val = (Uint16)((high << 8) | low);
+
                 if (val < minVal) minVal = val;
                 if (val > maxVal) maxVal = val;
             }
 
             double windowWidth = maxVal - minVal;
             double windowCenter = minVal + (windowWidth / 2.0);
-
-            // Window Width must be at least 1.0 according to DICOM standard
+            // ... (rest of window calculation)
             if (windowWidth < 1.0) windowWidth = 1.0;
 
             LOGD("native_writeDicomFile: Calculated Min=%f, Max=%f -> WC=%f, WW=%f",
@@ -145,8 +147,14 @@ bool DicomFileIO::writeDicomFile(const std::string &rawPath, const std::string &
 
         LOGD("native_writeDicomFile: Inserting pixel data...");
         if (size % 2 == 0) {
-            dataset->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) pixelData,
-                                             (Uint32) (size / 2));
+            // 重新按大端读取并存入 native 数组，以确保 DCMTK 写入正确的 DICOM 字节流
+            std::vector<Uint16> swappedData(numPixels);
+            for (size_t i = 0; i < numPixels; ++i) {
+                uint8_t high = pixelData[2 * i];
+                uint8_t low  = pixelData[2 * i + 1];
+                swappedData[i] = (Uint16)((high << 8) | low);
+            }
+            dataset->putAndInsertUint16Array(DCM_PixelData, swappedData.data(), (Uint32)numPixels);
         } else {
             LOGW("native_writeDicomFile: Size is odd (%ld), inserting as Uint8", size);
             dataset->putAndInsertUint8Array(DCM_PixelData, pixelData, (Uint32) size);
@@ -534,8 +542,17 @@ bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordI
     // PixelData（16-bit）
     size_t rd = pixelData.data.size();
     if (rd % 2 == 0) {
-        ds->putAndInsertUint16Array(DCM_PixelData, (Uint16 *) pixelData.data.data(),
-                                    (Uint32) (rd / 2));
+        Uint32 numWords = (Uint32)(rd / 2);
+        std::vector<Uint16> swappedData(numWords);
+        const uint8_t* rawPtr = pixelData.data.data();
+
+        for (Uint32 i = 0; i < numWords; ++i) {
+            // 显式按大端序（高位在前）组合字节
+            uint8_t high = rawPtr[2 * i];
+            uint8_t low  = rawPtr[2 * i + 1];
+            swappedData[i] = (Uint16)((high << 8) | low);
+        }
+        ds->putAndInsertUint16Array(DCM_PixelData, swappedData.data(), numWords);
     } else {
         ds->putAndInsertUint8Array(DCM_PixelData, pixelData.data.data(), (Uint32) rd);
     }

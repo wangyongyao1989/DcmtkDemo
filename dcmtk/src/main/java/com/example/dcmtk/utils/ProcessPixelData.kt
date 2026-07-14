@@ -15,8 +15,9 @@ object ProcessPixelData {
         var maxVal = 0
         val numPixels = raw.size / 2
         for (i in 0 until numPixels) {
-            val lo = raw[i * 2].toInt() and 0xFF
-            val hi = raw[i * 2 + 1].toInt() and 0xFF
+            // 修正：Raw 文件是大端序，第 1 个字节是高位 (Hi)，第 2 个字节是低位 (Lo)
+            val hi = raw[i * 2].toInt() and 0xFF
+            val lo = raw[i * 2 + 1].toInt() and 0xFF
             val v = (hi shl 8) or lo
             if (v < minVal) minVal = v
             if (v > maxVal) maxVal = v
