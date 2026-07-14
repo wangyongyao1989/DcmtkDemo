@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.dcmtk.DicomManager
+import com.example.dcmtk.data.createSeekBarConfigs
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtkdemo.databinding.FragmentFileCompareBinding
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +116,13 @@ class FileCompareFragment : Fragment() {
                     sb.append("  [$i] center=${w.center}, width=${w.width}, desc=${w.description ?: "无"}\n")
                 }
                 sb.append("firstAvailableWindow: center=${ws.firstAvailableWindow.center}, width=${ws.firstAvailableWindow.width}\n")
+
+                // 新增：测试 SeekBar 配置生成
+                val configs = ws.createSeekBarConfigs()
+                sb.append("\n[SeekBar Configs]\n")
+                sb.append("WW Config: min=${configs.windowWidthConfig.minValue}, max=${configs.windowWidthConfig.maxValue}, def=${configs.windowWidthConfig.defaultValue}, maxProgress=${configs.windowWidthConfig.seekBarMax}\n")
+                sb.append("WL Config: min=${configs.windowCenterConfig.minValue}, max=${configs.windowCenterConfig.maxValue}, def=${configs.windowCenterConfig.defaultValue}, maxProgress=${configs.windowCenterConfig.seekBarMax}\n")
+                sb.append("Default Progress: WW=${configs.windowWidthConfig.defaultProgress}, WL=${configs.windowCenterConfig.defaultProgress}\n")
             }
             binding?.tvWindowSettings?.text = sb
         }

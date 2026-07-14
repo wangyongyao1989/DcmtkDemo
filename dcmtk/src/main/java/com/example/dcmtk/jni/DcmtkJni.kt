@@ -8,7 +8,7 @@ import com.example.dcmtk.callback.ProgressCallback
 import com.example.dcmtk.model.PixelData
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.utils.DcmtkFileUtil
-import com.example.dcmtk.utils.DicomWindowSettings
+import com.example.dcmtk.data.DicomWindowSettings
 import java.io.IOException
 
 object DcmtkJni {

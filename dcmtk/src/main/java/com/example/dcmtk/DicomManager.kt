@@ -6,7 +6,7 @@ import android.util.Log
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PixelData
 import com.example.dcmtk.model.ScanRecord
-import com.example.dcmtk.utils.DicomWindowSettings
+import com.example.dcmtk.data.DicomWindowSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
