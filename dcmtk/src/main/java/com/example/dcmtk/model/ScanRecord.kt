@@ -5,7 +5,7 @@ package com.example.dcmtk.model
  * 对应 dcm4che3 版 DicomFileUtils.kt 中 writeDcmFile 的入参类型。
  */
 data class ScanRecord(
-    val examineNo: Int,
+    val examineNo: Long,
     val patientName: String,
     val patientAge: String,
     val patientSex: String,

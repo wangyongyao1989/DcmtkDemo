@@ -467,7 +467,7 @@ static jobject native_dicomFile2BitmapWW(JNIEnv *env, jclass clazz, jstring file
 
 // 读取 ScanRecord 各字段
 struct ScanRecordFields {
-    jint examineNo;
+    jlong examineNo;
     std::string patientName;
     std::string patientAge;
     std::string patientSex;
@@ -477,7 +477,7 @@ struct ScanRecordFields {
 static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     if (!record) return false;
     jclass cls = env->GetObjectClass(record);
-    jfieldID fExamine = env->GetFieldID(cls, "examineNo", "I");
+    jfieldID fExamine = env->GetFieldID(cls, "examineNo", "J");
     jfieldID fName = env->GetFieldID(cls, "patientName", "Ljava/lang/String;");
     jfieldID fAge = env->GetFieldID(cls, "patientAge", "Ljava/lang/String;");
     jfieldID fSex = env->GetFieldID(cls, "patientSex", "Ljava/lang/String;");
@@ -487,7 +487,7 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
         LOGE("readScanRecord: field id missing");
         return false;
     }
-    out.examineNo = env->GetIntField(record, fExamine);
+    out.examineNo = env->GetLongField(record, fExamine);
 
     auto readStr = [&](jfieldID fid) -> std::string {
         jstring s = (jstring) env->GetObjectField(record, fid);

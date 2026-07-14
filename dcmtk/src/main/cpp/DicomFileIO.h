@@ -49,7 +49,7 @@ public:
 
     // ScanRecord 入参（对应 Kotlin ScanRecord）
     struct ScanRecordInfo {
-        int examineNo;
+        long long examineNo;
         std::string patientName;
         std::string patientAge;
         std::string patientSex;   // "男"/"女"/其它
