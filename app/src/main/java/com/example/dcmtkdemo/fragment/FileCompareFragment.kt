@@ -207,6 +207,13 @@ class FileCompareFragment : Fragment() {
                 val method = WindowCalcMethod.values()[
                     (binding?.spWinMethod?.selectedItemPosition ?: 0).coerceAtLeast(0)
                 ]
+
+                // 获取窗宽窗位计算结果（含中间数据和调试信息）
+                val winResult = ProcessPixelData.calcWindowFromRaw(raw, method)
+                // 评价指标
+                val evalResult = ProcessPixelData.evaluateFromRaw(
+                    raw, winResult.windowCenter, winResult.windowWidth
+                )
                 val pixelData = ProcessPixelData.process(raw, w, h, method)
 
                 val success = DicomManager.writeDcmFile(record, pixelData, dcmFile.absolutePath)
@@ -216,11 +223,29 @@ class FileCompareFragment : Fragment() {
                 } else {
                     sb.append("writeDcmFile 成功\n")
                     sb.append("  算法: ${method.displayName}\n")
+                    sb.append("  实现级别: ${winResult.implementationLevel}\n")
                     sb.append("  rows=${pixelData.rows}, columns=${pixelData.columns}\n")
                     sb.append("  win_width=${pixelData.win_width}, win_center=${pixelData.win_center}\n")
                     sb.append("  exposure_leve=${pixelData.exposure_leve}, largest=${pixelData.largestImagePixelValue}\n")
                     sb.append("  data.size=${pixelData.data.size}\n")
                     sb.append("  dcm: ${dcmFile.absolutePath} (${dcmFile.length()} bytes)\n")
+
+                    // 算法详情
+                    sb.append("\n[算法详情]\n")
+                    sb.append("  ${winResult.detail}\n")
+                    // 关键中间数据
+                    val dbg = winResult.debugInfo
+                    dbg["Gmin"]?.let { sb.append("  Gmin=$it, Gmax=${dbg["Gmax"]}\n") }
+                    dbg["Hbins"]?.let { sb.append("  Hbins=$it, nbins=${dbg["nbins"]}\n") }
+                    dbg["T"]?.let { sb.append("  T=$it, T0=${dbg["T0"]}, T1=${dbg["T1"]}\n") }
+                    dbg["B"]?.let { sb.append("  B=$it (剩余分组数)\n") }
+                    dbg["c_formula"]?.let { sb.append("  c=$it, w=${dbg["w_formula"]}\n") }
+
+                    // 评价指标
+                    sb.append("\n[评价指标]\n")
+                    sb.append("  MSE=${String.format("%.2f", evalResult.mse)}\n")
+                    sb.append("  PSNR=${String.format("%.2f", evalResult.psnr)} dB\n")
+                    sb.append("  SNR=${String.format("%.2f", evalResult.snr)} dB\n")
 
                     // 回读验证
                     val back = DicomManager.loadDicomFileInfoEx(dcmFile.absolutePath)
