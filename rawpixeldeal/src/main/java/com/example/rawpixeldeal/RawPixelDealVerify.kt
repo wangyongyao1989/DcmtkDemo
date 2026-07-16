@@ -1,22 +1,19 @@
 package com.example.rawpixeldeal
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
 import com.example.rawpixeldeal.jni.RawPixelDealJni
+import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
- * rawpixeldeal 模块对外的最小验证门面。
- *
- * 业务侧只需要调用一次 [verifyChain]：
- *  - 打印 OpenCV 版本（确认 [libopencv_java4.so] 已成功 dlopen）；
- *  - 构造一张 8x8 的灰度"棋盘"原始像素，走 native -> cv::Mat -> GaussianBlur，
- *    把处理结果回填并校验非 0。
- *
- * 整个调用串起来即：
- *   Kotlin ([verifyChain])
- *      -> JNI ([RawPixelDealJni.processRawGrayPixels])
- *      -> C++ ([native_processRawGrayPixels])
- *      -> OpenCV C++ ([cv::GaussianBlur])
- *      -> 回写 ByteArray -> Kotlin
+ * rawpixeldeal 模块对外的业务门面：
+ *  - [verifyChain]：最小链路验证（Kotlin -> JNI -> OpenCV -> 校验非 0）。
+ *  - [processAssetFromAssets]：把 assets 下的"原始像素数据缓冲"
+ *    （如 Data610.bin / Data622.bin）经 OpenCV 裁剪/归一化/CLAHE 后
+ *    输出 [Bitmap]，用于在 [RawPixelDealFragment] 做人工筛查。
  */
 object RawPixelDealVerify {
 
@@ -35,6 +32,26 @@ object RawPixelDealVerify {
         val rawBeforeHead: IntArray,
         val rawAfterHead: IntArray,
         val changedAnyPixel: Boolean,
+    )
+
+    /** processAssetFromAssets 的处理结果，附带诊断信息便于 UI 文字展示 */
+    data class ImageResult(
+        val bitmap: Bitmap,
+        val srcMin: Int,
+        val srcMax: Int,
+        val outWidth: Int,
+        val outHeight: Int,
+        val assetName: String,
+        val srcWidth: Int,
+        val srcHeight: Int,
+        val bitDepth: Int,
+        val cropLeft: Int,
+        val cropTop: Int,
+        val cropRight: Int,
+        val cropBottom: Int,
+        val enableClahe: Boolean,
+        val clipLimit: Double,
+        val tileSize: Int,
     )
 
     /**
@@ -109,6 +126,90 @@ object RawPixelDealVerify {
             rawBeforeHead = beforeHead,
             rawAfterHead = afterHead,
             changedAnyPixel = changed,
+        )
+    }
+
+    /**
+     * 从 assets 读取 [assetName]，按 [srcWidth] x [srcHeight] x [bitDepth] 解析为灰度
+     * 原始像素，再走 native 做归一化/CLAHE/裁剪，输出可直接显示的 [Bitmap]。
+     *
+     * 任何失败都会抛 [IllegalStateException]，由调用方在协程中捕获并 Toast 展示。
+     */
+    fun processAssetFromAssets(
+        context: Context,
+        assetName: String,
+        srcWidth: Int,
+        srcHeight: Int,
+        bitDepth: Int,
+        cropLeft: Int = 0,
+        cropTop: Int = 0,
+        cropRight: Int = 0,
+        cropBottom: Int = 0,
+        enableClahe: Boolean = true,
+        clipLimit: Double = 2.0,
+        tileSize: Int = 8,
+    ): ImageResult {
+        require(srcWidth > 0 && srcHeight > 0) { "invalid size: ${srcWidth}x$srcHeight" }
+        require(bitDepth == 8 || bitDepth == 16) { "unsupported bitDepth=$bitDepth" }
+
+        // 1) 从 assets 读全部字节
+        val bytes: ByteArray = context.assets.open(assetName).use { ins: InputStream ->
+            ins.readBytes()
+        }
+        val expectedBytes = srcWidth * srcHeight * (if (bitDepth == 16) 2 else 1)
+        require(bytes.size >= expectedBytes) {
+            "asset $assetName size=${bytes.size} < expected=$expectedBytes " +
+                    "(${srcWidth}x${srcHeight}@${bitDepth}bit)"
+        }
+        Log.i(TAG, "processAsset: $assetName size=${bytes.size} expected=$expectedBytes")
+
+        // 2) 调 native 处理
+        val head = IntArray(4)
+        val rgba = RawPixelDealJni.processRawToRgba(
+            width = srcWidth,
+            height = srcHeight,
+            bitDepth = bitDepth,
+            src = bytes,
+            cropLeft = cropLeft,
+            cropTop = cropTop,
+            cropRight = cropRight,
+            cropBottom = cropBottom,
+            enableClahe = if (enableClahe) 1 else 0,
+            clipLimit = clipLimit,
+            tileSize = tileSize,
+            head = head,
+        ) ?: throw IllegalStateException("native processRawToRgba returned null")
+
+        val outW = head[2]
+        val outH = head[3]
+        require(rgba.size >= outW * outH * 4) {
+            "rgba size=${rgba.size} < expected=${outW * outH * 4}"
+        }
+
+        // 3) 构造 ARGB_8888 Bitmap。COLOR_GRAY2RGBA 内存布局为 R,G,B,A，
+        //    与 Android Bitmap ARGB_8888（内存按 R,G,B,A 排列）一致，
+        //    因此可以直接 copyPixelsFromBuffer，无需额外通道交换。
+        val bmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        val buf = ByteBuffer.wrap(rgba).order(ByteOrder.nativeOrder())
+        bmp.copyPixelsFromBuffer(buf)
+
+        return ImageResult(
+            bitmap = bmp,
+            srcMin = head[0],
+            srcMax = head[1],
+            outWidth = outW,
+            outHeight = outH,
+            assetName = assetName,
+            srcWidth = srcWidth,
+            srcHeight = srcHeight,
+            bitDepth = bitDepth,
+            cropLeft = cropLeft,
+            cropTop = cropTop,
+            cropRight = cropRight,
+            cropBottom = cropBottom,
+            enableClahe = enableClahe,
+            clipLimit = clipLimit,
+            tileSize = tileSize,
         )
     }
 }

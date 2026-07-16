@@ -3,34 +3,229 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="12dp">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Raw Pixel Deal Verify"
-        android:textSize="20sp"
+        android:text="Raw Pixel Deal"
+        android:textSize="18sp"
         android:textStyle="bold"
-        android:paddingBottom="16dp"/>
+        android:paddingBottom="8dp"/>
 
+    <!-- 1) 最小链路验证：保留原有 verify 按钮 -->
     <Button
         android:id="@+id/btn_verify"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Run Verify Chain" />
+        android:text="1) Run Verify Chain" />
 
+    <TextView
+        android:id="@+id/tv_result"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:textSize="11sp"
+        android:padding="6dp"
+        android:text="Result will appear here..." />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#33000000"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- 2) 原始像素缓冲区（assets 下 .bin）处理：人工筛查 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="2) Load assets .bin &amp; display via OpenCV"
+        android:textStyle="bold"
+        android:paddingBottom="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Asset:"
+            android:layout_marginEnd="6dp"/>
+
+        <RadioGroup
+            android:id="@+id/rg_asset"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_data610"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Data610.bin"
+                android:checked="true"/>
+
+            <RadioButton
+                android:id="@+id/rb_data622"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Data622.bin"/>
+        </RadioGroup>
+    </LinearLayout>
+
+    <!-- 宽 / 高 / 位深 一行参数 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="W:"/>
+        <EditText
+            android:id="@+id/et_width"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:inputType="number"
+            android:text="1500"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="H:"/>
+        <EditText
+            android:id="@+id/et_height"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:inputType="number"
+            android:text="1290"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bit:"/>
+        <RadioGroup
+            android:id="@+id/rg_bit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_8bit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="8"/>
+
+            <RadioButton
+                android:id="@+id/rb_16bit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="16"
+                android:checked="true"/>
+        </RadioGroup>
+    </LinearLayout>
+
+    <!-- 四周裁剪像素数：用于去掉传感器空白边 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Crop L:"/>
+        <EditText android:id="@+id/et_crop_l" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="number" android:text="0" android:textSize="13sp"/>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="T:"/>
+        <EditText android:id="@+id/et_crop_t" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="number" android:text="0" android:textSize="13sp"/>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="R:"/>
+        <EditText android:id="@+id/et_crop_r" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="number" android:text="0" android:textSize="13sp"/>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="B:"/>
+        <EditText android:id="@+id/et_crop_b" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="number" android:text="0" android:textSize="13sp"/>
+    </LinearLayout>
+
+    <!-- CLAHE 开关 + clip / tile -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <CheckBox
+            android:id="@+id/cb_clahe"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CLAHE"
+            android:checked="true"/>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="clip:" android:layout_marginStart="8dp"/>
+        <EditText android:id="@+id/et_clip" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="numberDecimal" android:text="2.0" android:textSize="13sp"/>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="tile:" android:layout_marginStart="8dp"/>
+        <EditText android:id="@+id/et_tile" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:inputType="number" android:text="8" android:textSize="13sp"/>
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btn_load_asset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Load &amp; Display"
+        android:layout_marginTop="4dp"/>
+
+    <TextView
+        android:id="@+id/tv_asset_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:textSize="11sp"
+        android:padding="4dp"
+        android:text="(image info)" />
+
+    <!-- 图像显示区域，权重 1 占据剩余空间；支持缩放查看 -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="16dp">
+        android:background="#11000000"
+        android:fillViewport="true">
 
-        <TextView
-            android:id="@+id/tv_result"
+        <ImageView
+            android:id="@+id/iv_raw_image"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:text="Result will appear here..." />
+            android:adjustViewBounds="true"
+            android:scaleType="fitStart"
+            android:contentDescription="raw pixel image"/>
     </ScrollView>
 
 </LinearLayout>

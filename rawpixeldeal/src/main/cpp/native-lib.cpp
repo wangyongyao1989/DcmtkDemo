@@ -6,6 +6,7 @@
 #include <jni.h>
 #include <string>
 #include <vector>
+#include <cstring>
 
 #include <android/log.h>
 
@@ -82,7 +83,146 @@ static jintArray native_processRawGrayPixels(JNIEnv *env, jclass clazz,
 }
 
 // =============================================================================
-// 3) 一个独立的纯 JNI 探针：不经过 OpenCV，仅确认 JNI 注册链通畅。
+// 3) 把 assets 中的"原始像素数据缓冲"（Data610.bin / Data622.bin）经
+//    OpenCV 处理后输出为可直接填入 Android Bitmap.ARGB_8888 的 RGBA 字节。
+//
+//    流程（与"做人工筛查"的需求对齐）：
+//      src16 bytes -> cv::Mat(CV_16UC1) -> min/max 归一化到 8-bit
+//                  -> 可选 CLAHE(对比度增强) -> 可选中心裁剪(去除空白边框)
+//                  -> COLOR_GRAY2RGBA -> jbyteArray  (R,G,B,A 内存布局，
+//                     与 Android Bitmap.copyPixelsFromBuffer 兼容)
+//
+//    参数：
+//      width, height    原图宽高（像素）
+//      bitDepth         8 或 16
+//      srcBytes         原始字节，little-endian
+//      cropLeft/Top/Right/Bottom  四周要裁掉的像素数（>=0），传 0 表示不裁
+//      enableClahe      1=做 CLAHE，0=不做
+//      clipLimit        CLAHE 的 clipLimit（仅 enableClahe=1 时生效，<=0 走默认 2.0）
+//      tileSize         CLAHE 的 tile 边长（仅 enableClahe=1 时生效，<=0 走默认 8）
+//
+//    返回：
+//      jbyteArray，长度 = outW * outH * 4（RGBA8888）。失败返回 nullptr。
+//      数组前 8 个 int 作为 [outW, outH, srcMin, srcMax, srcMean/10, cropLeft, cropTop, cropRight]
+//      一并放在返回值最前面？——这里为简化，返回一个独立的 IntArray 头信息 + RGBA bytes
+//      通过 out 参数 jintArray head（长度 4）回传 [outW, outH, srcMin, srcMax]。
+// =============================================================================
+static jbyteArray native_processRawToRgba(JNIEnv *env, jclass clazz,
+                                          jint width, jint height,
+                                          jint bitDepth,
+                                          jbyteArray srcBytes,
+                                          jint cropLeft, jint cropTop,
+                                          jint cropRight, jint cropBottom,
+                                          jint enableClahe,
+                                          jdouble clipLimit, jint tileSize,
+                                          jintArray head) {
+    if (width <= 0 || height <= 0 || srcBytes == nullptr) {
+        LOGE("processRawToRgba: invalid args w=%d h=%d src=%p",
+             width, height, srcBytes);
+        return nullptr;
+    }
+    if (bitDepth != 8 && bitDepth != 16) {
+        LOGE("processRawToRgba: unsupported bitDepth=%d (only 8/16)", bitDepth);
+        return nullptr;
+    }
+
+    const int channels = (bitDepth == 16) ? 2 : 1;
+    const jsize src_len = env->GetArrayLength(srcBytes);
+    const size_t expected = (size_t) width * (size_t) height * (size_t) channels;
+    if ((size_t) src_len < expected) {
+        LOGE("processRawToRgba: src length %d < expected %zu", src_len, expected);
+        return nullptr;
+    }
+
+    // 1) 拷到本地缓冲（保留 little-endian 原样）
+    std::vector<unsigned char> raw(expected);
+    env->GetByteArrayRegion(srcBytes, 0, (jsize) expected,
+                            reinterpret_cast<jbyte *>(raw.data()));
+
+    // 2) 构造输入 Mat
+    cv::Mat src;
+    if (bitDepth == 16) {
+        src = cv::Mat(height, width, CV_16UC1, raw.data());
+    } else {
+        src = cv::Mat(height, width, CV_8UC1, raw.data());
+    }
+
+    // 3) 8-bit 视图
+    cv::Mat gray8;
+    if (bitDepth == 16) {
+        // min/max 归一化到 0~255，便于人工筛查观察全动态范围
+        double minV = 0.0, maxV = 0.0;
+        cv::minMaxLoc(src, &minV, &maxV);
+        // OpenCV 4.x 用 convertTo 带掩码做线性拉伸
+        src.convertTo(gray8, CV_8UC1,
+                      255.0 / std::max(1.0, (maxV - minV)),
+                      -minV * 255.0 / std::max(1.0, (maxV - minV)));
+        LOGI("processRawToRgba: 16-bit min=%.1f max=%.1f -> 8-bit", minV, maxV);
+
+        // 回写 head（srcMin, srcMax, etc.），由 Kotlin 端做文字展示
+        if (head != nullptr && env->GetArrayLength(head) >= 4) {
+            jint hOut[4] = {
+                    (jint) minV,
+                    (jint) maxV,
+                    (jint) src.cols,
+                    (jint) src.rows,
+            };
+            env->SetIntArrayRegion(head, 0, 4, hOut);
+        }
+    } else {
+        gray8 = src.clone();
+        if (head != nullptr && env->GetArrayLength(head) >= 4) {
+            jint hOut[4] = {0, 255, width, height};
+            env->SetIntArrayRegion(head, 0, 4, hOut);
+        }
+    }
+
+    // 4) 可选 CLAHE：增强局部对比，便于观察组织结构
+    if (enableClahe != 0) {
+        double clip = (clipLimit > 0.0) ? clipLimit : 2.0;
+        int tile = (tileSize > 0) ? tileSize : 8;
+        cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clip, cv::Size(tile, tile));
+        cv::Mat enhanced;
+        clahe->apply(gray8, enhanced);
+        gray8 = enhanced;
+        LOGI("processRawToRgba: CLAHE clip=%.2f tile=%d", clip, tile);
+    }
+
+    // 5) 可选中心裁剪（按四周要裁掉的像素数）。一般用来去掉传感器空白边。
+    int cl = std::max(0, cropLeft);
+    int ct = std::max(0, cropTop);
+    int cr = std::max(0, cropRight);
+    int cb = std::max(0, cropBottom);
+    if (cl + cr >= gray8.cols || ct + cb >= gray8.rows) {
+        LOGE("processRawToRgba: crop too large w=%d h=%d cl=%d cr=%d ct=%d cb=%d",
+             gray8.cols, gray8.rows, cl, cr, ct, cb);
+        return nullptr;
+    }
+    cv::Mat cropped;
+    if (cl > 0 || ct > 0 || cr > 0 || cb > 0) {
+        cv::Rect roi(cl, ct, gray8.cols - cl - cr, gray8.rows - ct - cb);
+        cropped = gray8(roi).clone();
+        LOGI("processRawToRgba: crop LTRB=%d,%d,%d,%d -> %dx%d",
+             cl, ct, cr, cb, cropped.cols, cropped.rows);
+    } else {
+        cropped = gray8;
+    }
+
+    // 6) 灰度 -> RGBA（与 Android Bitmap ARGB_8888 内存布局一致：R,G,B,A）
+    cv::Mat rgba;
+    cv::cvtColor(cropped, rgba, cv::COLOR_GRAY2RGBA);
+
+    // 7) 拷贝到 jbyteArray 返回
+    const size_t outBytes = (size_t) rgba.total() * rgba.elemSize();
+    jbyteArray out = env->NewByteArray((jsize) outBytes);
+    if (out == nullptr) return nullptr;
+    env->SetByteArrayRegion(out, 0, (jsize) outBytes,
+                            reinterpret_cast<const jbyte *>(rgba.data));
+    return out;
+}
+
+// =============================================================================
+// 4) 一个独立的纯 JNI 探针：不经过 OpenCV，仅确认 JNI 注册链通畅。
 //    常用于在加载 OpenCV 失败时，先确认 native-lib.cpp 自己能跑。
 // =============================================================================
 static jstring native_stringFromJNI(JNIEnv *env, jclass clazz) {
@@ -105,6 +245,9 @@ static const JNINativeMethod kMethods[] = {
         {"processRawGrayPixels",
                 "(II[B)[I",
                 (void *) native_processRawGrayPixels},
+        {"processRawToRgba",
+                "(III[BIIIIIDI[I)[B",
+                (void *) native_processRawToRgba},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

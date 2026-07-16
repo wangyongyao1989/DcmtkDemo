@@ -59,4 +59,41 @@ object RawPixelDealJni {
         height: Int,
         src: ByteArray
     ): IntArray?
+
+    /**
+     * 把 assets 中"原始像素数据缓冲"（如 Data610.bin / Data622.bin）经 OpenCV
+     * 处理后输出为可直接填入 [android.graphics.Bitmap.ARGB_8888] 的 RGBA 字节。
+     *
+     * 流程：
+     *  - 16-bit 时先做 min/max 线性归一化到 0~255；
+     *  - 可选 [cv::CLAHE] 增强局部对比；
+     *  - 可选按四周像素数做矩形裁剪（用于去掉传感器空白边）；
+     *  - [cv::cvtColor] 到 RGBA8888，内存布局与 Bitmap.copyPixelsFromBuffer 兼容。
+     *
+     * @param width   原图宽
+     * @param height  原图高
+     * @param bitDepth  8 或 16
+     * @param src    little-endian 原始字节
+     * @param cropLeft/Top/Right/Bottom  四周要裁掉的像素数（>=0），0 表示不裁
+     * @param enableClahe  是否启用 CLAHE
+     * @param clipLimit   CLAHE clipLimit，<=0 走默认 2.0
+     * @param tileSize    CLAHE tile 边长，<=0 走默认 8
+     * @param head        out 参数，长度 4，回传 [srcMin, srcMax, outW, outH]；可为 null
+     * @return            长度 = outW * outH * 4 的 RGBA 字节；失败返回 null
+     */
+    @JvmStatic
+    external fun processRawToRgba(
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        src: ByteArray,
+        cropLeft: Int,
+        cropTop: Int,
+        cropRight: Int,
+        cropBottom: Int,
+        enableClahe: Int,
+        clipLimit: Double,
+        tileSize: Int,
+        head: IntArray?
+    ): ByteArray?
 }
