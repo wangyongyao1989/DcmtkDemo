@@ -1,231 +1,406 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    整个 fragment 用 NestedScrollView 包裹，所有内容（参数、按钮、信息、图像）都参与
+    上下滑动。适用于"参数较多 + 图像较大（1500x1290 原图）"的场景，方便人工筛查
+    时把页面滚到任意位置查看控件或图像细节。
+-->
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="12dp">
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Raw Pixel Deal"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:paddingBottom="8dp"/>
-
-    <!-- 1) 最小链路验证：保留原有 verify 按钮 -->
-    <Button
-        android:id="@+id/btn_verify"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="1) Run Verify Chain" />
-
-    <TextView
-        android:id="@+id/tv_result"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:textSize="11sp"
-        android:padding="6dp"
-        android:text="Result will appear here..." />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#33000000"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"/>
-
-    <!-- 2) 原始像素缓冲区（assets 下 .bin）处理：人工筛查 -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="2) Load assets .bin &amp; display via OpenCV"
-        android:textStyle="bold"
-        android:paddingBottom="4dp"/>
+    android:focusable="true"
+    android:focusableInTouchMode="true"
+    android:clickable="true"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="12dp">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Asset:"
-            android:layout_marginEnd="6dp"/>
+            android:text="Raw Pixel Deal"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp"/>
 
-        <RadioGroup
-            android:id="@+id/rg_asset"
-            android:layout_width="0dp"
+        <!-- 1) 最小链路验证：保留原有 verify 按钮 -->
+        <Button
+            android:id="@+id/btn_verify"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="horizontal">
+            android:text="1) Run Verify Chain" />
 
-            <RadioButton
-                android:id="@+id/rb_data610"
+        <TextView
+            android:id="@+id/tv_result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:padding="6dp"
+            android:text="Result will appear here..." />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33000000"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- 2) 原始像素缓冲区（assets 下 .bin）处理：人工筛查 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="2) Load assets .bin &amp; display via OpenCV"
+            android:textStyle="bold"
+            android:paddingBottom="4dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Data610.bin"
+                android:text="Asset:"
+                android:layout_marginEnd="6dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_asset"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_data610"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Data610.bin"
+                    android:checked="true"/>
+
+                <RadioButton
+                    android:id="@+id/rb_data622"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Data622.bin"/>
+            </RadioGroup>
+        </LinearLayout>
+
+        <!-- 宽 / 高 / 位深 一行参数 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="W:"/>
+            <EditText
+                android:id="@+id/et_width"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:inputType="number"
+                android:imeOptions="actionDone"
+                android:singleLine="true"
+                android:text="1500"
+                android:textSize="13sp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="H:"/>
+            <EditText
+                android:id="@+id/et_height"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:inputType="number"
+                android:imeOptions="actionDone"
+                android:singleLine="true"
+                android:text="1290"
+                android:textSize="13sp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Bit:"/>
+            <RadioGroup
+                android:id="@+id/rg_bit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_8bit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="8"/>
+
+                <RadioButton
+                    android:id="@+id/rb_16bit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="16"
+                    android:checked="true"/>
+            </RadioGroup>
+        </LinearLayout>
+
+        <!-- 四周裁剪像素数：用于去掉传感器空白边 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Crop L:"/>
+            <EditText android:id="@+id/et_crop_l" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="0" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="T:"/>
+            <EditText android:id="@+id/et_crop_t" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="0" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="R:"/>
+            <EditText android:id="@+id/et_crop_r" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="0" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="B:"/>
+            <EditText android:id="@+id/et_crop_b" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="0" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <!-- CLAHE 开关 + clip / tile -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <CheckBox
+                android:id="@+id/cb_clahe"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CLAHE"
                 android:checked="true"/>
 
-            <RadioButton
-                android:id="@+id/rb_data622"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Data622.bin"/>
-        </RadioGroup>
-    </LinearLayout>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="clip:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_clip" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="2.0" android:textSize="13sp"/>
 
-    <!-- 宽 / 高 / 位深 一行参数 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="tile:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_tile" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="8" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_load_asset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Load &amp; Display"
+            android:layout_marginTop="4dp"/>
 
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/tv_asset_info"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="W:"/>
-        <EditText
-            android:id="@+id/et_width"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:inputType="number"
-            android:text="1500"
-            android:textSize="13sp"/>
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:padding="4dp"
+            android:text="(image info)" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="H:"/>
-        <EditText
-            android:id="@+id/et_height"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:inputType="number"
-            android:text="1290"
-            android:textSize="13sp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Bit:"/>
-        <RadioGroup
-            android:id="@+id/rg_bit"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/rb_8bit"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="8"/>
-
-            <RadioButton
-                android:id="@+id/rb_16bit"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="16"
-                android:checked="true"/>
-        </RadioGroup>
-    </LinearLayout>
-
-    <!-- 四周裁剪像素数：用于去掉传感器空白边 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Crop L:"/>
-        <EditText android:id="@+id/et_crop_l" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="number" android:text="0" android:textSize="13sp"/>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="T:"/>
-        <EditText android:id="@+id/et_crop_t" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="number" android:text="0" android:textSize="13sp"/>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="R:"/>
-        <EditText android:id="@+id/et_crop_r" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="number" android:text="0" android:textSize="13sp"/>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="B:"/>
-        <EditText android:id="@+id/et_crop_b" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="number" android:text="0" android:textSize="13sp"/>
-    </LinearLayout>
-
-    <!-- CLAHE 开关 + clip / tile -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <CheckBox
-            android:id="@+id/cb_clahe"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="CLAHE"
-            android:checked="true"/>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="clip:" android:layout_marginStart="8dp"/>
-        <EditText android:id="@+id/et_clip" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="numberDecimal" android:text="2.0" android:textSize="13sp"/>
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="tile:" android:layout_marginStart="8dp"/>
-        <EditText android:id="@+id/et_tile" android:layout_width="0dp"
-            android:layout_height="wrap_content" android:layout_weight="1"
-            android:inputType="number" android:text="8" android:textSize="13sp"/>
-    </LinearLayout>
-
-    <Button
-        android:id="@+id/btn_load_asset"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Load &amp; Display"
-        android:layout_marginTop="4dp"/>
-
-    <TextView
-        android:id="@+id/tv_asset_info"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:textSize="11sp"
-        android:padding="4dp"
-        android:text="(image info)" />
-
-    <!-- 图像显示区域，权重 1 占据剩余空间；支持缩放查看 -->
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#11000000"
-        android:fillViewport="true">
-
+        <!--
+            图像展示：height=wrap_content，按 adjustViewBounds 等比缩放到
+            layout_width 范围内；当图像很高（如原图 1500x1290 缩放到屏宽）
+            时整体高度超过屏幕，可通过外层 NestedScrollView 滚动查看全图。
+        -->
         <ImageView
             android:id="@+id/iv_raw_image"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:adjustViewBounds="true"
             android:scaleType="fitStart"
+            android:background="#11000000"
             android:contentDescription="raw pixel image"/>
-    </ScrollView>
 
-</LinearLayout>
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33000000"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="8dp"/>
+
+        <!--
+            3) CT 序列级处理管线（PRD ct-opencv-raw-buffer-windowing-prd）：
+               raw buffer -> HU 标准化 -> OpenCV 优化 -> 自动裁剪 ->
+               序列级自适应窗宽窗位 -> 8-bit 显示。
+            UI 上只暴露少量常用参数；其它高级参数（形态学核、最小面积等）走默认。
+        -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="3) CT Series Pipeline (HU + Auto-Crop + Adaptive Windowing)"
+            android:textStyle="bold"
+            android:paddingBottom="4dp"/>
+
+        <!-- 序列选择（单张 = Data610.bin / Data622.bin） -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Series (slices):"
+            android:layout_marginEnd="6dp"/>
+
+        <RadioGroup
+            android:id="@+id/rg_series"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_series_610"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="[610]"
+                android:checked="true"/>
+
+            <RadioButton
+                android:id="@+id/rb_series_622"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="[622]"/>
+
+            <RadioButton
+                android:id="@+id/rb_series_610_622"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="[610+622] (2 slices)"/>
+        </RadioGroup>
+
+        <!--
+            HU 转换 + 像素几何：
+            width/height 复用上方 etWidth/etHeight；
+            bitDepth 复用上方 8/16 单选。
+            这里只新增 RescaleSlope/Intercept/bodyThreshold 三个核心 CT 参数。
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Slope:"/>
+            <EditText android:id="@+id/et_slope" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="1.0" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Intercept:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_intercept" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="-1024" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Body>:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_body_thr" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberSigned" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="-600" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <!--
+            调窗参数：N0 / N1 论文范围 [0.0005, 0.0025]；
+            这里用 x1000 显示成整数便于输入。
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="N0(x1000):"/>
+            <EditText android:id="@+id/et_n0" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="1.5" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="N1(x1000):" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_n1" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="1.5" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Stride:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_stride" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="2" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/cb_bilateral"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bilateral Filter (denoise in HU/16-bit domain)"
+            android:checked="true"/>
+
+        <Button
+            android:id="@+id/btn_run_series"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Run Series Pipeline"
+            android:layout_marginTop="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_series_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:padding="4dp"
+            android:text="(series info)" />
+
+        <ImageView
+            android:id="@+id/iv_series_image"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:adjustViewBounds="true"
+            android:scaleType="fitStart"
+            android:background="#11000000"
+            android:contentDescription="series pipeline result image"/>
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

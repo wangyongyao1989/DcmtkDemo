@@ -14,6 +14,9 @@ import java.nio.ByteOrder
  *  - [processAssetFromAssets]：把 assets 下的"原始像素数据缓冲"
  *    （如 Data610.bin / Data622.bin）经 OpenCV 裁剪/归一化/CLAHE 后
  *    输出 [Bitmap]，用于在 [RawPixelDealFragment] 做人工筛查。
+ *  - [processCtSeriesFromAssets]：实现 PRD ct-opencv-raw-buffer-windowing-prd
+ *    要求的"CT 序列级处理管线"：raw buffer -> HU 标准化 -> OpenCV 优化
+ *    -> 自动裁剪 -> 序列级自适应窗宽窗位 -> 8-bit 显示。
  */
 object RawPixelDealVerify {
 
@@ -52,6 +55,63 @@ object RawPixelDealVerify {
         val enableClahe: Boolean,
         val clipLimit: Double,
         val tileSize: Int,
+    )
+
+    /**
+     * DICOM 像素元数据（与 PRD 中 PixelMeta 对齐）。
+     *  - rows/cols                  = Rows / Columns
+     *  - bitsAllocated               = BitsAllocated（16 / 8）
+     *  - bitsStored                  = BitsStored（如 12）；不在 native 路径使用，保留
+     *  - pixelSigned                 = PixelRepresentation（0/1）
+     *  - rescaleSlope / rescaleIntercept = RescaleSlope / RescaleIntercept
+     *  - photometric                 = 0 = MONOCHROME2，1 = MONOCHROME1
+     *  - littleEndian                = true = little-endian（本 native 路径固定 LE）
+     */
+    data class PixelMeta(
+        val rows: Int,
+        val cols: Int,
+        val bitsAllocated: Int,
+        val bitsStored: Int,
+        val pixelSigned: Int,
+        val rescaleSlope: Double,
+        val rescaleIntercept: Double,
+        val photometric: Int,
+        val littleEndian: Boolean = true,
+    )
+
+    /**
+     * CT 序列级处理结果（与 PRD 中 WindowResult 对齐 + 扩展 debug）。
+     */
+    data class SeriesWindowResult(
+        /** 窗位 c（HU） */
+        val windowCenter: Double,
+        /** 窗宽 w（HU） */
+        val windowWidth: Double,
+        /** 自动裁剪 ROI（原图坐标） */
+        val cropLeft: Int,
+        val cropTop: Int,
+        val cropWidth: Int,
+        val cropHeight: Int,
+        /** 每片一张 RGBA8888 Bitmap（已按 cropRect 裁剪） */
+        val bitmaps: List<Bitmap>,
+        /** 调试信息：Gmin/Gmax, H_bins, T0/T1, B, srcMin/srcMax（SV） */
+        val debug: SeriesWindowDebug,
+        /** 原始 ROI 直方图（已用于调窗） */
+        val histogram: IntArray,
+    )
+
+    data class SeriesWindowDebug(
+        val gMin: Double,
+        val gMax: Double,
+        val hBins: Double,
+        val t0: Double,
+        val t1: Double,
+        val b: Int,
+        val srcMin: Int,
+        val srcMax: Int,
+        val n0: Double,
+        val n1: Double,
+        val sliceCount: Int,
     )
 
     /**
@@ -210,6 +270,161 @@ object RawPixelDealVerify {
             enableClahe = enableClahe,
             clipLimit = clipLimit,
             tileSize = tileSize,
+        )
+    }
+
+    // ------------------------------------------------------------------------
+    // CT 序列级处理管线（PRD ct-opencv-raw-buffer-windowing-prd）
+    // ------------------------------------------------------------------------
+
+    /**
+     * CT 序列级处理配置（覆盖 PRD 全部可调参数 + 工程化约束默认值）。
+     *
+     *  - nBins 论文建议 256
+     *  - n0/n1 论文范围 [0.0005, 0.0025]，这里默认 0.0015
+     *  - bodyThreshold 默认 -600 HU（"非空气"）
+     *  - clipLowHu/clipHighHu 默认 -1200 / 3000（极值温和裁剪）
+     */
+    data class CtSeriesConfig(
+        val bodyThreshold: Float = -600f,
+        val cropMargin: Int = 16,
+        val bodyMorphSize: Int = 5,
+        val minBodyAreaPx: Int = 1000,
+        val nBins: Int = 256,
+        val n0: Double = 0.0015,
+        val n1: Double = 0.0015,
+        val histSampleStride: Int = 1,
+        val enableBilateral: Boolean = true,
+        val bilateralD: Int = 5,
+        val bilateralSigmaColor: Double = 50.0,
+        val bilateralSigmaSpace: Double = 50.0,
+        val clipLowHu: Float = -1200f,
+        val clipHighHu: Float = 3000f,
+    )
+
+    /**
+     * 从 assets 加载 [assetNames]（多张原始像素文件视作一个"序列"），
+     * 按 PRD ct-opencv-raw-buffer-windowing-prd 走完整管线，输出
+     * [SeriesWindowResult]。
+     *
+     * @param context   Android Context（用于读 assets）
+     * @param assetNames 要处理的文件名列表（如 ["Data610.bin"] 单张，或
+     *                   多张同尺寸 raw）。注意所有文件必须同 width/height/bitDepth
+     * @param meta      DICOM 像素元数据；可只填 width/height/bitDepth/slope/intercept
+     * @param config    调窗/裁剪/优化参数；默认使用 [CtSeriesConfig] 默认值
+     */
+    fun processCtSeriesFromAssets(
+        context: Context,
+        assetNames: List<String>,
+        meta: PixelMeta,
+        config: CtSeriesConfig = CtSeriesConfig(),
+    ): SeriesWindowResult {
+        require(assetNames.isNotEmpty()) { "assetNames must not be empty" }
+        require(meta.cols > 0 && meta.rows > 0) { "invalid meta size" }
+        require(meta.bitsAllocated == 16 || meta.bitsAllocated == 8) {
+            "unsupported bitsAllocated=${meta.bitsAllocated}"
+        }
+        require(config.nBins > 0 && config.n0 > 0.0 && config.n1 > 0.0) {
+            "invalid windowing config"
+        }
+
+        Log.i(TAG, "processCtSeriesFromAssets: nSlices=${assetNames.size} meta=$meta cfg=$config")
+
+        // 1) 从 assets 读所有 slice
+        val rawBuffers: Array<ByteArray> = assetNames.map { name ->
+            context.assets.open(name).use { it.readBytes() }
+        }.toTypedArray()
+
+        val sliceCount = rawBuffers.size
+        val expectedBytes =
+            meta.cols * meta.rows * (if (meta.bitsAllocated == 16) 2 else 1)
+        for ((idx, b) in rawBuffers.withIndex()) {
+            require(b.size >= expectedBytes) {
+                "slice[$idx] size=${b.size} < expected=$expectedBytes"
+            }
+        }
+
+        // 2) 准备 out 缓冲
+        val outDisplays: Array<ByteArray?> = arrayOfNulls(sliceCount)
+        val outWindowStats = DoubleArray(11)
+        val outCropAndOut = IntArray(10)
+        val outHistogram = IntArray(config.nBins)
+        val outUsedFlags = IntArray(1)
+
+        // 3) 调 native
+        val ok = RawPixelDealJni.processCtSeries(
+            rawBuffers = rawBuffers,
+            width = meta.cols,
+            height = meta.rows,
+            bitsAllocated = meta.bitsAllocated,
+            pixelSigned = meta.pixelSigned,
+            rescaleSlope = meta.rescaleSlope,
+            rescaleIntercept = meta.rescaleIntercept,
+            photometric = meta.photometric,
+            bodyThreshold = config.bodyThreshold,
+            cropMargin = config.cropMargin,
+            bodyMorphSize = config.bodyMorphSize,
+            minBodyAreaPx = config.minBodyAreaPx,
+            nBins = config.nBins,
+            n0 = config.n0,
+            n1 = config.n1,
+            histSampleStride = config.histSampleStride,
+            enableBilateral = if (config.enableBilateral) 1 else 0,
+            bilateralD = config.bilateralD,
+            bilateralSigmaColor = config.bilateralSigmaColor,
+            bilateralSigmaSpace = config.bilateralSigmaSpace,
+            clipLowHu = config.clipLowHu,
+            clipHighHu = config.clipHighHu,
+            outDisplays = outDisplays,
+            outWindowStats = outWindowStats,
+            outCropAndOut = outCropAndOut,
+            outHistogram = outHistogram,
+            outUsedFlags = outUsedFlags,
+        )
+        if (!ok) {
+            throw IllegalStateException("native processCtSeries returned false")
+        }
+        Log.i(TAG, "processCtSeriesFromAssets: c=${outWindowStats[0]} w=${outWindowStats[1]} " +
+                "Gmin=${outWindowStats[2]} Gmax=${outWindowStats[3]} B=${outWindowStats[7].toInt()}")
+
+        // 4) 把每片 RGBA bytes 包成 Bitmap
+        val outW = outCropAndOut[4]
+        val outH = outCropAndOut[5]
+        val bitmaps: List<Bitmap> = outDisplays.map { rgba ->
+            requireNotNull(rgba) { "native returned null for a slice" }
+            require(rgba.size >= outW * outH * 4) {
+                "rgba size=${rgba.size} < expected=${outW * outH * 4}"
+            }
+            val bmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            val buf = ByteBuffer.wrap(rgba).order(ByteOrder.nativeOrder())
+            bmp.copyPixelsFromBuffer(buf)
+            bmp
+        }
+
+        val debug = SeriesWindowDebug(
+            gMin = outWindowStats[2],
+            gMax = outWindowStats[3],
+            hBins = outWindowStats[4],
+            t0 = outWindowStats[5],
+            t1 = outWindowStats[6],
+            b = outWindowStats[7].toInt(),
+            srcMin = outWindowStats[8].toInt(),
+            srcMax = outWindowStats[9].toInt(),
+            n0 = outWindowStats[10] / 1e6,
+            n1 = config.n1,
+            sliceCount = sliceCount,
+        )
+
+        return SeriesWindowResult(
+            windowCenter = outWindowStats[0],
+            windowWidth = outWindowStats[1],
+            cropLeft = outCropAndOut[0],
+            cropTop = outCropAndOut[1],
+            cropWidth = outCropAndOut[2],
+            cropHeight = outCropAndOut[3],
+            bitmaps = bitmaps,
+            debug = debug,
+            histogram = outHistogram,
         )
     }
 }
