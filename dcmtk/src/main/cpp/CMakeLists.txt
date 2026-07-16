@@ -6,7 +6,7 @@ project("dcmtk_native")
 # ========== 基础配置：与 DCMTK 编译参数保持一致 ==========
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti -fexceptions")
-set(ANDROID_STL c++_static)
+set(ANDROID_STL c++_shared)
 
 # ========== DCMTK 头文件路径 ==========
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

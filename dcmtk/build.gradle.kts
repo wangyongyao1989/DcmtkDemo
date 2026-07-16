@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "com.example.dcmtk"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24
@@ -16,7 +16,7 @@ android {
             cmake {
                 cppFlags("-std=c++11 -frtti -fexceptions")
                 abiFilters += "arm64-v8a"
-                arguments("-DANDROID_STL=c++_static")
+                arguments("-DANDROID_STL=c++_shared")
             }
         }
     }

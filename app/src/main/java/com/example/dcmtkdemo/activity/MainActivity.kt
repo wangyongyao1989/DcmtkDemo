@@ -1,10 +1,15 @@
 package com.example.dcmtkdemo.activity
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.ActionBarDrawerToggle
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import com.google.android.material.navigation.NavigationView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -51,11 +56,21 @@ class MainActivity : AppCompatActivity() {
         // Default fragment
         if (savedInstanceState == null) {
             switchFragment(UploadFragment())
+            binding.navView.setCheckedItem(R.id.nav_upload)
         }
     }
 
     private fun setupNavigation() {
-        binding.bottomNavigation.setOnItemSelectedListener { item ->
+        setSupportActionBar(binding.toolbar)
+
+        val toggle = ActionBarDrawerToggle(
+            this, binding.drawerLayout, binding.toolbar,
+            R.string.navigation_drawer_open, R.string.navigation_drawer_close
+        )
+        binding.drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+
+        binding.navView.setNavigationItemSelectedListener { item ->
             val fragment: Fragment? = when (item.itemId) {
                 R.id.nav_upload -> UploadFragment()
                 R.id.nav_query -> QueryFragment()
@@ -63,13 +78,25 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_retrieve -> RetrieveFragment()
                 R.id.nav_show -> DcmShowFragment()
                 R.id.nav_compare -> FileCompareFragment()
+                R.id.nav_raw_pixel -> RawPixelDealFragment()
                 else -> null
             }
 
             fragment?.let {
                 switchFragment(it)
+                binding.drawerLayout.closeDrawer(GravityCompat.START)
                 true
             } ?: false
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    @SuppressLint("GestureBackNavigation")
+    override fun onBackPressed() {
+        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+        } else {
+            super.onBackPressed()
         }
     }
 
