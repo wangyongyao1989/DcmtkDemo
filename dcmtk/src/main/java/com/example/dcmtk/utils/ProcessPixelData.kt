@@ -1,6 +1,6 @@
 package com.example.dcmtk.utils
 
-import com.example.dcmtk.model.PixelData
+import com.example.dcmtk.model.PixelDataNew
 import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.roundToInt
@@ -82,7 +82,7 @@ object ProcessPixelData {
     // ==================== 公共 API ====================
 
     /** 兼容旧接口：默认使用 MIN_MAX 方法 */
-    fun process(raw: ByteArray, imageWidth: Int, imageHeight: Int): PixelData {
+    fun process(raw: ByteArray, imageWidth: Int, imageHeight: Int): PixelDataNew {
         return process(raw, imageWidth, imageHeight, WindowCalcMethod.MIN_MAX)
     }
 
@@ -92,7 +92,7 @@ object ProcessPixelData {
         imageWidth: Int,
         imageHeight: Int,
         method: WindowCalcMethod
-    ): PixelData {
+    ): PixelDataNew {
         return process(raw, imageWidth, imageHeight, method, WindowConfig())
     }
 
@@ -103,7 +103,7 @@ object ProcessPixelData {
         imageHeight: Int,
         method: WindowCalcMethod,
         config: WindowConfig
-    ): PixelData {
+    ): PixelDataNew {
         val pixels = decodeRaw(raw)
         val numPixels = pixels.size
 
@@ -120,7 +120,7 @@ object ProcessPixelData {
 
         val result = calcWindow(pixels, minVal, maxVal, method, config)
 
-        return PixelData(
+        return PixelDataNew(
             imageHeight,
             imageWidth,
             raw,

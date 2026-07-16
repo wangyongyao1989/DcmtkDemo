@@ -8,7 +8,7 @@ import com.example.dcmtk.callback.ProgressCallback
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.utils.DcmtkFileUtil
 import com.example.dcmtk.data.DicomWindowSettings
-import com.example.dcmtk.model.PixelData
+import com.example.dcmtk.model.PixelDataNew
 import java.io.IOException
 
 object DcmtkJni {
@@ -180,12 +180,12 @@ object DcmtkJni {
 
     /**
      * 对应 writeDcmFile(record, rawFile, dcmFile, imageWidth, imageHeight)：
-     * 由 [ScanRecord] 与 [PixelData] 像素结构写出完整 CR DICOM。
+     * 由 [ScanRecord] 与 [PixelDataNew] 像素结构写出完整 CR DICOM。
      */
     @JvmStatic
     external fun writeDcmFile(
         record: ScanRecord,
-        pixelData: PixelData,
+        pixelDataNew: PixelDataNew,
         dcmPath: String
     ): Boolean
 }

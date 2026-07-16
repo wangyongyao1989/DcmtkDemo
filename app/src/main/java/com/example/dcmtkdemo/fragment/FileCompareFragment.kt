@@ -227,7 +227,7 @@ class FileCompareFragment : Fragment() {
                     sb.append("  rows=${pixelData.rows}, columns=${pixelData.columns}\n")
                     sb.append("  win_width=${pixelData.win_width}, win_center=${pixelData.win_center}\n")
                     sb.append("  exposure_leve=${pixelData.exposure_leve}, largest=${pixelData.largestImagePixelValue}\n")
-                    sb.append("  data.size=${pixelData.data.size}\n")
+                    sb.append("  data.size=${pixelData.data?.size}\n")
                     sb.append("  dcm: ${dcmFile.absolutePath} (${dcmFile.length()} bytes)\n")
 
                     // 算法详情

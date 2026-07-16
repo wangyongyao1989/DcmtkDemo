@@ -6,7 +6,7 @@ import android.util.Log
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.data.DicomWindowSettings
-import com.example.dcmtk.model.PixelData
+import com.example.dcmtk.model.PixelDataNew
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -135,7 +135,7 @@ object DicomManager {
     }
 
     /**
-     * 由 [ScanRecord] 与 [PixelData] 结构写出完整 CR DICOM（对应 dcm4che3 writeDcmFile）。
+     * 由 [ScanRecord] 与 [PixelDataNew] 结构写出完整 CR DICOM（对应 dcm4che3 writeDcmFile）。
      *
      * 写入 tag 集合：PatientID/PatientName/PatientAge/PatientSex/InstitutionName/
      * Manufacturer/ManufacturerModelName/StudyDate/StudyTime/ToothPosition 等；
@@ -143,18 +143,18 @@ object DicomManager {
      * 输出传输语义为 Little Endian Explicit。
      *
      * @param record      检查记录（患者信息等元数据）
-     * @param pixelData   像素数据处理结果（含 rows/columns/data/win_width/win_center 等）
+     * @param pixelDataNew   像素数据处理结果（含 rows/columns/data/win_width/win_center 等）
      * @param dcmPath     输出 .dcm 文件路径
      * @return 成功返回 true
      */
     @JvmStatic
     suspend fun writeDcmFile(
         record: ScanRecord,
-        pixelData: PixelData,
+        pixelDataNew: PixelDataNew,
         dcmPath: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            DcmtkJni.writeDcmFile(record, pixelData, dcmPath)
+            DcmtkJni.writeDcmFile(record, pixelDataNew, dcmPath)
         } catch (e: Exception) {
             Log.e(TAG, "writeDcmFile failed: $dcmPath", e)
             false

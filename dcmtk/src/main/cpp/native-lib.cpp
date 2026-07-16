@@ -633,7 +633,7 @@ static const JNINativeMethod kMethods[] = {
                 "(Ljava/lang/String;DD)Landroid/graphics/Bitmap;",
                 (void *) native_dicomFile2BitmapWW},
         {"writeDcmFile",
-                "(Lcom/example/dcmtk/model/ScanRecord;Lcom/example/dcmtk/model/PixelData"
+                "(Lcom/example/dcmtk/model/ScanRecord;Lcom/example/dcmtk/model/PixelDataNew"
                 ";Ljava/lang/String;)Z",
                 (void *) native_writeDcmFile},
 
