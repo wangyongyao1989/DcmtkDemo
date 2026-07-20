@@ -284,6 +284,15 @@ object RawPixelDealVerify {
      *  - n0/n1 论文范围 [0.0005, 0.0025]，这里默认 0.0015
      *  - bodyThreshold 默认 -600 HU（"非空气"）
      *  - clipLowHu/clipHighHu 默认 -1200 / 3000（极值温和裁剪）
+     *
+     *  v2 新增：
+     *  - enableAutoPixelSign 默认 1（signed 全负时 LOGW 提示切 unsigned）
+     *  - gminPercentile/gmaxPercentile 默认 0.5 / 99.5（百分位抗极端值）
+     *  - enableHistFallback 默认 1（直方图退化时用预设窗）
+     *  - fallbackWindowCenter/Width 默认 40 / 400（软组织常用窗）
+     *  - enableDisplayClahe 默认 0（按需开启，会提升软组织对比度）
+     *  - displayClaheClip/Tile 默认 2.0 / 8
+     *  - cropFirst 默认 1（推荐：先裁剪后优化）
      */
     data class CtSeriesConfig(
         val bodyThreshold: Float = -600f,
@@ -300,6 +309,23 @@ object RawPixelDealVerify {
         val bilateralSigmaSpace: Double = 50.0,
         val clipLowHu: Float = -1200f,
         val clipHighHu: Float = 3000f,
+        // ---- v2 新增 ----
+        /** signed 全负时自动 LOGW 提示（不强制改符号位，避免误改） */
+        val enableAutoPixelSign: Boolean = true,
+        /** 百分位 Gmin（0..100；=0 表示用绝对 min） */
+        val gminPercentile: Float = 0.5f,
+        /** 百分位 Gmax（0..100；=100 表示用绝对 max） */
+        val gmaxPercentile: Float = 99.5f,
+        /** 直方图退化时使用预设常用窗（软组织 c=40, w=400） */
+        val enableHistFallback: Boolean = true,
+        val fallbackWindowCenter: Double = 40.0,
+        val fallbackWindowWidth: Double = 400.0,
+        /** 对最终 8-bit 窗映射图做 CLAHE 增强（提升软组织对比度） */
+        val enableDisplayClahe: Boolean = false,
+        val displayClaheClip: Double = 2.0,
+        val displayClaheTile: Int = 8,
+        /** 1=先裁剪后优化（推荐），0=旧顺序 */
+        val cropFirst: Boolean = true,
     )
 
     /**
@@ -375,6 +401,18 @@ object RawPixelDealVerify {
             bilateralSigmaSpace = config.bilateralSigmaSpace,
             clipLowHu = config.clipLowHu,
             clipHighHu = config.clipHighHu,
+            // ---- v2 新增 ----
+            enableAutoPixelSign = if (config.enableAutoPixelSign) 1 else 0,
+            gminPercentile = config.gminPercentile,
+            gmaxPercentile = config.gmaxPercentile,
+            enableHistFallback = if (config.enableHistFallback) 1 else 0,
+            fallbackWindowCenter = config.fallbackWindowCenter,
+            fallbackWindowWidth = config.fallbackWindowWidth,
+            enableDisplayClahe = if (config.enableDisplayClahe) 1 else 0,
+            displayClaheClip = config.displayClaheClip,
+            displayClaheTile = config.displayClaheTile,
+            cropFirst = if (config.cropFirst) 1 else 0,
+            // ---- 输出 ----
             outDisplays = outDisplays,
             outWindowStats = outWindowStats,
             outCropAndOut = outCropAndOut,

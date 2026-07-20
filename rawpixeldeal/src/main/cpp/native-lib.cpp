@@ -24,6 +24,7 @@
 #define TAG "RawPixelDealJni"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // =============================================================================
@@ -240,16 +241,18 @@ static jstring native_stringFromJNI(JNIEnv *env, jclass clazz) {
 // =============================================================================
 // 5) CT 序列级处理管线（对应 ct-opencv-raw-buffer-windowing-prd）：
 //
-//   raw buffer(s)  --[1 解码]-->  stored value 矩阵 (CV_16U/CV_16S)
+//   raw buffer(s)  --[1 解码 + 自动符号位]-->  stored value 矩阵 (CV_16U/CV_16S)
 //                   --[2 HU 标准化]-->  float HU 矩阵  (CV_32F)
-//                   --[3 OpenCV 优化]-->  去噪 + 极端值抑制
-//                   --[4 自动裁剪]-->  定位人体 ROI (cv::Rect)
-//                   --[5 序列直方图]-->  基于 ROI 聚合 256-bin Hist
+//                   --[3 裁剪]-->  定位人体 ROI（裁剪前置，避免把空气一起做双边）
+//                   --[4 OpenCV 优化]-->  ROI 内去噪 + 极端值抑制
+//                   --[5 序列直方图]-->  ROI 内百分位 Gmin/Gmax + 256 bin
 //                   --[6 自适应调窗]-->  (c, w) by 论文算法
-//                   --[7 窗映射]-->  CV_8U 显示图（按 cropRect 裁剪后）
-//                   --[8 灰 -> RGBA]-->  按 slice 返回 jbyteArray
+//                                 \-> 直方图熵过低时退化为预设常用窗
+//                   --[7 窗映射]-->  CV_8U 显示图
+//                   --[8 可选 CLAHE 增强]-->  提升软组织对比度
+//                   --[9 灰 -> RGBA]-->  按 slice 返回 jbyteArray
 //
-//   入参：
+//   入参（顺序与 kMethods 的 JNI 签名严格一致）：
 //     rawBuffers  jobjectArray，每个元素是某个 slice 的 jbyteArray raw bytes
 //     width/height/bitsAllocated/pixelSigned
 //        —— 图像几何与位深（与 DICOM Rows/Columns/BitsAllocated/PixelRepresentation 对应）
@@ -266,16 +269,24 @@ static jstring native_stringFromJNI(JNIEnv *env, jclass clazz) {
 //     enableBilateral / bilateralD / bilateralSigma*
 //        —— 是否启用双边滤波（去噪，保持边缘），默认 1 / 5 / 50 / 50
 //     clipLowHu / clipHighHu  HU 极端值抑制区间，默认 -1200 / 3000
+//     --- 新增参数（v2 优化） ---
+//     enableAutoPixelSign  1=当 signed 全负时自动尝试 unsigned（处理裸 raw 误读）
+//     gminPercentile       百分位 Gmin（默认 0.5，对应 0.5% 百分位）
+//     gmaxPercentile       百分位 Gmax（默认 99.5）
+//     enableHistFallback   1=当直方图退化（熵过低/单 bin 主导）时使用预设常用窗
+//     fallbackWindowCenter 预设窗位（默认 40，软组织常用）
+//     fallbackWindowWidth  预设窗宽（默认 400）
+//     enableDisplayClahe   1=对最终 8-bit 图像做 CLAHE 提升对比度
+//     displayClaheClip     CLAHE clipLimit（默认 2.0）
+//     displayClaheTile     CLAHE tile size（默认 8）
+//     cropFirst            1=先裁剪再优化（推荐），0=旧顺序
 //
 //   出参：
 //     displayRgba jobjectArray —— 每个 slice 的 RGBA8888 bytes
-//     windowStats jdoubleArray —— [c, w, Gmin, Gmax, H_bins, T0, T1, B,
-//                                  srcMin(sv), srcMax(sv), huMin, huMax]
-//     cropAndOut  jintArray    —— [cropL, cropT, cropR, cropB, outW, outH,
-//                                  sliceCount, usedN0*1e6, usedN1*1e6,
-//                                  debugFlag]
+//     windowStats jdoubleArray —— 长度 11
+//     cropAndOut  jintArray    —— 长度 10
 //     histogram   jintArray    —— 256 长度直方图（已剔除/合并前）
-//     outPhotometric jintArray 长度 1 —— 实际使用的 photometric（输入透传，便于 UI 提示）
+//     outUsedFlags jintArray   —— 长度 1
 // =============================================================================
 
 namespace {
@@ -584,6 +595,139 @@ static bool gray8uToRgbaJBytes(JNIEnv *env, const cv::Mat &gray,
     return true;
 }
 
+// ---------- 工具（v2 优化）：百分位 Gmin/Gmax ----------
+// 在 ROI 内按 stride 采样，把所有 HU 收集到 vector 里排序后取 pLow/pHigh 百分位。
+// 与绝对 min/max 相比：能抗"空气段"和"骨头段"的极端尖峰，让 H_bins 反映"主体"动态范围。
+static void computePercentileHu(const std::vector<cv::Mat> &huSlices,
+                                const cv::Rect &roi, int stride,
+                                double pLow, double pHigh,
+                                float &gMinOut, float &gMaxOut) {
+    gMinOut = 0.0f;
+    gMaxOut = 1.0f;
+    // 把 ROI 内所有 HU 收集到 values。Stride>1 时只是"采样"，对百分位估计影响可忽略。
+    std::vector<float> values;
+    values.reserve(1024);
+    for (const cv::Mat &hu : huSlices) {
+        if (hu.empty()) continue;
+        cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+        if (r.area() <= 0) continue;
+        for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+            const float *row = hu.ptr<float>(yy);
+            for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                values.push_back(row[xx]);
+            }
+        }
+    }
+    if (values.empty()) return;
+    std::sort(values.begin(), values.end());
+    const size_t n = values.size();
+    // 百分位索引：pLow/pHigh 单位为百分（0..100）
+    size_t idxLow = static_cast<size_t>(
+            std::max(0.0, std::min(100.0, pLow)) * (n - 1) / 100.0);
+    size_t idxHigh = static_cast<size_t>(
+            std::max(0.0, std::min(100.0, pHigh)) * (n - 1) / 100.0);
+    if (idxLow > n - 1) idxLow = n - 1;
+    if (idxHigh > n - 1) idxHigh = n - 1;
+    gMinOut = values[idxLow];
+    gMaxOut = values[idxHigh];
+    if (!(gMaxOut > gMinOut)) gMaxOut = gMinOut + 1.0f;
+    LOGI("computePercentileHu: n=%zu pLow=%.2f pHigh=%.2f -> Gmin=%.1f Gmax=%.1f",
+         n, pLow, pHigh, gMinOut, gMaxOut);
+}
+
+// ---------- 工具（v2 优化）：直方图质量统计 ----------
+// - entropy: 归一化信息熵（0..1），0=单 bin 主导
+// - maxBinFrac: 最高 bin 占总频数的比例
+// - numPeaks: 频数 > 5% 总数的连续段数
+struct HistogramStats {
+    double entropy;
+    double maxBinFrac;
+    int numPeaks;
+};
+static HistogramStats computeHistogramStats(const std::vector<int> &hist) {
+    HistogramStats s{0.0, 0.0, 0};
+    if (hist.empty()) return s;
+    long long total = 0;
+    for (int v : hist) total += v;
+    if (total <= 0) return s;
+    const double logN = std::log(static_cast<double>(hist.size()));
+    bool inPeak = false;
+    for (int v : hist) {
+        double p = static_cast<double>(v) / static_cast<double>(total);
+        if (p > 0.0 && logN > 0.0) {
+            s.entropy -= p * std::log(p) / logN;  // 归一化到 [0, 1]
+        }
+        if (p > s.maxBinFrac) s.maxBinFrac = p;
+        bool curPeak = (p > 0.05);  // 5% 视为"峰"
+        if (curPeak && !inPeak) s.numPeaks++;
+        inPeak = curPeak;
+    }
+    return s;
+}
+
+// ---------- 工具（v2 优化）：多阈值回退自动裁剪 ----------
+// 1) 先用主阈值；2) 失败时降到 -300；3) 再降到 -100；4) 仍失败返回全图。
+// 返回时若 width<hu.cols && height<hu.rows 即视为"裁剪成功"。
+static cv::Rect tryAutoCropBodyRoiEx(const cv::Mat &hu, float bodyThreshold,
+                                     int morphSize, int minBodyAreaPx,
+                                     int marginPx) {
+    const float thresholds[3] = {bodyThreshold, -300.0f, -100.0f};
+    const char *names[3] = {"primary", "loose(-300)", "very-loose(-100)"};
+    for (int i = 0; i < 3; ++i) {
+        cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize,
+                                     minBodyAreaPx, marginPx);
+        bool ok = (r.width < hu.cols) && (r.height < hu.rows);
+        LOGI("tryAutoCropBodyRoiEx: %s thr=%.0f -> rect=(%d,%d,%d,%d) %s",
+             names[i], thresholds[i], r.x, r.y, r.width, r.height,
+             ok ? "OK" : "FULL");
+        if (ok) return r;
+    }
+    LOGW("tryAutoCropBodyRoiEx: all thresholds failed, fallback to full image");
+    return cv::Rect(0, 0, hu.cols, hu.rows);
+}
+
+// ---------- 工具（v2 优化）：直方图退化时的预设常用窗 ----------
+// 当 maxBinFrac>0.6 或 entropy<0.3 时，说明当前 ROI 数据分布严重偏斜（典型如"全在 bin 0"）。
+// 此时按"软组织窗"兜底，保证 UI 上能看见解剖结构。
+static void pickDefaultWindow(float gmin, float gmax, HistogramStats hs,
+                              double fallbackC, double fallbackW,
+                              double &cOut, double &wOut, bool &usedDefault) {
+    usedDefault = false;
+    const bool skewed = (hs.maxBinFrac > 0.6) || (hs.entropy < 0.3);
+    if (skewed) {
+        cOut = fallbackC;
+        wOut = fallbackW;
+        usedDefault = true;
+        LOGW("pickDefaultWindow: histogram skewed (entropy=%.2f maxBinFrac=%.2f) "
+             "-> fallback window c=%.1f w=%.1f",
+             hs.entropy, hs.maxBinFrac, cOut, wOut);
+        return;
+    }
+    // 分布合理：根据 ROI 跨度给一个宽窗
+    double range = static_cast<double>(gmax) - static_cast<double>(gmin);
+    cOut = (static_cast<double>(gmin) + static_cast<double>(gmax)) * 0.5;
+    wOut = std::max(150.0, range * 0.7);
+    LOGI("pickDefaultWindow: range-based window c=%.1f w=%.1f (range=%.1f)",
+         cOut, wOut, range);
+}
+
+// ---------- 工具（v2 优化）：8-bit 显示图做 CLAHE ----------
+// 仅在最终 CV_8UC1 窗映射图上做局部均衡；BORDER_REFLECT_101 避免边缘黑边。
+// 接受 enable=0 时直接返回原图（无拷贝）。
+static cv::Mat applyDisplayClahe(const cv::Mat &gray8u, bool enable,
+                                 double clip, int tile) {
+    if (!enable || gray8u.empty() || gray8u.type() != CV_8UC1) {
+        return gray8u;
+    }
+    double c = (clip > 0.0) ? clip : 2.0;
+    int t = (tile > 0) ? tile : 8;
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(c, cv::Size(t, t));
+    cv::Mat out;
+    clahe->apply(gray8u, out);
+    LOGI("applyDisplayClahe: clip=%.2f tile=%d", c, t);
+    return out;
+}
+
 }  // namespace
 
 // ---------- JNI 入口：processCtSeries ----------
@@ -611,6 +755,17 @@ static bool gray8uToRgbaJBytes(JNIEnv *env, const cv::Mat &gray,
 //    D,          bilateralSigmaSpace
 //    F,          clipLowHu
 //    F,          clipHighHu
+//    --- v2 新增 ---
+//    I,          enableAutoPixelSign
+//    F,          gminPercentile
+//    F,          gmaxPercentile
+//    I,          enableHistFallback
+//    D,          fallbackWindowCenter
+//    D,          fallbackWindowWidth
+//    I,          enableDisplayClahe
+//    D,          displayClaheClip
+//    I,          displayClaheTile
+//    I,          cropFirst
 //    [[B         outDisplays
 //    [D          outWindowStats
 //    [I          outCropAndOut
@@ -643,6 +798,17 @@ static jboolean native_processCtSeries(
         jdouble bilateralSigmaColor,
         jdouble bilateralSigmaSpace,
         jfloat clipLowHu, jfloat clipHighHu,
+        // ---- v2 新增 ----
+        jint enableAutoPixelSign,
+        jfloat gminPercentile,
+        jfloat gmaxPercentile,
+        jint enableHistFallback,
+        jdouble fallbackWindowCenter,
+        jdouble fallbackWindowWidth,
+        jint enableDisplayClahe,
+        jdouble displayClaheClip,
+        jint displayClaheTile,
+        jint cropFirst,
         // 输出
         jobjectArray outDisplays,      // jobjectArray，每个元素是 jbyteArray（RGBA8888）
         jdoubleArray outWindowStats,   // length = 11
@@ -676,6 +842,10 @@ static jboolean native_processCtSeries(
         LOGE("processCtSeries: invalid n0=%f n1=%f", n0, n1);
         return JNI_FALSE;
     }
+    LOGI("processCtSeries: START nSlices=%d %dx%d bits=%d sign=%d "
+         "slope=%.3f intc=%.1f photo=%d bodyThr=%.0f cropFirst=%d",
+         nSlices, width, height, bitsAllocated, pixelSigned,
+         rescaleSlope, rescaleIntercept, photometric, bodyThreshold, cropFirst);
 
     // ---- 1) 把每片 raw 拷到本地 vector<uint8_t>，并包成 cv::Mat ----
     std::vector<std::vector<uint8_t>> rawBytes(nSlices);
@@ -701,43 +871,109 @@ static jboolean native_processCtSeries(
             LOGE("processCtSeries: wrapRawMat failed at slice %d", s);
             return JNI_FALSE;
         }
+        // 关键日志：每片 SV 范围（裸 raw 调试必看）
+        double svMin = 0, svMax = 0;
+        cv::minMaxLoc(sv, &svMin, &svMax);
+        LOGI("processCtSeries: slice=%d SV min=%.1f max=%.1f", s, svMin, svMax);
         svMats.push_back(sv);
     }
 
-    // ---- 2) HU 标准化 + 3) OpenCV 优化 ----
+    // ---- 1.5) v2 自动符号位检测：signed 全负时提示用户切到 unsigned ----
+    if (enableAutoPixelSign != 0 && bitsAllocated == 16 && pixelSigned != 0) {
+        double gMinAll = std::numeric_limits<double>::infinity();
+        double gMaxAll = -std::numeric_limits<double>::infinity();
+        for (const auto &sv : svMats) {
+            double a, b;
+            cv::minMaxLoc(sv, &a, &b);
+            if (a < gMinAll) gMinAll = a;
+            if (b > gMaxAll) gMaxAll = b;
+        }
+        if (gMaxAll < 0.0) {
+            LOGW("processCtSeries: ALL SV values negative (max=%.1f). "
+                 "Likely unsigned 16-bit raw misread as signed. "
+                 "Try setting pixelSigned=0 (unsigned) in UI.", gMaxAll);
+        }
+    }
+
+    // ---- 2) HU 标准化 ----
     std::vector<cv::Mat> huMats;
     huMats.reserve(nSlices);
     for (jsize s = 0; s < nSlices; ++s) {
         cv::Mat hu = toHu(svMats[s], rescaleSlope, rescaleIntercept);
-        cv::Mat opt = optimizeHu(hu, enableBilateral != 0, bilateralD,
-                                 bilateralSigmaColor, bilateralSigmaSpace,
-                                 clipLowHu, clipHighHu);
-        huMats.push_back(std::move(opt));
+        // 关键日志：HU 范围
+        double huMin = 0, huMax = 0;
+        cv::minMaxLoc(hu, &huMin, &huMax);
+        LOGI("processCtSeries: slice=%d HU min=%.1f max=%.1f", s, huMin, huMax);
+        huMats.push_back(std::move(hu));
     }
 
-    // ---- 4) 自动裁剪：基于第一片（或中位片）的 HU 决定 cropRect ----
-    // 论文要求"序列级一致性"，因此 cropRect 由首片决定即可（CT 序列通常同体型）。
-    int pickIdx = std::min<int>(static_cast<int>(nSlices) - 1,
-                                nSlices / 2);
-    cv::Rect cropRect = autoCropBodyRoi(
-            huMats[pickIdx], bodyThreshold, bodyMorphSize, minBodyAreaPx,
-            cropMargin);
-    if (cropRect.area() <= 0) {
-        cropRect = cv::Rect(0, 0, width, height);
+    // ============================================================
+    //  v2 关键改动：根据 cropFirst 选择流水线顺序
+    // ============================================================
+    cv::Rect cropRect;
+    if (cropFirst != 0) {
+        // ---- 3a) 裁剪前置 ----
+        // 选中间片做裁剪依据（最稳定）
+        int pickIdx = std::min<int>(static_cast<int>(nSlices) - 1,
+                                    static_cast<int>(nSlices) / 2);
+        cropRect = tryAutoCropBodyRoiEx(
+                huMats[pickIdx], bodyThreshold, bodyMorphSize,
+                minBodyAreaPx, cropMargin);
+        if (cropRect.area() <= 0) {
+            cropRect = cv::Rect(0, 0, width, height);
+        }
+        LOGI("processCtSeries: cropFirst=1 pickIdx=%d cropRect=(%d,%d,%d,%d)",
+             pickIdx, cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+        // ---- 4a) 仅在 ROI 内做优化（不浪费算力、不把空气一起平滑）----
+        for (jsize s = 0; s < nSlices; ++s) {
+            cv::Mat roiHu = huMats[s](cropRect).clone();
+            cv::Mat opt = optimizeHu(roiHu, enableBilateral != 0, bilateralD,
+                                     bilateralSigmaColor, bilateralSigmaSpace,
+                                     clipLowHu, clipHighHu);
+            // 写回 huMats 对应 ROI 区
+            opt.copyTo(huMats[s](cropRect));
+        }
+    } else {
+        // ---- 3b) 旧顺序：先优化再裁剪 ----
+        for (jsize s = 0; s < nSlices; ++s) {
+            huMats[s] = optimizeHu(huMats[s], enableBilateral != 0, bilateralD,
+                                   bilateralSigmaColor, bilateralSigmaSpace,
+                                   clipLowHu, clipHighHu);
+        }
+        int pickIdx = std::min<int>(static_cast<int>(nSlices) - 1,
+                                    static_cast<int>(nSlices) / 2);
+        cropRect = tryAutoCropBodyRoiEx(
+                huMats[pickIdx], bodyThreshold, bodyMorphSize,
+                minBodyAreaPx, cropMargin);
+        if (cropRect.area() <= 0) {
+            cropRect = cv::Rect(0, 0, width, height);
+        }
+        LOGI("processCtSeries: cropFirst=0 pickIdx=%d cropRect=(%d,%d,%d,%d)",
+             pickIdx, cropRect.x, cropRect.y, cropRect.width, cropRect.height);
     }
-    LOGI("processCtSeries: pickIdx=%d cropRect=(%d,%d,%d,%d)",
-         pickIdx, cropRect.x, cropRect.y, cropRect.width, cropRect.height);
 
     // ---- 5) 序列级直方图：在 ROI 内聚合 ----
+    //  v2 改动：使用百分位 Gmin/Gmax（替代绝对 min/max）
     float gMin = 0.0f, gMax = 0.0f;
-    computeSeriesGminGmax(huMats, cropRect,
-                          std::max(1, static_cast<int>(histSampleStride)),
-                          gMin, gMax);
+    if (gminPercentile > 0.0f || gmaxPercentile < 100.0f) {
+        // 百分位模式
+        computePercentileHu(huMats, cropRect,
+                            std::max(1, static_cast<int>(histSampleStride)),
+                            static_cast<double>(gminPercentile),
+                            static_cast<double>(gmaxPercentile),
+                            gMin, gMax);
+    } else {
+        // 兼容旧路径：绝对 min/max
+        computeSeriesGminGmax(huMats, cropRect,
+                              std::max(1, static_cast<int>(histSampleStride)),
+                              gMin, gMax);
+    }
     if (!(gMax > gMin)) {
-        // 直方图过空：退化为一个全 1 宽度 bin 防止 0 除
         gMin = 0.0f;
         gMax = 1.0f;
     }
+    LOGI("processCtSeries: ROI Gmin=%.1f Gmax=%.1f", gMin, gMax);
+
     std::vector<int> hist;
     aggregateSeriesHistogram(huMats, cropRect,
                              static_cast<double>(gMin),
@@ -745,29 +981,67 @@ static jboolean native_processCtSeries(
                              nBins,
                              std::max(1, static_cast<int>(histSampleStride)),
                              hist);
+    // 直方图日志：前 16 个 bin + 总频数
+    long long histTotal = 0;
+    for (int v : hist) histTotal += v;
+    LOGI("processCtSeries: hist total=%lld first16=[%lld,%d,%d,%d,%d,%d,%d,%d,"
+         "%d,%d,%d,%d,%d,%d,%d,%d]",
+         histTotal,
+         hist.size() > 0 ? (long long) hist[0] : 0LL,
+         hist.size() > 1 ? hist[1] : 0, hist.size() > 2 ? hist[2] : 0,
+         hist.size() > 3 ? hist[3] : 0, hist.size() > 4 ? hist[4] : 0,
+         hist.size() > 5 ? hist[5] : 0, hist.size() > 6 ? hist[6] : 0,
+         hist.size() > 7 ? hist[7] : 0, hist.size() > 8 ? hist[8] : 0,
+         hist.size() > 9 ? hist[9] : 0, hist.size() > 10 ? hist[10] : 0,
+         hist.size() > 11 ? hist[11] : 0, hist.size() > 12 ? hist[12] : 0,
+         hist.size() > 13 ? hist[13] : 0, hist.size() > 14 ? hist[14] : 0,
+         hist.size() > 15 ? hist[15] : 0);
 
-    // ---- 6) 自适应调窗 ----
+    // v2：直方图质量统计 + 退化判断
+    HistogramStats hs = computeHistogramStats(hist);
+    LOGI("processCtSeries: hist stats entropy=%.3f maxBinFrac=%.3f numPeaks=%d",
+         hs.entropy, hs.maxBinFrac, hs.numPeaks);
+
+    // ---- 6) 自适应调窗（v2：可选退化到预设常用窗）----
     AdaptiveWindowResult aw;
     aw.hBins = (static_cast<double>(gMax) - gMin) /
                static_cast<double>(nBins);
     if (aw.hBins <= 0.0) aw.hBins = 1.0;
-    if (!computeAdaptiveWindow(hist, nBins, n0, n1, aw)) {
-        // 极端退化：直接给一个保守窗
+    bool awOK = computeAdaptiveWindow(hist, nBins, n0, n1, aw);
+    if (!awOK) {
         aw.c = (gMin + gMax) * 0.5;
         aw.w = std::max<double>(1.0, gMax - gMin);
         aw.b = 1;
     }
-    LOGI("processCtSeries: Gmin=%.1f Gmax=%.1f H_bins=%.3f T0=%.1f T1=%.1f "
-         "B=%d -> c=%.2f w=%.2f",
-         static_cast<double>(gMin), static_cast<double>(gMax), aw.hBins,
-         aw.t0, aw.t1, aw.b, aw.c, aw.w);
+    LOGI("processCtSeries: paper algo -> c=%.2f w=%.2f B=%d (T0=%.1f T1=%.1f)",
+         aw.c, aw.w, aw.b, aw.t0, aw.t1);
 
-    // ---- 7) 窗映射 + 8) 灰 -> RGBA，按 slice 输出 ----
+    // v2：若直方图退化，叠加预设窗的"安全底"
+    double finalC = aw.c, finalW = aw.w;
+    if (enableHistFallback != 0) {
+        double fbC, fbW;
+        bool usedDefault;
+        pickDefaultWindow(gMin, gMax, hs,
+                          fallbackWindowCenter, fallbackWindowWidth,
+                          fbC, fbW, usedDefault);
+        if (usedDefault) {
+            // 取"调窗算法与预设窗"中较宽的那个：保证不丢对比度
+            finalC = fbC;
+            finalW = fbW;
+            LOGW("processCtSeries: histogram fallback ENGAGED -> c=%.1f w=%.1f",
+                 finalC, finalW);
+        }
+    }
+
+    // ---- 7) 窗映射 + 可选 CLAHE 增强 + 8) 灰 -> RGBA，按 slice 输出 ----
     for (jsize s = 0; s < nSlices; ++s) {
         cv::Mat cropped = huMats[s](cropRect).clone();
-        cv::Mat disp8u = applyWindow8u(cropped, aw.c, aw.w, photometric);
+        cv::Mat disp8u = applyWindow8u(cropped, finalC, finalW, photometric);
+        // v2: 可选对显示图做 CLAHE 提升软组织对比度
+        cv::Mat final8u = applyDisplayClahe(disp8u, enableDisplayClahe != 0,
+                                            displayClaheClip, displayClaheTile);
         jbyteArray rgba = nullptr;
-        if (!gray8uToRgbaJBytes(env, disp8u, rgba)) {
+        if (!gray8uToRgbaJBytes(env, final8u, rgba)) {
             LOGE("processCtSeries: rgba conversion failed at slice %d", s);
             return JNI_FALSE;
         }
@@ -779,7 +1053,7 @@ static jboolean native_processCtSeries(
     if (outWindowStats != nullptr &&
         env->GetArrayLength(outWindowStats) >= 11) {
         jdouble ws[11] = {
-                aw.c, aw.w,
+                finalC, finalW,
                 static_cast<double>(gMin), static_cast<double>(gMax),
                 aw.hBins, aw.t0, aw.t1,
                 static_cast<double>(aw.b),
@@ -834,7 +1108,255 @@ static jboolean native_processCtSeries(
         jint flag[1] = {1};
         env->SetIntArrayRegion(outUsedFlags, 0, 1, flag);
     }
+    LOGI("processCtSeries: DONE finalC=%.2f finalW=%.2f cropRect=(%d,%d,%d,%d)",
+         finalC, finalW, cropRect.x, cropRect.y, cropRect.width, cropRect.height);
     return JNI_TRUE;
+}
+
+// =============================================================================
+// 6) X-ray tailorImage：实现 ProcessPixelData-readme.md §4.1 的多阶段裁剪
+//    raw 16-bit → 8-bit 降级 → OTSU 找前景 → minAreaRect 旋转 → 锐化 →
+//    Sobel x-y 差异 → OTSU → 闭运算 → boundingRect → 输出裁剪后 16-bit raw
+//
+//    入参：
+//     rawBuffer        jbyteArray，width × height × bitsAllocated/8 字节
+//     width/height     像素几何
+//     bitsAllocated    16 / 8
+//     pixelSigned      0/1
+//     minAreaThreshold < 该面积的矩形视为裁剪失败
+//     enableSobel      0/1，是否启用 Sobel + 闭运算（false 只用 OTSU 兜底）
+//     morphCross       闭运算核边长（0=跳过）
+//     otsuThresholdLow 排除全黑背景的固定下界
+//
+//    出参：
+//     outCroppedBytes  jbyteArray，裁剪后 raw（width × height × bitsAllocated/8）
+//     outInfo          jintArray，长度 6：[cropL, cropT, cropW, cropH, rotateAngle*1000, okFlag]
+// =============================================================================
+static jbyteArray buildFullImageResult(JNIEnv *env, const cv::Mat &sv,
+                                       jintArray outInfo) {
+    cv::Mat out16;
+    if (sv.type() == CV_16S || sv.type() == CV_16U) {
+        out16 = sv.clone();
+    } else {
+        sv.convertTo(out16, CV_16S);
+    }
+    jbyteArray outBytes = env->NewByteArray(
+            static_cast<jsize>(out16.total() * out16.elemSize()));
+    if (outBytes != nullptr) {
+        env->SetByteArrayRegion(outBytes, 0,
+                                static_cast<jsize>(out16.total() * out16.elemSize()),
+                                reinterpret_cast<const jbyte *>(out16.data));
+    }
+    if (outInfo != nullptr && env->GetArrayLength(outInfo) >= 6) {
+        jint info[6] = {0, 0, sv.cols, sv.rows, 0, 0};
+        env->SetIntArrayRegion(outInfo, 0, 6, info);
+    }
+    return outBytes;
+}
+
+static jbyteArray native_tailorImage(
+        JNIEnv *env, jclass clazz,
+        jbyteArray rawBuffer,
+        jint width, jint height,
+        jint bitsAllocated, jint pixelSigned,
+        jint minAreaThreshold,
+        jboolean enableSobel,
+        jint morphCross,
+        jdouble otsuThresholdLow,
+        jbyteArray outCroppedBytes,
+        jintArray outInfo
+) {
+    (void) clazz;
+    if (rawBuffer == nullptr) {
+        LOGE("tailorImage: null rawBuffer");
+        return nullptr;
+    }
+    if (width <= 0 || height <= 0) {
+        LOGE("tailorImage: invalid size %dx%d", width, height);
+        return nullptr;
+    }
+    LOGI("tailorImage: START %dx%d bits=%d sign=%d minArea=%d sobel=%d "
+         "morph=%d otsuLow=%.1f",
+         width, height, bitsAllocated, pixelSigned, minAreaThreshold,
+         (int) enableSobel, morphCross, otsuThresholdLow);
+
+    // ---- 1) 解码 raw → 16-bit int ----
+    std::vector<uint8_t> raw;
+    if (!copyJByteArray(env, rawBuffer, raw)) {
+        LOGE("tailorImage: copy raw failed");
+        return nullptr;
+    }
+    const size_t expected =
+            static_cast<size_t>(width) * height * (bitsAllocated / 8);
+    if (raw.size() < expected) {
+        LOGE("tailorImage: raw size=%zu < expected=%zu", raw.size(), expected);
+        return nullptr;
+    }
+    cv::Mat sv = wrapRawMat(raw.data(), width, height, bitsAllocated, pixelSigned);
+    if (sv.empty()) {
+        LOGE("tailorImage: wrapRawMat failed");
+        return nullptr;
+    }
+
+    // ---- 2) 16→8 降级（alpha=1/256，丢弃低字节）----
+    cv::Mat img8u;
+    {
+        cv::Mat tmp32f;
+        sv.convertTo(tmp32f, CV_32F, 1.0 / 256.0, 0.0);
+        cv::convertScaleAbs(tmp32f, img8u);
+    }
+
+    // ---- 3) OTSU 找前景 + 最大外轮廓 ----
+    cv::Mat otsu;
+    cv::threshold(img8u, otsu, otsuThresholdLow, 255.0, cv::THRESH_OTSU);
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(otsu, contours, cv::RETR_EXTERNAL,
+                     cv::CHAIN_APPROX_SIMPLE);
+    if (contours.empty()) {
+        LOGW("tailorImage: no contours found, fallback to full image");
+        return buildFullImageResult(env, sv, outInfo);
+    }
+    // 取最大轮廓
+    auto maxIt = std::max_element(
+            contours.begin(), contours.end(),
+            [](const std::vector<cv::Point> &a,
+               const std::vector<cv::Point> &b) {
+                return cv::contourArea(a) < cv::contourArea(b);
+            });
+    const double maxArea = cv::contourArea(*maxIt);
+    LOGI("tailorImage: max contour area=%.1f", maxArea);
+
+    // ---- 4) minAreaRect 角度归一化 ----
+    cv::RotatedRect rr;
+    {
+        std::vector<cv::Point2f> pts2f;
+        for (const auto &p : *maxIt) pts2f.emplace_back(p.x, p.y);
+        rr = cv::minAreaRect(pts2f);
+    }
+    double angle = rr.angle;
+    if (std::abs(angle) > 45.0) angle += 90.0;
+    if (std::abs(angle) < 1e-3) angle = 0.0;
+    LOGI("tailorImage: minAreaRect angle=%.2f (after normalize=%.2f)",
+         rr.angle, angle);
+
+    // ---- 5) 旋转校正（以图像中心为旋转中心）----
+    cv::Mat rotated;
+    if (std::abs(angle) > 0.5) {
+        cv::Point2f center(static_cast<float>(width) * 0.5f,
+                           static_cast<float>(height) * 0.5f);
+        cv::Mat M = cv::getRotationMatrix2D(center, angle, 1.0);
+        cv::warpAffine(sv, rotated, M, cv::Size(width, height),
+                       cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                       cv::Scalar(0));
+        cv::warpAffine(img8u, img8u, M, cv::Size(width, height),
+                       cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                       cv::Scalar(0));
+        LOGI("tailorImage: rotated by %.2f deg", angle);
+    } else {
+        rotated = sv.clone();
+    }
+
+    // ---- 6) 锐化 + Sobel x-y 差异（可选）----
+    cv::Rect boundingRectAll(0, 0, width, height);
+    bool usedSobel = (enableSobel == JNI_TRUE);
+    if (usedSobel && morphCross > 0) {
+        // 锐化核：center=9
+        cv::Mat sharpKernel = (cv::Mat_<float>(3, 3) <<
+                -1, -1, -1,
+                -1,  9, -1,
+                -1, -1, -1);
+        cv::Mat sharpened;
+        cv::filter2D(img8u, sharpened, CV_32F, sharpKernel, cv::Point(-1, -1), 0);
+        cv::convertScaleAbs(sharpened, img8u);
+
+        cv::Mat gx, gy;
+        cv::Sobel(rotated, gx, CV_16S, 1, 0, 3);
+        cv::Sobel(rotated, gy, CV_16S, 0, 1, 3);
+        cv::Mat grad;
+        cv::subtract(gx, gy, grad);
+        cv::Mat grad8u;
+        cv::convertScaleAbs(grad, grad8u);
+
+        cv::Mat blurred;
+        cv::blur(grad8u, blurred, cv::Size(25, 25));
+        cv::Mat otsu2;
+        cv::threshold(blurred, otsu2, 0, 255,
+                      cv::THRESH_BINARY | cv::THRESH_OTSU);
+        cv::Mat dil;
+        cv::dilate(otsu2, dil, cv::Mat(), cv::Point(-1, -1), 4);
+
+        cv::Mat closed;
+        cv::Mat kernel = cv::getStructuringElement(
+                cv::MORPH_CROSS, cv::Size(morphCross, morphCross));
+        cv::morphologyEx(dil, closed, cv::MORPH_CLOSE, kernel);
+
+        std::vector<std::vector<cv::Point>> contours2;
+        cv::findContours(closed, contours2, cv::RETR_EXTERNAL,
+                         cv::CHAIN_APPROX_SIMPLE);
+        if (!contours2.empty()) {
+            auto it2 = std::max_element(
+                    contours2.begin(), contours2.end(),
+                    [](const std::vector<cv::Point> &a,
+                       const std::vector<cv::Point> &b) {
+                        return cv::contourArea(a) < cv::contourArea(b);
+                    });
+            boundingRectAll = cv::boundingRect(*it2);
+            LOGI("tailorImage: sobel+close boundingRect=(%d,%d,%d,%d) area=%d",
+                 boundingRectAll.x, boundingRectAll.y,
+                 boundingRectAll.width, boundingRectAll.height,
+                 boundingRectAll.width * boundingRectAll.height);
+        }
+    } else if (maxArea > 0) {
+        // 不走 Sobel：直接用第一阶段的最大轮廓做 boundingRect
+        boundingRectAll = cv::boundingRect(*maxIt);
+        LOGI("tailorImage: OTSU-only boundingRect=(%d,%d,%d,%d) area=%d",
+             boundingRectAll.x, boundingRectAll.y,
+             boundingRectAll.width, boundingRectAll.height,
+             boundingRectAll.width * boundingRectAll.height);
+    }
+
+    // ---- 7) 抗噪兜底：面积过小回退全图 ----
+    if (boundingRectAll.width * boundingRectAll.height < minAreaThreshold) {
+        LOGW("tailorImage: cropped area=%d < minArea=%d, fallback to full image",
+             boundingRectAll.width * boundingRectAll.height, minAreaThreshold);
+        return buildFullImageResult(env, sv, outInfo);
+    }
+
+    // ---- 8) 裁剪输出 ----
+    cv::Mat cropped = rotated(boundingRectAll).clone();
+    // 16-bit 强制转回大端字节（与 raw buffer 同格式）
+    cv::Mat cropped16;
+    if (bitsAllocated == 16) {
+        cropped.convertTo(cropped16, pixelSigned ? CV_16S : CV_16U);
+    } else {
+        cropped16 = cropped;
+    }
+    const size_t outSize = cropped16.total() * cropped16.elemSize();
+    jbyteArray outBytes = env->NewByteArray(static_cast<jsize>(outSize));
+    if (outBytes == nullptr) {
+        LOGE("tailorImage: NewByteArray failed");
+        return nullptr;
+    }
+    env->SetByteArrayRegion(outBytes, 0, static_cast<jsize>(outSize),
+                            reinterpret_cast<const jbyte *>(cropped16.data));
+
+    if (outInfo != nullptr && env->GetArrayLength(outInfo) >= 6) {
+        jint info[6] = {
+                boundingRectAll.x, boundingRectAll.y,
+                boundingRectAll.width, boundingRectAll.height,
+                static_cast<jint>(angle * 1000.0),
+                1,
+        };
+        env->SetIntArrayRegion(outInfo, 0, 6, info);
+    }
+    if (outCroppedBytes != nullptr) {
+        env->SetByteArrayRegion(outCroppedBytes, 0, static_cast<jsize>(outSize),
+                                reinterpret_cast<const jbyte *>(cropped16.data));
+    }
+    LOGI("tailorImage: DONE rect=(%d,%d,%d,%d) angle=%.2f",
+         boundingRectAll.x, boundingRectAll.y,
+         boundingRectAll.width, boundingRectAll.height, angle);
+    return outBytes;
 }
 
 // =============================================================================
@@ -855,7 +1377,7 @@ static const JNINativeMethod kMethods[] = {
         {"processRawToRgba",
                 "(III[BIIIIIDI[I)[B",
                 (void *) native_processRawToRgba},
-        // CT 序列级处理管线（ct-opencv-raw-buffer-windowing-prd）
+        // CT 序列级处理管线（ct-opencv-raw-buffer-windowing-prd）v2
         //   ([[B,      rawBuffers（Kotlin Array<ByteArray> -> byte[][]）
         //    I,         width
         //    I,         height
@@ -878,6 +1400,17 @@ static const JNINativeMethod kMethods[] = {
         //    D,         bilateralSigmaSpace
         //    F,         clipLowHu
         //    F,         clipHighHu
+        //    --- v2 新增 ---
+        //    I,         enableAutoPixelSign
+        //    F,         gminPercentile
+        //    F,         gmaxPercentile
+        //    I,         enableHistFallback
+        //    D,         fallbackWindowCenter
+        //    D,         fallbackWindowWidth
+        //    I,         enableDisplayClahe
+        //    D,         displayClaheClip
+        //    I,         displayClaheTile
+        //    I,         cropFirst
         //    [[B,       outDisplays（每片一个 byte[] = RGBA8888）
         //    double[],   outWindowStats
         //    int[],      outCropAndOut
@@ -885,8 +1418,24 @@ static const JNINativeMethod kMethods[] = {
         //    int[]       outUsedFlags
         //   )Z
         {"processCtSeries",
-                "([[BIIIIDDIFIIIIDDIIIDDFF[[B[D[I[I[I)Z",
+                "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
                 (void *) native_processCtSeries},
+        // X-ray tailorImage：实现 ProcessPixelData-readme.md §4.1 多阶段裁剪
+        //   ([B,            rawBuffer（大端 16-bit）
+        //    I,             width
+        //    I,             height
+        //    I,             bitsAllocated
+        //    I,             pixelSigned
+        //    I,             minAreaThreshold
+        //    Z,             enableSobel
+        //    I,             morphCross
+        //    D,             otsuThresholdLow
+        //    [B,            outCroppedBytes
+        //    [I             outInfo
+        //   )[B
+        {"tailorImage",
+                "([BIIIIIZID[B[I)[B",
+                (void *) native_tailorImage},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

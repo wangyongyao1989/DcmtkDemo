@@ -56,6 +56,10 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.core.ktx)
     implementation(libs.material)
+    // dcmtk 模块：复用 ProcessPixelData 调窗算法 + DicomManager.writeDcmFile
+    // 1) xray 包（XrayPipeline.processXrayFromAssets）走 dcmtk.ProcessPixelData 算窗位窗宽
+    // 2) 写 DCM 文件走 dcmtk.DicomManager.writeDcmFile
+    implementation(project(":dcmtk"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)

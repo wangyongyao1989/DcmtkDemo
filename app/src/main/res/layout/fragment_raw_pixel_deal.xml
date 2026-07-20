@@ -338,6 +338,55 @@
         </LinearLayout>
 
         <!--
+            v2 新增：像素符号位 + 百分位 Gmin/Gmax
+            - Signed/Unsigned：裸 raw 误读为 signed 时切到 Unsigned（看 logcat RawPixelDealJni 提示）
+            - pLow/pHigh：默认 0.5 / 99.5（百分位抗极端值）
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Pixel:" android:layout_marginEnd="6dp"/>
+
+            <RadioGroup
+                android:id="@+id/rg_pixel_sign"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_pixel_signed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Signed"
+                    android:checked="true"/>
+
+                <RadioButton
+                    android:id="@+id/rb_pixel_unsigned"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Unsigned"/>
+            </RadioGroup>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="pLow%:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_p_low" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="0.5" android:textSize="13sp"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="pHigh%:" android:layout_marginStart="8dp"/>
+            <EditText android:id="@+id/et_p_high" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1"
+                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
+                android:text="99.5" android:textSize="13sp"/>
+        </LinearLayout>
+
+        <!--
             调窗参数：N0 / N1 论文范围 [0.0005, 0.0025]；
             这里用 x1000 显示成整数便于输入。
         -->
@@ -376,6 +425,13 @@
             android:text="Bilateral Filter (denoise in HU/16-bit domain)"
             android:checked="true"/>
 
+        <CheckBox
+            android:id="@+id/cb_display_clahe"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Display CLAHE (boost soft-tissue contrast on 8-bit)"
+            android:checked="false"/>
+
         <Button
             android:id="@+id/btn_run_series"
             android:layout_width="match_parent"
@@ -401,6 +457,129 @@
             android:scaleType="fitStart"
             android:background="#11000000"
             android:contentDescription="series pipeline result image"/>
+
+        <!-- ============================================================== -->
+        <!--  X-ray 管线：ProcessPixelData-readme.md 5 步管线                -->
+        <!--  raw → 16-bit → tailorImage → 直方图 → 调窗 → DICOM → 显示     -->
+        <!-- ============================================================== -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="#33666666"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="X-ray Pipeline (ProcessPixelData-readme 5-step)"
+            android:textStyle="bold"
+            android:textSize="14sp"/>
+
+        <!-- X-ray 数据源选择 -->
+        <RadioGroup
+            android:id="@+id/rg_xray_asset"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
+            <RadioButton
+                android:id="@+id/rb_xray_610"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Data610.bin"
+                android:checked="true"/>
+            <RadioButton
+                android:id="@+id/rb_xray_622"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Data622.bin"/>
+        </RadioGroup>
+
+        <!-- X-ray 调窗方法选择 -->
+        <RadioGroup
+            android:id="@+id/rg_xray_window"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="4dp">
+
+            <RadioButton
+                android:id="@+id/rb_xray_method_default"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1. 默认固定窗 (127/255)"
+                android:textSize="12sp"/>
+
+            <RadioButton
+                android:id="@+id/rb_xray_method_minmax"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="6. Min-Max (工程基线)"
+                android:checked="true"
+                android:textSize="12sp"/>
+
+            <RadioButton
+                android:id="@+id/rb_xray_method_cum72"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2. 72% 累计面积法"
+                android:textSize="12sp"/>
+
+            <RadioButton
+                android:id="@+id/rb_xray_method_bimodal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3. 双峰直方图法"
+                android:textSize="12sp"/>
+
+            <RadioButton
+                android:id="@+id/rb_xray_method_adaptive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="4. 自适应直方图法 (readme 5% / 95%)"
+                android:textSize="12sp"/>
+        </RadioGroup>
+
+        <!-- X-ray 操作按钮 -->
+        <Button
+            android:id="@+id/btn_run_xray_pipeline"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="RUN X-RAY PIPELINE (Tailor + Window)"/>
+
+        <Button
+            android:id="@+id/btn_write_dcm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Write DICOM (.dcm) + Display"
+            android:enabled="false"/>
+
+        <!-- X-ray 显示图像 -->
+        <ImageView
+            android:id="@+id/iv_xray_image"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:adjustViewBounds="true"
+            android:scaleType="fitStart"
+            android:background="#11000000"
+            android:contentDescription="xray pipeline result image"/>
+
+        <!-- X-ray 诊断信息 -->
+        <TextView
+            android:id="@+id/tv_xray_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#11000000"
+            android:padding="8dp"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:text="(X-ray pipeline not run yet)"
+            android:textIsSelectable="true"/>
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

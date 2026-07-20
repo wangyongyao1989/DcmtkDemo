@@ -98,13 +98,11 @@ object RawPixelDealJni {
     ): ByteArray?
 
     /**
-     * CT 序列级处理管线（ct-opencv-raw-buffer-windowing-prd）：
+     * CT 序列级处理管线（ct-opencv-raw-buffer-windowing-prd）v2：
      *
-     *   raw buffer -> HU 标准化 -> OpenCV 优化（双边 + 极值截断）
-     *              -> 自动裁剪（HU 阈值 + 形态学 + 最大连通域）
-     *              -> 序列级直方图（ROI 内聚合，256 bin）
-     *              -> 论文算法自适应调窗 (T0/T1 阈值剔除 + 合并 + B->(c,w))
-     *              -> 8-bit 窗映射（按 cropRect 裁剪后） -> RGBA8888
+     *   raw buffer -> HU 标准化 ->（可选先裁剪后优化）-> 自动裁剪 ROI
+     *              -> 百分位 Gmin/Gmax -> 序列级直方图 -> 论文算法自适应调窗
+     *              -> 可选预设窗兜底 -> 8-bit 窗映射 -> 可选显示 CLAHE -> RGBA8888
      *
      * @param rawBuffers        每片一个 jbyteArray，包装成 `Array<ByteArray>` 传入
      * @param width/height      像素几何
@@ -126,6 +124,16 @@ object RawPixelDealJni {
      * @param bilateralSigmaColor  双边 sigmaColor
      * @param bilateralSigmaSpace  双边 sigmaSpace
      * @param clipLowHu/clipHighHu HU 极值截断区间
+     * @param enableAutoPixelSign  1=自动检测：signed 全负时 LOGW 提示
+     * @param gminPercentile       百分位 Gmin（0..100；=0 表示用绝对 min）
+     * @param gmaxPercentile       百分位 Gmax（0..100；=100 表示用绝对 max）
+     * @param enableHistFallback   1=直方图退化时使用预设常用窗
+     * @param fallbackWindowCenter 预设窗位（默认 40，软组织）
+     * @param fallbackWindowWidth  预设窗宽（默认 400）
+     * @param enableDisplayClahe   1=对最终 8-bit 图做 CLAHE
+     * @param displayClaheClip     CLAHE clipLimit
+     * @param displayClaheTile     CLAHE tile 边长
+     * @param cropFirst            1=先裁剪后优化（推荐），0=旧顺序
      * @param outDisplays       out，每个 slice 一张 RGBA8888（jbyteArray）
      * @param outWindowStats    out，长度 11：
      *   [0]c, [1]w, [2]Gmin, [3]Gmax, [4]H_bins, [5]T0, [6]T1, [7]B,
@@ -161,10 +169,56 @@ object RawPixelDealJni {
         bilateralSigmaSpace: Double,
         clipLowHu: Float,
         clipHighHu: Float,
+        // ---- v2 新增 ----
+        enableAutoPixelSign: Int,
+        gminPercentile: Float,
+        gmaxPercentile: Float,
+        enableHistFallback: Int,
+        fallbackWindowCenter: Double,
+        fallbackWindowWidth: Double,
+        enableDisplayClahe: Int,
+        displayClaheClip: Double,
+        displayClaheTile: Int,
+        cropFirst: Int,
+        // ---- 输出 ----
         outDisplays: Array<ByteArray?>,
         outWindowStats: DoubleArray,
         outCropAndOut: IntArray,
         outHistogram: IntArray,
         outUsedFlags: IntArray
     ): Boolean
+
+    /**
+     * X-ray tailorImage：实现 ProcessPixelData-readme.md §4.1 多阶段裁剪
+     *
+     *   raw 16-bit（大端）→ 16→8 降级 → OTSU 找前景 → minAreaRect 旋转
+     *                      → 锐化 → Sobel x-y 差异 → OTSU → 闭运算
+     *                      → boundingRect → 裁剪后 16-bit raw
+     *
+     * @param rawBuffer        大端 16-bit raw 字节
+     * @param width/height     像素几何
+     * @param bitsAllocated    16 / 8
+     * @param pixelSigned      0=无符号，1=有符号
+     * @param minAreaThreshold 抗噪面积阈值，< 此值视为裁剪失败回退全图
+     * @param enableSobel      true=启用 Sobel + 闭运算；false=仅 OTSU
+     * @param morphCross       闭运算核边长，0=跳过形态学
+     * @param otsuThresholdLow 排除全黑背景的固定下界
+     * @param outCroppedBytes  out，裁剪后的 16-bit raw（与返回值同步）
+     * @param outInfo          out，长度 6：[cropL, cropT, cropW, cropH, rotateAngle*1000, okFlag]
+     * @return 裁剪后的 16-bit raw 字节（与 outCroppedBytes 内容一致）
+     */
+    @JvmStatic
+    external fun tailorImage(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitsAllocated: Int,
+        pixelSigned: Int,
+        minAreaThreshold: Int,
+        enableSobel: Boolean,
+        morphCross: Int,
+        otsuThresholdLow: Double,
+        outCroppedBytes: ByteArray,
+        outInfo: IntArray,
+    ): ByteArray?
 }
