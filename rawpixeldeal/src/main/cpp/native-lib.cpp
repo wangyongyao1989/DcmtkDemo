@@ -157,32 +157,17 @@ static jbyteArray native_processRawToRgba(JNIEnv *env, jclass clazz,
 
     // 3) 8-bit 视图
     cv::Mat gray8;
+    double minV = 0.0, maxV = 255.0;
     if (bitDepth == 16) {
         // min/max 归一化到 0~255，便于人工筛查观察全动态范围
-        double minV = 0.0, maxV = 0.0;
         cv::minMaxLoc(src, &minV, &maxV);
         // OpenCV 4.x 用 convertTo 带掩码做线性拉伸
         src.convertTo(gray8, CV_8UC1,
                       255.0 / std::max(1.0, (maxV - minV)),
                       -minV * 255.0 / std::max(1.0, (maxV - minV)));
         LOGI("processRawToRgba: 16-bit min=%.1f max=%.1f -> 8-bit", minV, maxV);
-
-        // 回写 head（srcMin, srcMax, etc.），由 Kotlin 端做文字展示
-        if (head != nullptr && env->GetArrayLength(head) >= 4) {
-            jint hOut[4] = {
-                    (jint) minV,
-                    (jint) maxV,
-                    (jint) src.cols,
-                    (jint) src.rows,
-            };
-            env->SetIntArrayRegion(head, 0, 4, hOut);
-        }
     } else {
         gray8 = src.clone();
-        if (head != nullptr && env->GetArrayLength(head) >= 4) {
-            jint hOut[4] = {0, 255, width, height};
-            env->SetIntArrayRegion(head, 0, 4, hOut);
-        }
     }
 
     // 4) 可选 CLAHE：增强局部对比，便于观察组织结构
@@ -219,6 +204,17 @@ static jbyteArray native_processRawToRgba(JNIEnv *env, jclass clazz,
     // 6) 灰度 -> RGBA（与 Android Bitmap ARGB_8888 内存布局一致：R,G,B,A）
     cv::Mat rgba;
     cv::cvtColor(cropped, rgba, cv::COLOR_GRAY2RGBA);
+
+    // 回写 head（srcMin, srcMax, outW, outH），由 Kotlin 端用于 Bitmap 构造与展示
+    if (head != nullptr && env->GetArrayLength(head) >= 4) {
+        jint hOut[4] = {
+                (jint) minV,
+                (jint) maxV,
+                (jint) rgba.cols,
+                (jint) rgba.rows,
+        };
+        env->SetIntArrayRegion(head, 0, 4, hOut);
+    }
 
     // 7) 拷贝到 jbyteArray 返回
     const size_t outBytes = (size_t) rgba.total() * rgba.elemSize();

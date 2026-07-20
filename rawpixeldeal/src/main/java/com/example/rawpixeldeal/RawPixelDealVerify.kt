@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.rawpixeldeal.jni.RawPixelDealJni
+import com.example.rawpixeldeal.xray.LogUtil
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -242,8 +243,11 @@ object RawPixelDealVerify {
 
         val outW = head[2]
         val outH = head[3]
+        LogUtil.i(TAG, "processRawToRgba: outW=$outW, outH=$outH, rgbaSize=${rgba.size}")
+
         require(rgba.size >= outW * outH * 4) {
-            "rgba size=${rgba.size} < expected=${outW * outH * 4}"
+            "rgba size=${rgba.size} < expected=${outW * outH * 4} (outW=$outW, outH=$outH). " +
+                    "Check if srcWidth=$srcWidth, srcHeight=$srcHeight and crop params match the asset data."
         }
 
         // 3) 构造 ARGB_8888 Bitmap。COLOR_GRAY2RGBA 内存布局为 R,G,B,A，
