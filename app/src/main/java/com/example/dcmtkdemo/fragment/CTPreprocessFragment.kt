@@ -1,10 +1,14 @@
 package com.example.dcmtkdemo.fragment
 
+import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -38,6 +42,53 @@ class CTPreprocessFragment : Fragment() {
         binding.btnRun.setOnClickListener {
             runPreprocessChain()
         }
+
+        setupKeyboardDismiss()
+    }
+
+    /**
+     * 让所有 EditText 在按下软键盘上的"完成"后能收起键盘；
+     * 同时让根 NestedScrollView 在触屏模式下可获焦 + 可点击，
+     * 点击 EditText 之外的区域时自动让 EditText 失焦，从而隐藏软键盘。
+     */
+    private fun setupKeyboardDismiss() {
+        val editorListener = TextView.OnEditorActionListener { v, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                v.clearFocus()
+                hideKeyboard()
+                true
+            } else {
+                false
+            }
+        }
+        val allEditTexts = listOf(
+            binding.etWidth,
+            binding.etHeight,
+            binding.etSlope,
+            binding.etIntercept,
+            binding.etGaussK,
+            binding.etMedianK,
+            binding.etBilateralD,
+            binding.etFftR,
+            binding.etResW,
+            binding.etResH,
+            binding.etClaheClip
+        )
+        allEditTexts.forEach { it.setOnEditorActionListener(editorListener) }
+
+        // 触摸 EditText 之外的区域 -> 根 NestedScrollView 抢焦点 -> EditText 失焦 -> 软键盘收起
+        binding.scrollRoot.setOnClickListener {
+            hideKeyboard()
+            binding.scrollRoot.requestFocus()
+        }
+    }
+
+    private fun hideKeyboard() {
+        val ctx = context ?: return
+        val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            ?: return
+        val tokenOwner = activity?.currentFocus ?: binding.root
+        imm.hideSoftInputFromWindow(tokenOwner.windowToken, 0)
     }
 
     private fun runPreprocessChain() {

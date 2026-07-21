@@ -107,7 +107,11 @@ namespace CTPreprocess {
         maskCh.push_back(mask);
         cv::Mat mask2c;
         cv::merge(maskCh, mask2c);
-        shiftMat = shiftMat.mul(mask2c / 255.0);
+
+        // 修复：显式将掩码转换为 CV_32F 类型，确保与 shiftMat 类型一致
+        cv::Mat maskF;
+        mask2c.convertTo(maskF, CV_32F, 1.0 / 255.0);
+        shiftMat = shiftMat.mul(maskF);
 
         // 逆中心化
         q1.copyTo(tmp);
