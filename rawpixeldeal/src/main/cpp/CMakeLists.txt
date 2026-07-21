@@ -39,6 +39,7 @@ set(OPENCV_LINK_LIBS
 # ========== 业务动态库：rawpixeldeal_native ==========
 add_library(${CMAKE_PROJECT_NAME} SHARED
         native-lib.cpp
+        MedicalCTPreprocess.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
