@@ -69,6 +69,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:imeOptions="actionDone"
                 android:inputType="number"
                 android:text="1112"
                 android:textSize="13sp" />
@@ -83,7 +84,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:imeOptions="actionDone"
                 android:inputType="number"
+
                 android:text="1740"
                 android:textSize="13sp" />
 
@@ -128,6 +131,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:imeOptions="actionDone"
                 android:inputType="numberDecimal"
                 android:text="1.0"
                 android:textSize="13sp" />
@@ -142,6 +146,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:imeOptions="actionDone"
                 android:inputType="numberSigned|numberDecimal"
                 android:text="-1024.0"
                 android:textSize="13sp" />
@@ -152,202 +157,228 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="3) Preprocess Operations (Multiple Choice)"
+            android:text="3) Preprocess Operations"
             android:textStyle="bold" />
 
-        <CheckBox
-            android:id="@+id/cb_hu"
+        <GridLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="HU校正 (ConvertRawToHU)" />
+            android:layout_marginTop="4dp"
+            android:alignmentMode="alignBounds"
+            android:columnCount="3"
+            android:padding="2dp"
+            android:rowOrderPreserved="false">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
+            <!-- Row 1, Col 1 -->
             <CheckBox
-                android:id="@+id/cb_gaussian"
+                android:id="@+id/cb_hu"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="高斯去噪" />
+                android:layout_columnWeight="1"
+                android:text="HU校正"
+                android:textSize="12sp" />
 
-            <TextView
+            <!-- Row 1, Col 2 -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" K:"
-                android:textSize="12sp" />
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/et_gauss_k"
-                android:layout_width="40dp"
+                <CheckBox
+                    android:id="@+id/cb_gaussian"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="高斯去噪"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="K:"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/et_gauss_k"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="5"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Row 1, Col 3 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="5"
-                android:textSize="12sp" />
-        </LinearLayout>
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+                <CheckBox
+                    android:id="@+id/cb_median"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="中值去噪"
+                    android:textSize="12sp" />
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="K:"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/et_median_k"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="3"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Row 2, Col 1 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cb_bilateral"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="双边去噪"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="d:"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/et_bilateral_d"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="5"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Row 2, Col 2 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cb_fft"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="频域FFT"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="R:"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/et_fft_r"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="30"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Row 2, Col 3 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cb_resample"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="重采样"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/et_res_w"
+                    android:layout_width="35dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="512"
+                    android:textSize="10sp" />
+
+                <EditText
+                    android:id="@+id/et_res_h"
+                    android:layout_width="35dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="number"
+                    android:text="512"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- Row 3, Col 1 -->
             <CheckBox
-                android:id="@+id/cb_median"
+                android:id="@+id/cb_equalize"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="中值去噪" />
+                android:layout_columnWeight="1"
+                android:text="直方图均衡"
+                android:textSize="12sp" />
 
-            <TextView
+            <!-- Row 3, Col 2 -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" K:"
-                android:textSize="12sp" />
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/et_median_k"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="3"
-                android:textSize="12sp" />
-        </LinearLayout>
+                <CheckBox
+                    android:id="@+id/cb_clahe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="CLAHE增强"
+                    android:textSize="12sp" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+                <EditText
+                    android:id="@+id/et_clahe_clip"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="numberDecimal"
+                    android:text="2.0"
+                    android:textSize="11sp" />
+            </LinearLayout>
 
+            <!-- Row 3, Col 3 -->
             <CheckBox
-                android:id="@+id/cb_bilateral"
+                android:id="@+id/cb_stretch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="双边去噪" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" d:"
+                android:layout_columnWeight="1"
+                android:text="对比度拉伸"
                 android:textSize="12sp" />
-
-            <EditText
-                android:id="@+id/et_bilateral_d"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="5"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <CheckBox
-                android:id="@+id/cb_fft"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="频域FFT" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" R:"
-                android:textSize="12sp" />
-
-            <EditText
-                android:id="@+id/et_fft_r"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="30"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <CheckBox
-                android:id="@+id/cb_resample"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="重采样(尺寸)" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" W:"
-                android:textSize="12sp" />
-
-            <EditText
-                android:id="@+id/et_res_w"
-                android:layout_width="50dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="512"
-                android:textSize="12sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" H:"
-                android:textSize="12sp" />
-
-            <EditText
-                android:id="@+id/et_res_h"
-                android:layout_width="50dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="512"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <CheckBox
-            android:id="@+id/cb_equalize"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="全局均衡化" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <CheckBox
-                android:id="@+id/cb_clahe"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CLAHE增强" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" clip:"
-                android:textSize="12sp" />
-
-            <EditText
-                android:id="@+id/et_clahe_clip"
-                android:layout_width="40dp"
-                android:layout_height="wrap_content"
-                android:inputType="numberDecimal"
-                android:text="2.0"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <CheckBox
-            android:id="@+id/cb_stretch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="对比度拉伸" />
+        </GridLayout>
 
         <!-- 4) Execution -->
         <Button

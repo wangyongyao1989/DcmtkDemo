@@ -12,6 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.example.dcmtk.utils.LogUtil
 import com.example.dcmtkdemo.databinding.FragmentCtPreprocessBinding
 import com.example.rawpixeldeal.MedicalCTPreprocess
 import com.example.rawpixeldeal.MedicalCTPreprocess.Op
@@ -78,6 +79,7 @@ class CTPreprocessFragment : Fragment() {
 
         // 触摸 EditText 之外的区域 -> 根 NestedScrollView 抢焦点 -> EditText 失焦 -> 软键盘收起
         binding.scrollRoot.setOnClickListener {
+            LogUtil.e("scrollRoot.setOnClickListener")
             hideKeyboard()
             binding.scrollRoot.requestFocus()
         }
@@ -141,8 +143,8 @@ class CTPreprocessFragment : Fragment() {
         }
 
         if (steps.isEmpty()) {
-            Toast.makeText(ctx, "请至少选择一种预处理方法", Toast.LENGTH_SHORT).show()
-            return
+            // Requirement: If no steps selected, show original image
+            Log.i(TAG, "No preprocess steps selected, loading original image.")
         }
 
         binding.btnRun.isEnabled = false
@@ -168,7 +170,8 @@ class CTPreprocessFragment : Fragment() {
                     append("Source: $assetName (${w}x${h}@${bitDepth}bit)\n")
                     append("Output: ${result.outWidth}x${result.outHeight}\n")
                     append("Range: [${result.minVal}, ${result.maxVal}]\n")
-                    append("Steps: ${steps.joinToString { it.op.displayName }}")
+                    val stepsStr = if (steps.isEmpty()) "None (Original)" else steps.joinToString { it.op.displayName }
+                    append("Steps: $stepsStr")
                 }
                 
                 // Requirement 5: Summary
@@ -185,6 +188,10 @@ class CTPreprocessFragment : Fragment() {
 
     private fun generateSummary(steps: List<PreprocessStep>): String = buildString {
         appendLine("【预处理总结与效果】")
+        if (steps.isEmpty()) {
+            appendLine("- 未选择预处理方法：当前展示为原始图像。图像仅经过了大/小端转换及基本的 8-bit 线性映射，用于基准对比。")
+            return@buildString
+        }
         steps.forEach { step ->
             when (step.op) {
                 Op.HU_CONVERT -> appendLine("- HU校正：将原始像素值转换为物理HU值，使图像具有临床诊断意义。")

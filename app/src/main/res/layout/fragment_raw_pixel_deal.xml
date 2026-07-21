@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
+<?xml version="1.0" encoding="utf-8"?><!--
     整个 fragment 用 NestedScrollView 包裹，所有内容（参数、按钮、信息、图像）都参与
     上下滑动。适用于"参数较多 + 图像较大（1500x1290 原图）"的场景，方便人工筛查
     时把页面滚到任意位置查看控件或图像细节。
@@ -8,10 +7,10 @@
     android:id="@+id/scroll_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:focusable="true"
-    android:focusableInTouchMode="true"
     android:clickable="true"
-    android:fillViewport="true">
+    android:fillViewport="true"
+    android:focusable="true"
+    android:focusableInTouchMode="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,10 +21,10 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
             android:text="Raw Pixel Deal"
             android:textSize="18sp"
-            android:textStyle="bold"
-            android:paddingBottom="8dp"/>
+            android:textStyle="bold" />
 
         <!-- 1) 最小链路验证：保留原有 verify 按钮 -->
         <Button
@@ -39,36 +38,36 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textSize="11sp"
             android:padding="6dp"
-            android:text="Result will appear here..." />
+            android:text="Result will appear here..."
+            android:textSize="11sp" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#33000000"
             android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="8dp"
+            android:background="#33000000" />
 
         <!-- 2) 原始像素缓冲区（assets 下 .bin）处理：人工筛查 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
             android:text="2) Load assets .bin &amp; display via OpenCV"
-            android:textStyle="bold"
-            android:paddingBottom="4dp"/>
+            android:textStyle="bold" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Asset:"
-                android:layout_marginEnd="6dp"/>
+                android:layout_marginEnd="6dp"
+                android:text="Asset:" />
 
             <RadioGroup
                 android:id="@+id/rg_asset"
@@ -81,14 +80,14 @@
                     android:id="@+id/rb_data610"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Data610.bin"
-                    android:checked="true"/>
+                    android:checked="true"
+                    android:text="Data610.bin" />
 
                 <RadioButton
                     android:id="@+id/rb_data622"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Data622.bin"/>
+                    android:text="Data622.bin" />
             </RadioGroup>
         </LinearLayout>
 
@@ -96,43 +95,46 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="W:"/>
+                android:text="W:" />
+
             <EditText
                 android:id="@+id/et_width"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:inputType="number"
                 android:imeOptions="actionDone"
+                android:inputType="number"
                 android:singleLine="true"
                 android:text="1112"
-                android:textSize="13sp"/>
+                android:textSize="13sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="H:"/>
+                android:text="H:" />
+
             <EditText
                 android:id="@+id/et_height"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:inputType="number"
                 android:imeOptions="actionDone"
+                android:inputType="number"
                 android:singleLine="true"
                 android:text="1740"
-                android:textSize="13sp"/>
+                android:textSize="13sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Bit:"/>
+                android:text="Bit:" />
+
             <RadioGroup
                 android:id="@+id/rg_bit"
                 android:layout_width="wrap_content"
@@ -143,14 +145,14 @@
                     android:id="@+id/rb_8bit"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="8"/>
+                    android:text="8" />
 
                 <RadioButton
                     android:id="@+id/rb_16bit"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="16"
-                    android:checked="true"/>
+                    android:checked="true"
+                    android:text="16" />
             </RadioGroup>
         </LinearLayout>
 
@@ -158,82 +160,138 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Crop L:"/>
-            <EditText android:id="@+id/et_crop_l" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="80" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Crop L:" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="T:"/>
-            <EditText android:id="@+id/et_crop_t" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="140" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_crop_l"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="80"
+                android:textSize="13sp" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="R:"/>
-            <EditText android:id="@+id/et_crop_r" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="80" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T:" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="B:"/>
-            <EditText android:id="@+id/et_crop_b" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="500" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_crop_t"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="140"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="R:" />
+
+            <EditText
+                android:id="@+id/et_crop_r"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="80"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="B:" />
+
+            <EditText
+                android:id="@+id/et_crop_b"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="500"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <!-- CLAHE 开关 + clip / tile -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <CheckBox
                 android:id="@+id/cb_clahe"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="CLAHE"
-                android:checked="true"/>
+                android:checked="true"
+                android:text="CLAHE" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="clip:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_clip" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="2.0" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="clip:" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="tile:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_tile" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="8" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_clip"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="2.0"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="tile:" />
+
+            <EditText
+                android:id="@+id/et_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="8"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <Button
             android:id="@+id/btn_load_asset"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Load &amp; Display"
-            android:layout_marginTop="4dp"/>
+            android:layout_marginTop="4dp"
+            android:text="Load &amp; Display" />
 
         <TextView
             android:id="@+id/tv_asset_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textSize="11sp"
             android:padding="4dp"
-            android:text="(image info)" />
+            android:text="(image info)"
+            android:textSize="11sp" />
 
         <!--
             图像展示：height=wrap_content，按 adjustViewBounds 等比缩放到
@@ -246,16 +304,16 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:adjustViewBounds="true"
-            android:scaleType="fitStart"
             android:background="#11000000"
-            android:contentDescription="raw pixel image"/>
+            android:contentDescription="raw pixel image"
+            android:scaleType="fitStart" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#33000000"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="8dp"
+            android:background="#33000000" />
 
         <!--
             3) CT 序列级处理管线（PRD ct-opencv-raw-buffer-windowing-prd）：
@@ -266,16 +324,16 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
             android:text="3) CT Series Pipeline (HU + Auto-Crop + Adaptive Windowing)"
-            android:textStyle="bold"
-            android:paddingBottom="4dp"/>
+            android:textStyle="bold" />
 
         <!-- 序列选择（单张 = Data610.bin / Data622.bin） -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Series (slices):"
-            android:layout_marginEnd="6dp"/>
+            android:layout_marginEnd="6dp"
+            android:text="Series (slices):" />
 
         <RadioGroup
             android:id="@+id/rg_series"
@@ -287,20 +345,20 @@
                 android:id="@+id/rb_series_610"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="[610]"
-                android:checked="true"/>
+                android:checked="true"
+                android:text="[610]" />
 
             <RadioButton
                 android:id="@+id/rb_series_622"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="[622]"/>
+                android:text="[622]" />
 
             <RadioButton
                 android:id="@+id/rb_series_610_622"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="[610+622] (2 slices)"/>
+                android:text="[610+622] (2 slices)" />
         </RadioGroup>
 
         <!--
@@ -312,29 +370,58 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Slope:"/>
-            <EditText android:id="@+id/et_slope" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="1.0" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slope:" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Intercept:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_intercept" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="-1024" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_slope"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="1.0"
+                android:textSize="13sp" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Body>:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_body_thr" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberSigned" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="-600" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Intercept:" />
+
+            <EditText
+                android:id="@+id/et_intercept"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="-1024"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Body>:" />
+
+            <EditText
+                android:id="@+id/et_body_thr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberSigned"
+                android:singleLine="true"
+                android:text="-600"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <!--
@@ -345,11 +432,14 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Pixel:" android:layout_marginEnd="6dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="Pixel:" />
 
             <RadioGroup
                 android:id="@+id/rg_pixel_sign"
@@ -361,29 +451,49 @@
                     android:id="@+id/rb_pixel_signed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Signed"
-                    android:checked="true"/>
+                    android:checked="true"
+                    android:text="Signed" />
 
                 <RadioButton
                     android:id="@+id/rb_pixel_unsigned"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Unsigned"/>
+                    android:text="Unsigned" />
             </RadioGroup>
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="pLow%:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_p_low" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="0.5" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="pLow%:" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="pHigh%:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_p_high" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="99.5" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_p_low"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="0.5"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="pHigh%:" />
+
+            <EditText
+                android:id="@+id/et_p_high"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="99.5"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <!--
@@ -393,60 +503,89 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="N0(x1000):"/>
-            <EditText android:id="@+id/et_n0" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="1.5" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="N0(x1000):" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="N1(x1000):" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_n1" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="numberDecimal" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="1.5" android:textSize="13sp"/>
+            <EditText
+                android:id="@+id/et_n0"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="1.5"
+                android:textSize="13sp" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Stride:" android:layout_marginStart="8dp"/>
-            <EditText android:id="@+id/et_stride" android:layout_width="0dp"
-                android:layout_height="wrap_content" android:layout_weight="1"
-                android:inputType="number" android:imeOptions="actionDone" android:singleLine="true"
-                android:text="2" android:textSize="13sp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="N1(x1000):" />
+
+            <EditText
+                android:id="@+id/et_n1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="numberDecimal"
+                android:singleLine="true"
+                android:text="1.5"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Stride:" />
+
+            <EditText
+                android:id="@+id/et_stride"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:imeOptions="actionDone"
+                android:inputType="number"
+                android:singleLine="true"
+                android:text="2"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <CheckBox
             android:id="@+id/cb_bilateral"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Bilateral Filter (denoise in HU/16-bit domain)"
-            android:checked="true"/>
+            android:checked="true"
+            android:text="Bilateral Filter (denoise in HU/16-bit domain)" />
 
         <CheckBox
             android:id="@+id/cb_display_clahe"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Display CLAHE (boost soft-tissue contrast on 8-bit)"
-            android:checked="false"/>
+            android:checked="false"
+            android:text="Display CLAHE (boost soft-tissue contrast on 8-bit)" />
 
         <Button
             android:id="@+id/btn_run_series"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Run Series Pipeline"
-            android:layout_marginTop="4dp"/>
+            android:layout_marginTop="4dp"
+            android:text="Run Series Pipeline" />
 
         <TextView
             android:id="@+id/tv_series_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textSize="11sp"
             android:padding="4dp"
-            android:text="(series info)" />
+            android:text="(series info)"
+            android:textSize="11sp" />
 
         <ImageView
             android:id="@+id/iv_series_image"
@@ -454,9 +593,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:adjustViewBounds="true"
-            android:scaleType="fitStart"
             android:background="#11000000"
-            android:contentDescription="series pipeline result image"/>
+            android:contentDescription="series pipeline result image"
+            android:scaleType="fitStart" />
 
         <!-- ============================================================== -->
         <!--  X-ray 管线：ProcessPixelData-readme.md 5 步管线                -->
@@ -467,33 +606,35 @@
             android:layout_height="1dp"
             android:layout_marginTop="16dp"
             android:layout_marginBottom="8dp"
-            android:background="#33666666"/>
+            android:background="#33666666" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="X-ray Pipeline (ProcessPixelData-readme 5-step)"
-            android:textStyle="bold"
-            android:textSize="14sp"/>
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
         <!-- X-ray 数据源选择 -->
         <RadioGroup
             android:id="@+id/rg_xray_asset"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="6dp">
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
             <RadioButton
                 android:id="@+id/rb_xray_610"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Data610.bin"
-                android:checked="true"/>
+                android:checked="true"
+                android:text="Data610.bin" />
+
             <RadioButton
                 android:id="@+id/rb_xray_622"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Data622.bin"/>
+                android:text="Data622.bin" />
         </RadioGroup>
 
         <!-- X-ray 调窗方法选择 -->
@@ -501,44 +642,44 @@
             android:id="@+id/rg_xray_window"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginTop="4dp">
+            android:layout_marginTop="4dp"
+            android:orientation="vertical">
 
             <RadioButton
                 android:id="@+id/rb_xray_method_default"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="1. 默认固定窗 (127/255)"
-                android:textSize="12sp"/>
+                android:textSize="12sp" />
 
             <RadioButton
                 android:id="@+id/rb_xray_method_minmax"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="6. Min-Max (工程基线)"
                 android:checked="true"
-                android:textSize="12sp"/>
+                android:text="6. Min-Max (工程基线)"
+                android:textSize="12sp" />
 
             <RadioButton
                 android:id="@+id/rb_xray_method_cum72"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="2. 72% 累计面积法"
-                android:textSize="12sp"/>
+                android:textSize="12sp" />
 
             <RadioButton
                 android:id="@+id/rb_xray_method_bimodal"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="3. 双峰直方图法"
-                android:textSize="12sp"/>
+                android:textSize="12sp" />
 
             <RadioButton
                 android:id="@+id/rb_xray_method_adaptive"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="4. 自适应直方图法 (readme 5% / 95%)"
-                android:textSize="12sp"/>
+                android:textSize="12sp" />
         </RadioGroup>
 
         <!-- X-ray 操作按钮 -->
@@ -547,15 +688,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="RUN X-RAY PIPELINE (Tailor + Window)"/>
+            android:text="RUN X-RAY PIPELINE (Tailor + Window)" />
 
         <Button
             android:id="@+id/btn_write_dcm"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Write DICOM (.dcm) + Display"
-            android:enabled="false"/>
+            android:enabled="false"
+            android:text="Write DICOM (.dcm) + Display" />
 
         <!-- X-ray 显示图像 -->
         <ImageView
@@ -564,9 +705,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:adjustViewBounds="true"
-            android:scaleType="fitStart"
             android:background="#11000000"
-            android:contentDescription="xray pipeline result image"/>
+            android:contentDescription="xray pipeline result image"
+            android:scaleType="fitStart" />
 
         <!-- X-ray 诊断信息 -->
         <TextView
@@ -575,11 +716,11 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:background="#11000000"
-            android:padding="8dp"
-            android:textSize="11sp"
             android:fontFamily="monospace"
+            android:padding="8dp"
             android:text="(X-ray pipeline not run yet)"
-            android:textIsSelectable="true"/>
+            android:textIsSelectable="true"
+            android:textSize="11sp" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
