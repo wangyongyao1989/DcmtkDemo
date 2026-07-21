@@ -13,7 +13,8 @@
 namespace CTPreprocess {
     cv::Mat LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16, size_t step,
                                bool bigEndian) {
-        LOGI("LoadRawPixelBuffer: rows=%d, cols=%d, isUint16=%d, bigEndian=%d", rows, cols, isUint16, bigEndian);
+        LOGI("LoadRawPixelBuffer: rows=%d, cols=%d, isUint16=%d, bigEndian=%d", rows, cols,
+             isUint16, bigEndian);
         int type = isUint16 ? CV_16UC1 : CV_16SC1;
         cv::Mat mat(rows, cols, type, rawBuf, step);
 
@@ -152,7 +153,8 @@ namespace CTPreprocess {
     }
 
     cv::Mat EnhanceCLAHE(const cv::Mat &src8u, double clipLimit, cv::Size tileSize) {
-        LOGI("EnhanceCLAHE: clipLimit=%.2f, tileSize=%dx%d", clipLimit, tileSize.width, tileSize.height);
+        LOGI("EnhanceCLAHE: clipLimit=%.2f, tileSize=%dx%d", clipLimit, tileSize.width,
+             tileSize.height);
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clipLimit, tileSize);
         cv::Mat dst;
         clahe->apply(src8u, dst);

@@ -378,6 +378,15 @@
                 android:layout_columnWeight="1"
                 android:text="对比度拉伸"
                 android:textSize="12sp" />
+
+            <!-- Row 4, Col 1 -->
+            <CheckBox
+                android:id="@+id/cb_tailor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="图片裁剪"
+                android:textSize="12sp" />
         </GridLayout>
 
         <!-- 4) Execution -->

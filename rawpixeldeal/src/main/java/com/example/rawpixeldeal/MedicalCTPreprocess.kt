@@ -23,7 +23,8 @@ object MedicalCTPreprocess {
         GLOBAL_EQUALIZE(7, "全局均衡化"),
         CLAHE(8, "CLAHE增强"),
         CONTRAST_STRETCH(9, "对比度拉伸"),
-        HU_CONVERT(10, "HU校正")
+        HU_CONVERT(10, "HU校正"),
+        TAILOR(11, "图片裁剪")
     }
 
     data class PreprocessStep(

@@ -15,8 +15,8 @@ namespace XrayProcessor {
      * @brief 执行 X-ray 图像裁剪核心逻辑。
      */
     cv::Mat tailor(const cv::Mat &sv, int minAreaThreshold, bool enableSobel,
-                  int morphCross, double otsuThresholdLow,
-                  int &outX, int &outY, double &outAngle, bool &okFlag);
+                   int morphCross, double otsuThresholdLow,
+                   int &outX, int &outY, double &outAngle, bool &okFlag);
 
 }
 

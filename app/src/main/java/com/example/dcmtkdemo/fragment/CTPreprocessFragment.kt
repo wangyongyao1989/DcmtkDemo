@@ -18,6 +18,7 @@ import com.example.dcmtkdemo.databinding.FragmentCtPreprocessBinding
 import com.example.rawpixeldeal.MedicalCTPreprocess
 import com.example.rawpixeldeal.MedicalCTPreprocess.Op
 import com.example.rawpixeldeal.MedicalCTPreprocess.PreprocessStep
+import com.example.rawpixeldeal.jni.RawPixelDealJni
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,7 +110,7 @@ class CTPreprocessFragment : Fragment() {
                 // 3. 执行标准流水线处理裁剪后的数据
                 val outInfoPipeline = IntArray(4)
                 val rgba = withContext(Dispatchers.IO) {
-                    com.example.rawpixeldeal.jni.RawPixelDealJni.processCTFullPipeline(
+                    RawPixelDealJni.processCTFullPipeline(
                         rawBuffer = croppedRaw,
                         width = croppedW,
                         height = croppedH,
@@ -264,8 +265,13 @@ class CTPreprocessFragment : Fragment() {
         val slope = binding.etSlope.text.toString().toDoubleOrNull() ?: 1.0
         val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
 
-        // 2. 构造处理链 (注意顺序：通常是 HU校正 -> 去噪 -> 重采样 -> 增强)
+        // 2. 构造处理链 (注意顺序：通常是 图片裁剪 -> HU校正 -> 去噪 -> 重采样 -> 增强)
         val steps = mutableListOf<PreprocessStep>()
+
+        if (binding.cbTailor.isChecked) {
+            // 参数：[minAreaThreshold, enableSobel, morphCross, otsuThresholdLow]
+            steps.add(PreprocessStep(Op.TAILOR, listOf(50000.0, 1.0, 5.0, 10.0)))
+        }
 
         if (binding.cbHu.isChecked) {
             steps.add(PreprocessStep(Op.HU_CONVERT, listOf(slope, intercept)))
@@ -364,6 +370,7 @@ class CTPreprocessFragment : Fragment() {
                 Op.GLOBAL_EQUALIZE -> appendLine("- 全局均衡化：提升整体灰度分布均匀度，增强弱对比度区域。")
                 Op.CLAHE -> appendLine("- CLAHE：局部自适应增强对比度，抑制噪声放大，突出细节结构。")
                 Op.CONTRAST_STRETCH -> appendLine("- 对比度拉伸：将灰度区间映射到0-255，提升视觉可读性。")
+                Op.TAILOR -> appendLine("- 图片裁剪：自动定位主体区域并旋转校正，去除无效边缘干扰。")
                 else -> {}
             }
         }
