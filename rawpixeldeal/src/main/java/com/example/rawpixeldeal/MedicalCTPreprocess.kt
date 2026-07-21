@@ -93,4 +93,43 @@ object MedicalCTPreprocess {
             maxVal = outInfo[3]
         )
     }
+
+    /**
+     * 执行完整预处理流水线（标准流程）
+     */
+    fun processFullPipeline(
+        context: Context,
+        assetName: String,
+        width: Int,
+        height: Int,
+        tarW: Int,
+        tarH: Int,
+        slope: Float,
+        intercept: Float
+    ): PreprocessResult {
+        val bytes = context.assets.open(assetName).use { it.readBytes() }
+        val outInfo = IntArray(4)
+        val rgba = RawPixelDealJni.processCTFullPipeline(
+            rawBuffer = bytes,
+            width = width,
+            height = height,
+            tarW = tarW,
+            tarH = tarH,
+            slope = slope,
+            intercept = intercept,
+            outInfo = outInfo
+        ) ?: throw IllegalStateException("native processCTFullPipeline returned null")
+
+        val bmp = Bitmap.createBitmap(outInfo[0], outInfo[1], Bitmap.Config.ARGB_8888)
+        val buf = ByteBuffer.wrap(rgba).order(ByteOrder.nativeOrder())
+        bmp.copyPixelsFromBuffer(buf)
+
+        return PreprocessResult(
+            bitmap = bmp,
+            outWidth = outInfo[0],
+            outHeight = outInfo[1],
+            minVal = outInfo[2],
+            maxVal = outInfo[3]
+        )
+    }
 }

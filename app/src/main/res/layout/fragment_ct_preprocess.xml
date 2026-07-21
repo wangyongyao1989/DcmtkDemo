@@ -323,7 +323,7 @@
                     android:layout_height="wrap_content"
                     android:imeOptions="actionDone"
                     android:inputType="number"
-                    android:text="512"
+                    android:text="1112"
                     android:textSize="10sp" />
 
                 <EditText
@@ -332,7 +332,7 @@
                     android:layout_height="wrap_content"
                     android:imeOptions="actionDone"
                     android:inputType="number"
-                    android:text="512"
+                    android:text="1740"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -381,12 +381,27 @@
         </GridLayout>
 
         <!-- 4) Execution -->
-        <Button
-            android:id="@+id/btn_run"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="LOAD &amp; DISPLAY (Preprocess Chain)" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_run"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="LOAD &amp; DISPLAY" />
+
+            <Button
+                android:id="@+id/btn_full_pipeline"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="标准流水线" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_info"

@@ -248,4 +248,29 @@ object RawPixelDealJni {
         params: DoubleArray,
         outInfo: IntArray
     ): ByteArray?
+
+    /**
+     * 完整预处理流水线（原文标准流程）。
+     *
+     * @param rawBuffer 原始像素字节
+     * @param width     宽
+     * @param height    高
+     * @param tarW      目标宽
+     * @param tarH      目标高
+     * @param slope     Slope
+     * @param intercept Intercept
+     * @param outInfo   out [outW, outH, srcMin, srcMax]
+     * @return          处理后的 RGBA8888 字节
+     */
+    @JvmStatic
+    external fun processCTFullPipeline(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        tarW: Int,
+        tarH: Int,
+        slope: Float,
+        intercept: Float,
+        outInfo: IntArray
+    ): ByteArray?
 }

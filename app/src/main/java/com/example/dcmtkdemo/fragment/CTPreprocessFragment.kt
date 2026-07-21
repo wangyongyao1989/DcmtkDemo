@@ -44,7 +44,63 @@ class CTPreprocessFragment : Fragment() {
             runPreprocessChain()
         }
 
+        binding.btnFullPipeline.setOnClickListener {
+            runFullPipeline()
+        }
+
         setupKeyboardDismiss()
+    }
+
+    /**
+     * 执行标准完整流水线
+     */
+    private fun runFullPipeline() {
+        val ctx = context ?: return
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
+        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
+        val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
+        val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
+
+        // 标准流程通常重采样到 512x512
+        val tw = binding.etResW.text.toString().toIntOrNull() ?: 512
+        val th = binding.etResH.text.toString().toIntOrNull() ?: 512
+
+        binding.btnFullPipeline.isEnabled = false
+        binding.tvInfo.text = "Running Standard Pipeline..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    MedicalCTPreprocess.processFullPipeline(
+                        context = ctx,
+                        assetName = assetName,
+                        width = w,
+                        height = h,
+                        tarW = tw,
+                        tarH = th,
+                        slope = slope,
+                        intercept = intercept
+                    )
+                }
+                if (_binding == null) return@launch
+                binding.ivImage.setImageBitmap(result.bitmap)
+                binding.tvInfo.text = buildString {
+                    append("Standard Pipeline Done.\n")
+                    append("Source: $assetName (${w}x${h})\n")
+                    append("Output: ${result.outWidth}x${result.outHeight}\n")
+                    append("Flow: Raw -> HU -> Bilateral -> Resample -> Stretch -> CLAHE")
+                }
+                binding.tvSummary.text = "【标准流水线总结】\n执行了官方标准流程：" +
+                        "1. HU值校正；2. 双边滤波降噪；3. 线性重采样；4. 对比度拉伸；" +
+                        "5. CLAHE局部增强。该流程是医学图像处理的基准，兼顾了边缘保留与对比度提升。"
+            } catch (e: Exception) {
+                Log.e(TAG, "Full pipeline failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                _binding?.btnFullPipeline?.isEnabled = true
+            }
+        }
     }
 
     /**

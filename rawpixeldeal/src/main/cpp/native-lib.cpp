@@ -1518,6 +1518,50 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
 }
 
 // =============================================================================
+// 完整预处理流水线接口 (Requirement 2.2)
+// =============================================================================
+static jbyteArray native_processCTFullPipeline(JNIEnv *env, jclass clazz,
+                                               jbyteArray rawBuffer, jint width, jint height,
+                                               jint tarW, jint tarH, jfloat slope,
+                                               jfloat intercept, jintArray outInfo) {
+    LOGI("native_processCTFullPipeline: START %dx%d -> %dx%d", width, height, tarW, tarH);
+    if (rawBuffer == nullptr || outInfo == nullptr) {
+        LOGE("processCTFullPipeline: null arguments");
+        return nullptr;
+    }
+
+    jbyte *pRaw = env->GetByteArrayElements(rawBuffer, nullptr);
+
+    // 调 C++ 完整流水线
+    cv::Mat result = CTPreprocess::CTFullPipeline(pRaw, height, width, tarW, tarH, slope, intercept);
+
+    // 转 RGBA
+    cv::Mat rgba;
+    cv::cvtColor(result, rgba, cv::COLOR_GRAY2RGBA);
+
+    jsize rgbaSize = rgba.total() * rgba.elemSize();
+    jbyteArray resultArr = env->NewByteArray(rgbaSize);
+    env->SetByteArrayRegion(resultArr, 0, rgbaSize, (jbyte *) rgba.data);
+
+    // 写回输出信息
+    jint *pOutInfo = env->GetIntArrayElements(outInfo, nullptr);
+    if (env->GetArrayLength(outInfo) >= 4) {
+        pOutInfo[0] = rgba.cols;
+        pOutInfo[1] = rgba.rows;
+        double minV, maxV;
+        cv::minMaxLoc(result, &minV, &maxV);
+        pOutInfo[2] = (int) minV;
+        pOutInfo[3] = (int) maxV;
+    }
+    env->ReleaseIntArrayElements(outInfo, pOutInfo, 0);
+
+    env->ReleaseByteArrayElements(rawBuffer, pRaw, JNI_ABORT);
+
+    LOGI("native_processCTFullPipeline: DONE. outSize=%dx%d", rgba.cols, rgba.rows);
+    return resultArr;
+}
+
+// =============================================================================
 // JNI Registration
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
@@ -1597,6 +1641,9 @@ static const JNINativeMethod kMethods[] = {
         {"processMedicalCT",
                 "([BIIIZZ[I[D[I)[B",
                 (void *) native_processMedicalCT},
+        {"processCTFullPipeline",
+                "([BIIIIFF[I)[B",
+                (void *) native_processCTFullPipeline},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
