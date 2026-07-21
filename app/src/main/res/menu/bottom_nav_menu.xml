@@ -28,4 +28,8 @@
         android:id="@+id/nav_raw_pixel"
         android:icon="@android:drawable/ic_menu_view"
         android:title="Raw Pixel Deal" />
+    <item
+        android:id="@+id/nav_ct_preprocess"
+        android:icon="@android:drawable/ic_menu_manage"
+        android:title="CT Preprocess" />
 </menu>

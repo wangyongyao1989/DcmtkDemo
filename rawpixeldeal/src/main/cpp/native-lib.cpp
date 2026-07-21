@@ -21,6 +21,8 @@
 #include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "include/MedicalCTPreprocess.h"
+
 #define TAG "RawPixelDealJni"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -1356,6 +1358,156 @@ static jbyteArray native_tailorImage(
 }
 
 // =============================================================================
+// 医学图像通用预处理接口 (Requirement 2)
+// =============================================================================
+static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
+                                          jbyteArray rawBuffer, jint width, jint height,
+                                          jint bitDepth, jboolean bigEndian, jboolean isUint16,
+                                          jintArray ops, jdoubleArray params, jintArray outInfo) {
+    if (rawBuffer == nullptr || ops == nullptr || params == nullptr || outInfo == nullptr) {
+        LOGE("processMedicalCT: null arguments");
+        return nullptr;
+    }
+
+    jbyte *pRaw = env->GetByteArrayElements(rawBuffer, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+
+    // 1. 载入原始像素
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, height, width, isUint16, 0, bigEndian);
+
+    // 2. 依次执行选中的预处理算子
+    int paramIdx = 0;
+    for (int i = 0; i < opsCount; ++i) {
+        int op = pOps[i];
+        switch (op) {
+            case 1: // Gaussian: [kernel, sigma]
+            {
+                int k = (int) pParams[paramIdx++];
+                double sigma = pParams[paramIdx++];
+                mat = CTPreprocess::DenoiseGaussian(mat, k, sigma);
+                break;
+            }
+            case 2: // Median: [kernel]
+            {
+                int k = (int) pParams[paramIdx++];
+                mat = CTPreprocess::DenoiseMedian(mat, k);
+                break;
+            }
+            case 3: // Bilateral: [d, sigmaColor, sigmaSpace]
+            {
+                int d = (int) pParams[paramIdx++];
+                double sc = pParams[paramIdx++];
+                double ss = pParams[paramIdx++];
+                mat = CTPreprocess::DenoiseBilateral(mat, d, sc, ss);
+                break;
+            }
+            case 4: // FFT: [radius]
+            {
+                float r = (float) pParams[paramIdx++];
+                mat = CTPreprocess::DenoiseFrequencyFFT(mat, r);
+                break;
+            }
+            case 5: // Resample(Size): [targetW, targetH, isUpSample]
+            {
+                int tw = (int) pParams[paramIdx++];
+                int th = (int) pParams[paramIdx++];
+                bool up = pParams[paramIdx++] > 0.5;
+                mat = CTPreprocess::ResampleImage(mat, tw, th, up);
+                break;
+            }
+            case 6: // Resample(Scale): [scaleX, scaleY]
+            {
+                float sx = (float) pParams[paramIdx++];
+                float sy = (float) pParams[paramIdx++];
+                mat = CTPreprocess::ResampleByScale(mat, sx, sy);
+                break;
+            }
+            case 7: // GlobalEqualize: []
+            {
+                // equalization requires 8u
+                if (mat.depth() != CV_8U) {
+                    double minV, maxV;
+                    cv::minMaxLoc(mat, &minV, &maxV);
+                    mat.convertTo(mat, CV_8U, 255.0 / (maxV - minV + 1e-7),
+                                  -minV * 255.0 / (maxV - minV + 1e-7));
+                }
+                mat = CTPreprocess::EnhanceGlobalEqualize(mat);
+                break;
+            }
+            case 8: // CLAHE: [clipLimit, tileX, tileY]
+            {
+                double clip = pParams[paramIdx++];
+                int tx = (int) pParams[paramIdx++];
+                int ty = (int) pParams[paramIdx++];
+                if (mat.depth() != CV_8U && mat.depth() != CV_16U) {
+                    double minV, maxV;
+                    cv::minMaxLoc(mat, &minV, &maxV);
+                    mat.convertTo(mat, CV_8U, 255.0 / (maxV - minV + 1e-7),
+                                  -minV * 255.0 / (maxV - minV + 1e-7));
+                }
+                mat = CTPreprocess::EnhanceCLAHE(mat, clip, cv::Size(tx, ty));
+                break;
+            }
+            case 9: // ContrastStretch: []
+            {
+                mat = CTPreprocess::EnhanceContrastStretch(mat);
+                break;
+            }
+            case 10: // ConvertRawToHU: [slope, intercept]
+            {
+                float slope = (float) pParams[paramIdx++];
+                float intercept = (float) pParams[paramIdx++];
+                mat = CTPreprocess::ConvertRawToHU(mat, slope, intercept);
+                break;
+            }
+            default:
+                LOGW("processMedicalCT: unknown op id %d", op);
+                break;
+        }
+    }
+
+    // 3. 最终归一化到 8-bit RGBA 用于 Bitmap 显示
+    cv::Mat out8u;
+    if (mat.depth() != CV_8U) {
+        double minV, maxV;
+        cv::minMaxLoc(mat, &minV, &maxV);
+        mat.convertTo(out8u, CV_8U, 255.0 / (maxV - minV + 1e-7),
+                      -minV * 255.0 / (maxV - minV + 1e-7));
+    } else {
+        out8u = mat;
+    }
+
+    cv::Mat rgba;
+    cv::cvtColor(out8u, rgba, cv::COLOR_GRAY2RGBA);
+
+    jsize rgbaSize = rgba.total() * rgba.elemSize();
+    jbyteArray resultArr = env->NewByteArray(rgbaSize);
+    env->SetByteArrayRegion(resultArr, 0, rgbaSize, (jbyte *) rgba.data);
+
+    // 4. 写回输出信息
+    jint *pOutInfo = env->GetIntArrayElements(outInfo, nullptr);
+    if (env->GetArrayLength(outInfo) >= 4) {
+        pOutInfo[0] = rgba.cols;
+        pOutInfo[1] = rgba.rows;
+        double minV, maxV;
+        cv::minMaxLoc(mat, &minV, &maxV);
+        pOutInfo[2] = (int) minV;
+        pOutInfo[3] = (int) maxV;
+    }
+    env->ReleaseIntArrayElements(outInfo, pOutInfo, 0);
+
+    // 5. 释放
+    env->ReleaseByteArrayElements(rawBuffer, pRaw, JNI_ABORT);
+    env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+
+    LOGI("processMedicalCT: done. out=%dx%d", rgba.cols, rgba.rows);
+    return resultArr;
+}
+
+// =============================================================================
 // JNI Registration
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
@@ -1432,6 +1584,9 @@ static const JNINativeMethod kMethods[] = {
         {"tailorImage",
                 "([BIIIIIZID[B[I)[B",
                 (void *) native_tailorImage},
+        {"processMedicalCT",
+                "([BIIIZZ[I[D[I)[B",
+                (void *) native_processMedicalCT},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

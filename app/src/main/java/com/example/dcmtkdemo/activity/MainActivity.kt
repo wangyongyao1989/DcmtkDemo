@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_show -> DcmShowFragment()
                 R.id.nav_compare -> FileCompareFragment()
                 R.id.nav_raw_pixel -> RawPixelDealFragment()
+                R.id.nav_ct_preprocess -> CTPreprocessFragment()
                 else -> null
             }
 

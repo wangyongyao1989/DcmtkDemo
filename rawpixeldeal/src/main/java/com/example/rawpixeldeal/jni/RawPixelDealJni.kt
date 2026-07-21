@@ -221,4 +221,31 @@ object RawPixelDealJni {
         outCroppedBytes: ByteArray,
         outInfo: IntArray,
     ): ByteArray?
+
+    /**
+     * 医学图像通用预处理接口（Kotlin -> Native -> C++）。
+     *
+     * @param rawBuffer     原始像素字节
+     * @param width         原图宽
+     * @param height        原图高
+     * @param bitDepth      8 或 16
+     * @param bigEndian     是否大端
+     * @param isUint16      是否无符号 16 位
+     * @param ops           预处理操作 ID 列表
+     * @param params        每个操作对应的参数（扁平化数组）
+     * @param outInfo       out [outW, outH, srcMin, srcMax]
+     * @return              处理后的 RGBA8888 字节
+     */
+    @JvmStatic
+    external fun processMedicalCT(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean,
+        isUint16: Boolean,
+        ops: IntArray,
+        params: DoubleArray,
+        outInfo: IntArray
+    ): ByteArray?
 }
