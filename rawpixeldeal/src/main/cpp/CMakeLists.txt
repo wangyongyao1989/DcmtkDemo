@@ -40,6 +40,9 @@ set(OPENCV_LINK_LIBS
 add_library(${CMAKE_PROJECT_NAME} SHARED
         native-lib.cpp
         MedicalCTPreprocess.cpp
+        JniHelper.cpp
+        CtSeriesProcessor.cpp
+        XrayProcessor.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

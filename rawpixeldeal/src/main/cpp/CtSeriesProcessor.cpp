@@ -1,0 +1,292 @@
+#include "include/CtSeriesProcessor.h"
+#include <opencv2/imgproc.hpp>
+#include <android/log.h>
+#include <cmath>
+#include <algorithm>
+#include <limits>
+
+#define TAG "CtSeriesProcessor"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
+
+namespace CtSeriesProcessor {
+
+    cv::Mat toHu(const cv::Mat &sv, double slope, double intercept) {
+        cv::Mat hu;
+        if (sv.empty()) return hu;
+        sv.convertTo(hu, CV_32FC1, slope, intercept);
+        return hu;
+    }
+
+    cv::Mat optimizeHu(const cv::Mat &hu, bool enableBilateral,
+                      int bilateralD, double sigmaColor, double sigmaSpace,
+                      float clipLowHu, float clipHighHu) {
+        cv::Mat out = hu.clone();
+        if (out.empty()) return out;
+
+        if (enableBilateral) {
+            double mn = 0.0, mx = 0.0;
+            cv::minMaxLoc(out, &mn, &mx);
+            const double span = std::max(1e-6, mx - mn);
+            cv::Mat normalized;
+            out.convertTo(normalized, CV_8UC1, 255.0 / span, -mn * 255.0 / span);
+            cv::Mat filtered8u;
+            cv::bilateralFilter(normalized, filtered8u, bilateralD, sigmaColor,
+                                sigmaSpace, cv::BORDER_REPLICATE);
+            filtered8u.convertTo(out, CV_32FC1, span / 255.0, mn);
+        }
+
+        cv::threshold(out, out, clipHighHu, clipHighHu, cv::THRESH_TRUNC);
+        cv::max(out, clipLowHu, out);
+        return out;
+    }
+
+    static cv::Rect autoCropBodyRoi(const cv::Mat &hu, float bodyThreshold,
+                                    int morphSize, int minBodyAreaPx,
+                                    int marginPx) {
+        if (hu.empty()) return cv::Rect();
+
+        cv::Mat mask;
+        cv::threshold(hu, mask, bodyThreshold, 255.0, cv::THRESH_BINARY);
+        mask.convertTo(mask, CV_8UC1);
+
+        if (morphSize > 1) {
+            cv::Mat kernel = cv::getStructuringElement(
+                    cv::MORPH_ELLIPSE, cv::Size(morphSize, morphSize));
+            cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
+            cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
+        }
+
+        cv::Mat labels, stats, centroids;
+        int n = cv::connectedComponentsWithStats(mask, labels, stats, centroids, 8, CV_32S);
+        if (n <= 1) return cv::Rect(0, 0, hu.cols, hu.rows);
+
+        int bestLabel = -1;
+        int bestArea = 0;
+        for (int i = 1; i < n; ++i) {
+            int area = stats.at<int>(i, cv::CC_STAT_AREA);
+            if (area > bestArea) {
+                bestArea = area;
+                bestLabel = i;
+            }
+        }
+        if (bestLabel < 0 || bestArea < std::max(1, minBodyAreaPx)) {
+            return cv::Rect(0, 0, hu.cols, hu.rows);
+        }
+        int x = stats.at<int>(bestLabel, cv::CC_STAT_LEFT);
+        int y = stats.at<int>(bestLabel, cv::CC_STAT_TOP);
+        int w = stats.at<int>(bestLabel, cv::CC_STAT_WIDTH);
+        int h = stats.at<int>(bestLabel, cv::CC_STAT_HEIGHT);
+
+        int x0 = std::max(0, x - marginPx);
+        int y0 = std::max(0, y - marginPx);
+        int x1 = std::min(hu.cols, x + w + marginPx);
+        int y1 = std::min(hu.rows, y + h + marginPx);
+        return cv::Rect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
+    }
+
+    cv::Rect tryAutoCropBodyRoiEx(const cv::Mat &hu, float bodyThreshold,
+                                 int morphSize, int minBodyAreaPx,
+                                 int marginPx) {
+        const float thresholds[3] = {bodyThreshold, -300.0f, -100.0f};
+        const char *names[3] = {"primary", "loose(-300)", "very-loose(-100)"};
+        for (int i = 0; i < 3; ++i) {
+            cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize, minBodyAreaPx, marginPx);
+            bool ok = (r.width < hu.cols) && (r.height < hu.rows);
+            LOGI("tryAutoCropBodyRoiEx: %s thr=%.0f -> rect=(%d,%d,%d,%d) %s",
+                 names[i], thresholds[i], r.x, r.y, r.width, r.height, ok ? "OK" : "FULL");
+            if (ok) return r;
+        }
+        LOGW("tryAutoCropBodyRoiEx: all thresholds failed, fallback to full image");
+        return cv::Rect(0, 0, hu.cols, hu.rows);
+    }
+
+    void computePercentileHu(const std::vector<cv::Mat> &huSlices,
+                            const cv::Rect &roi, int stride,
+                            double pLow, double pHigh,
+                            float &gMinOut, float &gMaxOut) {
+        gMinOut = 0.0f; gMaxOut = 1.0f;
+        std::vector<float> values;
+        values.reserve(1024);
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    values.push_back(row[xx]);
+                }
+            }
+        }
+        if (values.empty()) return;
+        std::sort(values.begin(), values.end());
+        const size_t n = values.size();
+        size_t idxLow = static_cast<size_t>(std::max(0.0, std::min(100.0, pLow)) * (n - 1) / 100.0);
+        size_t idxHigh = static_cast<size_t>(std::max(0.0, std::min(100.0, pHigh)) * (n - 1) / 100.0);
+        gMinOut = values[idxLow];
+        gMaxOut = values[idxHigh];
+        if (!(gMaxOut > gMinOut)) gMaxOut = gMinOut + 1.0f;
+        LOGI("computePercentileHu: n=%zu pLow=%.2f pHigh=%.2f -> Gmin=%.1f Gmax=%.1f", n, pLow, pHigh, gMinOut, gMaxOut);
+    }
+
+    bool computeSeriesGminGmax(const std::vector<cv::Mat> &huSlices,
+                              const cv::Rect &roi, int stride,
+                              float &gMinOut, float &gMaxOut) {
+        gMinOut = std::numeric_limits<float>::infinity();
+        gMaxOut = -std::numeric_limits<float>::infinity();
+        bool any = false;
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    float v = row[xx];
+                    if (v < gMinOut) gMinOut = v;
+                    if (v > gMaxOut) gMaxOut = v;
+                    any = true;
+                }
+            }
+        }
+        if (!any) { gMinOut = 0.0f; gMaxOut = 0.0f; return false; }
+        return true;
+    }
+
+    void aggregateSeriesHistogram(const std::vector<cv::Mat> &huSlices,
+                                 const cv::Rect &roi,
+                                 double gmin, double gmax, int nBins,
+                                 int stride, std::vector<int> &histOut) {
+        histOut.assign(nBins, 0);
+        if (huSlices.empty() || roi.area() <= 0) return;
+        const double span = std::max(1e-6, gmax - gmin);
+        const double hBin = span / static_cast<double>(nBins);
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    double v = static_cast<double>(row[xx]);
+                    if (v < gmin) v = gmin;
+                    if (v > gmax) v = gmax;
+                    int bin = static_cast<int>((v - gmin) / hBin);
+                    if (bin < 0) bin = 0;
+                    if (bin >= nBins) bin = nBins - 1;
+                    histOut[bin]++;
+                }
+            }
+        }
+    }
+
+    HistogramStats computeHistogramStats(const std::vector<int> &hist) {
+        HistogramStats s{0.0, 0.0, 0};
+        if (hist.empty()) return s;
+        long long total = 0;
+        for (int v: hist) total += v;
+        if (total <= 0) return s;
+        const double logN = std::log(static_cast<double>(hist.size()));
+        bool inPeak = false;
+        for (int v: hist) {
+            double p = static_cast<double>(v) / static_cast<double>(total);
+            if (p > 0.0 && logN > 0.0) s.entropy -= p * std::log(p) / logN;
+            if (p > s.maxBinFrac) s.maxBinFrac = p;
+            bool curPeak = (p > 0.05);
+            if (curPeak && !inPeak) s.numPeaks++;
+            inPeak = curPeak;
+        }
+        return s;
+    }
+
+    bool computeAdaptiveWindow(const std::vector<int> &histOrig,
+                              int nBins, double n0, double n1,
+                              AdaptiveWindowResult &out) {
+        if (histOrig.empty() || nBins <= 0) return false;
+        long long T = 0;
+        for (int v: histOrig) T += v;
+        if (T <= 0) return false;
+        out.t0 = static_cast<double>(T) * n0;
+        out.t1 = static_cast<double>(T) * n1;
+
+        std::vector<int> M;
+        M.reserve(nBins);
+        for (int v: histOrig) {
+            if (static_cast<double>(v) >= out.t0) M.push_back(v);
+        }
+        if (M.empty()) M = histOrig;
+
+        std::vector<int> merged;
+        merged.reserve(M.size());
+        int cur = M[0];
+        for (size_t i = 1; i < M.size(); ++i) {
+            if (std::abs(M[i] - cur) < out.t1) cur += M[i];
+            else { merged.push_back(cur); cur = M[i]; }
+        }
+        merged.push_back(cur);
+        out.b = static_cast<int>(merged.size());
+        if (out.b <= 0) out.b = 1;
+
+        if (out.hBins <= 0.0) out.hBins = 1.0;
+        out.c = static_cast<double>(out.b) * out.hBins * 0.125;
+        out.w = static_cast<double>(out.b) * out.hBins + out.c;
+        if (out.w < 1.0) out.w = 1.0;
+        return true;
+    }
+
+    void pickDefaultWindow(float gmin, float gmax, HistogramStats hs,
+                          double fallbackC, double fallbackW,
+                          double &cOut, double &wOut, bool &usedDefault) {
+        usedDefault = false;
+        const bool skewed = (hs.maxBinFrac > 0.6) || (hs.entropy < 0.3);
+        if (skewed) {
+            cOut = fallbackC; wOut = fallbackW; usedDefault = true;
+            LOGW("pickDefaultWindow: histogram skewed (entropy=%.2f maxBinFrac=%.2f) -> fallback window c=%.1f w=%.1f",
+                 hs.entropy, hs.maxBinFrac, cOut, wOut);
+            return;
+        }
+        double range = static_cast<double>(gmax) - static_cast<double>(gmin);
+        cOut = (static_cast<double>(gmin) + static_cast<double>(gmax)) * 0.5;
+        wOut = std::max(150.0, range * 0.7);
+    }
+
+    cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,
+                         int photometric) {
+        cv::Mat out(hu.size(), CV_8UC1);
+        if (hu.empty()) return out;
+        const double lower = c - w * 0.5;
+        const double upper = c + w * 0.5;
+        const double invSpan = (upper > lower) ? (255.0 / (upper - lower)) : 0.0;
+        const bool invert = (photometric == 1);
+
+        for (int yy = 0; yy < hu.rows; ++yy) {
+            const float *src = hu.ptr<float>(yy);
+            uint8_t *dst = out.ptr<uint8_t>(yy);
+            for (int xx = 0; xx < hu.cols; ++xx) {
+                double x = static_cast<double>(src[xx]);
+                double y;
+                if (invSpan <= 0.0) y = 127.5;
+                else if (x <= lower) y = 0.0;
+                else if (x >= upper) y = 255.0;
+                else y = (x - lower) * invSpan;
+                uint8_t v = static_cast<uint8_t>(y + 0.5);
+                if (invert) v = static_cast<uint8_t>(255 - v);
+                dst[xx] = v;
+            }
+        }
+        return out;
+    }
+
+    cv::Mat applyDisplayClahe(const cv::Mat &gray8u, bool enable,
+                             double clip, int tile) {
+        if (!enable || gray8u.empty() || gray8u.type() != CV_8UC1) return gray8u;
+        double c = (clip > 0.0) ? clip : 2.0;
+        int t = (tile > 0) ? tile : 8;
+        cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(c, cv::Size(t, t));
+        cv::Mat out;
+        clahe->apply(gray8u, out);
+        return out;
+    }
+
+}
