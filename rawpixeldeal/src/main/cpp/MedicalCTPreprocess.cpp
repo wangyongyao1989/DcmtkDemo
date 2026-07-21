@@ -3,15 +3,23 @@
 //
 
 #include "include/MedicalCTPreprocess.h"
+#include <android/log.h>
+
+#define TAG "MedicalCTPreprocess"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 namespace CTPreprocess {
     cv::Mat LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16, size_t step,
                                bool bigEndian) {
+        LOGI("LoadRawPixelBuffer: rows=%d, cols=%d, isUint16=%d, bigEndian=%d", rows, cols, isUint16, bigEndian);
         int type = isUint16 ? CV_16UC1 : CV_16SC1;
         cv::Mat mat(rows, cols, type, rawBuf, step);
 
         // 大端字节序转换
         if (bigEndian) {
+            LOGD("LoadRawPixelBuffer: Converting big-endian to little-endian");
             cv::Mat temp;
             mat.copyTo(temp);
             ushort *p = temp.ptr<ushort>();
@@ -26,35 +34,44 @@ namespace CTPreprocess {
     }
 
     cv::Mat ConvertRawToHU(const cv::Mat &src16, float slope, float intercept) {
+        LOGI("ConvertRawToHU: slope=%.2f, intercept=%.2f", slope, intercept);
         cv::Mat f32Mat;
         src16.convertTo(f32Mat, CV_32FC1);
         f32Mat = f32Mat * slope + intercept;
         // 截断CT有效HU范围 [-1024, 3071]
         cv::threshold(f32Mat, f32Mat, -1024, -1024, cv::THRESH_TOZERO);
         cv::threshold(f32Mat, f32Mat, 3071, 3071, cv::THRESH_TRUNC);
+
+        double minV, maxV;
+        cv::minMaxLoc(f32Mat, &minV, &maxV);
+        LOGD("ConvertRawToHU: Result HU range [%.1f, %.1f]", minV, maxV);
         return f32Mat;
     }
 
     // 去噪实现
     cv::Mat DenoiseGaussian(const cv::Mat &src, int kernel, double sigma) {
+        LOGI("DenoiseGaussian: kernel=%d, sigma=%.2f", kernel, sigma);
         cv::Mat dst;
         cv::GaussianBlur(src, dst, cv::Size(kernel, kernel), sigma, sigma);
         return dst;
     }
 
     cv::Mat DenoiseMedian(const cv::Mat &src, int kernel) {
+        LOGI("DenoiseMedian: kernel=%d", kernel);
         cv::Mat dst;
         cv::medianBlur(src, dst, kernel);
         return dst;
     }
 
     cv::Mat DenoiseBilateral(const cv::Mat &src, int d, double sigmaColor, double sigmaSpace) {
+        LOGI("DenoiseBilateral: d=%d, sigmaColor=%.2f, sigmaSpace=%.2f", d, sigmaColor, sigmaSpace);
         cv::Mat dst;
         cv::bilateralFilter(src, dst, d, sigmaColor, sigmaSpace);
         return dst;
     }
 
     cv::Mat DenoiseFrequencyFFT(const cv::Mat &src, float radius) {
+        LOGI("DenoiseFrequencyFFT: radius=%.2f", radius);
         cv::Mat gray, floatMat;
         if (src.depth() == CV_16S || src.depth() == CV_16U)
             src.convertTo(floatMat, CV_32FC1);
@@ -108,6 +125,7 @@ namespace CTPreprocess {
 
     // 重采样
     cv::Mat ResampleImage(const cv::Mat &src, int targetW, int targetH, bool isUpSample) {
+        LOGI("ResampleImage: targetW=%d, targetH=%d, isUpSample=%d", targetW, targetH, isUpSample);
         cv::Mat dst;
         cv::InterpolationFlags inter = isUpSample ? cv::INTER_CUBIC : cv::INTER_AREA;
         cv::resize(src, dst, cv::Size(targetW, targetH), 0, 0, inter);
@@ -115,6 +133,7 @@ namespace CTPreprocess {
     }
 
     cv::Mat ResampleByScale(const cv::Mat &src, float scaleX, float scaleY) {
+        LOGI("ResampleByScale: scaleX=%.2f, scaleY=%.2f", scaleX, scaleY);
         cv::Mat dst;
         cv::resize(src, dst, cv::Size(), scaleX, scaleY);
         return dst;
@@ -122,12 +141,14 @@ namespace CTPreprocess {
 
     // 图像增强
     cv::Mat EnhanceGlobalEqualize(const cv::Mat &src8u) {
+        LOGI("EnhanceGlobalEqualize");
         cv::Mat dst;
         cv::equalizeHist(src8u, dst);
         return dst;
     }
 
     cv::Mat EnhanceCLAHE(const cv::Mat &src8u, double clipLimit, cv::Size tileSize) {
+        LOGI("EnhanceCLAHE: clipLimit=%.2f, tileSize=%dx%d", clipLimit, tileSize.width, tileSize.height);
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clipLimit, tileSize);
         cv::Mat dst;
         clahe->apply(src8u, dst);
@@ -135,6 +156,7 @@ namespace CTPreprocess {
     }
 
     cv::Mat EnhanceContrastStretch(const cv::Mat &src16) {
+        LOGI("EnhanceContrastStretch");
         cv::Mat dst8u;
         cv::normalize(src16, dst8u, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         return dst8u;
@@ -143,6 +165,7 @@ namespace CTPreprocess {
     // 完整流水线：原文标准流程
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
                            float intercept) {
+        LOGI("CTFullPipeline: START");
         // 1. 载入Raw像素缓冲区
         cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, true);
         // 2. HU物理值校正
@@ -154,6 +177,7 @@ namespace CTPreprocess {
         // 5. 对比度拉伸 + CLAHE增强
         cv::Mat stretch8u = EnhanceContrastStretch(resizedMat);
         cv::Mat result = EnhanceCLAHE(stretch8u);
+        LOGI("CTFullPipeline: DONE");
         return result;
     }
 }

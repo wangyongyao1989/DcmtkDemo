@@ -292,73 +292,73 @@ namespace {
 // ---------- 工具：从 rawBuffer 构造 cv::Mat（不拷贝） ----------
 // bitsAllocated=16 时按 signed/unsigned 选 CV_16SC1 / CV_16UC1；
 // buffer 生命周期由调用方负责（这里只读，不会写）。
-static cv::Mat wrapRawMat(const uint8_t *data, int width, int height,
-                          int bitsAllocated, int pixelSigned) {
-    CV_Assert(data != nullptr && width > 0 && height > 0);
-    if (bitsAllocated == 16) {
-        int type = (pixelSigned != 0) ? CV_16SC1 : CV_16UC1;
-        return cv::Mat(height, width, type, const_cast<uint8_t *>(data));
+    static cv::Mat wrapRawMat(const uint8_t *data, int width, int height,
+                              int bitsAllocated, int pixelSigned) {
+        CV_Assert(data != nullptr && width > 0 && height > 0);
+        if (bitsAllocated == 16) {
+            int type = (pixelSigned != 0) ? CV_16SC1 : CV_16UC1;
+            return cv::Mat(height, width, type, const_cast<uint8_t *>(data));
+        }
+        if (bitsAllocated == 8) {
+            return cv::Mat(height, width, CV_8UC1, const_cast<uint8_t *>(data));
+        }
+        // 其它位深不支持
+        return cv::Mat();
     }
-    if (bitsAllocated == 8) {
-        return cv::Mat(height, width, CV_8UC1, const_cast<uint8_t *>(data));
-    }
-    // 其它位深不支持
-    return cv::Mat();
-}
 
 // ---------- 工具：把 jbyteArray 拷贝到本地 std::vector<uint8_t> ----------
-static bool copyJByteArray(JNIEnv *env, jbyteArray src, std::vector<uint8_t> &dst) {
-    if (src == nullptr) return false;
-    jsize len = env->GetArrayLength(src);
-    dst.resize(static_cast<size_t>(len));
-    if (len > 0) {
-        env->GetByteArrayRegion(src, 0, len,
-                                reinterpret_cast<jbyte *>(dst.data()));
+    static bool copyJByteArray(JNIEnv *env, jbyteArray src, std::vector<uint8_t> &dst) {
+        if (src == nullptr) return false;
+        jsize len = env->GetArrayLength(src);
+        dst.resize(static_cast<size_t>(len));
+        if (len > 0) {
+            env->GetByteArrayRegion(src, 0, len,
+                                    reinterpret_cast<jbyte *>(dst.data()));
+        }
+        return true;
     }
-    return true;
-}
 
 // ---------- 工具：HU 标准化 ----------
 // SV -> HU，公式 HU = slope * SV + intercept
 // 输入：CV_16SC1 或 CV_16UC1；输出：CV_32FC1（便于后续滤波与直方图统计）
-static cv::Mat toHu(const cv::Mat &sv, double slope, double intercept) {
-    cv::Mat hu;
-    if (sv.empty()) return hu;
-    // convertTo：dst = src * alpha + beta
-    sv.convertTo(hu, CV_32FC1, slope, intercept);
-    return hu;
-}
+    static cv::Mat toHu(const cv::Mat &sv, double slope, double intercept) {
+        cv::Mat hu;
+        if (sv.empty()) return hu;
+        // convertTo：dst = src * alpha + beta
+        sv.convertTo(hu, CV_32FC1, slope, intercept);
+        return hu;
+    }
 
 // ---------- 工具：OpenCV 视觉优化 ----------
 // (a) 双边滤波（保边去噪），开关可控；
 // (b) 极端 HU 值温和裁剪（按 clipLowHu / clipHighHu 截断到边界值）。
-static cv::Mat optimizeHu(const cv::Mat &hu, bool enableBilateral,
-                          int bilateralD, double sigmaColor, double sigmaSpace,
-                          float clipLowHu, float clipHighHu) {
-    cv::Mat out = hu.clone();
-    if (out.empty()) return out;
+    static cv::Mat optimizeHu(const cv::Mat &hu, bool enableBilateral,
+                              int bilateralD, double sigmaColor, double sigmaSpace,
+                              float clipLowHu, float clipHighHu) {
+        cv::Mat out = hu.clone();
+        if (out.empty()) return out;
 
-    if (enableBilateral) {
-        cv::Mat denoised;
-        // OpenCV bilateralFilter 仅支持 CV_8UC1；这里把 HU 归一化到 0..255 后做
-        // 双边，再线性映射回原 HU 范围。
-        double mn = 0.0, mx = 0.0;
-        cv::minMaxLoc(out, &mn, &mx);
-        const double span = std::max(1e-6, mx - mn);
-        cv::Mat normalized;
-        out.convertTo(normalized, CV_8UC1, 255.0 / span, -mn * 255.0 / span);
-        cv::Mat filtered8u;
-        cv::bilateralFilter(normalized, filtered8u, bilateralD, sigmaColor,
-                             sigmaSpace, cv::BORDER_REPLICATE);
-        filtered8u.convertTo(out, CV_32FC1, span / 255.0, mn);
+        if (enableBilateral) {
+            cv::Mat denoised;
+            // OpenCV bilateralFilter 仅支持 CV_8UC1；这里把 HU 归一化到 0..255 后做
+            // 双边，再线性映射回原 HU 范围。
+            double mn = 0.0, mx = 0.0;
+            cv::minMaxLoc(out, &mn, &mx);
+            const double span = std::max(1e-6, mx - mn);
+            cv::Mat normalized;
+            out.convertTo(normalized, CV_8UC1, 255.0 / span, -mn * 255.0 / span);
+            cv::Mat filtered8u;
+            cv::bilateralFilter(normalized, filtered8u, bilateralD, sigmaColor,
+                                sigmaSpace, cv::BORDER_REPLICATE);
+            filtered8u.convertTo(out, CV_32FC1, span / 255.0, mn);
+        }
+
+        // 极端 HU 值截断（论文中"对极端 HU 值做温和裁剪"）
+        cv::threshold(out, out, clipHighHu, clipHighHu, cv::THRESH_TRUNC);
+        cv::max(out, clipLowHu, out);
+
+        return out;
     }
-
-    // 极端 HU 值截断（论文中"对极端 HU 值做温和裁剪"）
-    cv::threshold(out, out, clipHighHu, clipHighHu, cv::THRESH_TRUNC);
-    cv::max(out, clipLowHu, out);
-
-    return out;
-}
 
 // ---------- 工具：自动裁剪人体 ROI ----------
 // 1) 阈值初筛：hu > bodyThreshold
@@ -366,115 +366,115 @@ static cv::Mat optimizeHu(const cv::Mat &hu, bool enableBilateral,
 // 3) 连通域分析：取最大连通域作为 bodyMask
 // 4) boundingRect + 外扩 margin
 // 返回：cropRect（已是图像坐标）。若 mask 为空（背景全是空气），返回原图大小。
-static cv::Rect autoCropBodyRoi(const cv::Mat &hu, float bodyThreshold,
-                                int morphSize, int minBodyAreaPx,
-                                int marginPx) {
-    if (hu.empty()) return cv::Rect();
+    static cv::Rect autoCropBodyRoi(const cv::Mat &hu, float bodyThreshold,
+                                    int morphSize, int minBodyAreaPx,
+                                    int marginPx) {
+        if (hu.empty()) return cv::Rect();
 
-    cv::Mat mask;
-    cv::threshold(hu, mask, bodyThreshold, 255.0, cv::THRESH_BINARY);
-    mask.convertTo(mask, CV_8UC1);
+        cv::Mat mask;
+        cv::threshold(hu, mask, bodyThreshold, 255.0, cv::THRESH_BINARY);
+        mask.convertTo(mask, CV_8UC1);
 
-    if (morphSize > 1) {
-        cv::Mat kernel = cv::getStructuringElement(
-                cv::MORPH_ELLIPSE, cv::Size(morphSize, morphSize));
-        // 先闭（填洞）后开（去小颗粒）
-        cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
-        cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
-    }
-
-    // 连通域：找最大块
-    cv::Mat labels, stats, centroids;
-    int n = cv::connectedComponentsWithStats(mask, labels, stats, centroids,
-                                             8, CV_32S);
-    if (n <= 1) {
-        // 没有前景
-        return cv::Rect(0, 0, hu.cols, hu.rows);
-    }
-    int bestLabel = -1;
-    int bestArea = 0;
-    for (int i = 1; i < n; ++i) {  // 0 = 背景
-        int area = stats.at<int>(i, cv::CC_STAT_AREA);
-        if (area > bestArea) {
-            bestArea = area;
-            bestLabel = i;
+        if (morphSize > 1) {
+            cv::Mat kernel = cv::getStructuringElement(
+                    cv::MORPH_ELLIPSE, cv::Size(morphSize, morphSize));
+            // 先闭（填洞）后开（去小颗粒）
+            cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
+            cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
         }
-    }
-    if (bestLabel < 0 || bestArea < std::max(1, minBodyAreaPx)) {
-        return cv::Rect(0, 0, hu.cols, hu.rows);
-    }
-    int x = stats.at<int>(bestLabel, cv::CC_STAT_LEFT);
-    int y = stats.at<int>(bestLabel, cv::CC_STAT_TOP);
-    int w = stats.at<int>(bestLabel, cv::CC_STAT_WIDTH);
-    int h = stats.at<int>(bestLabel, cv::CC_STAT_HEIGHT);
 
-    // 外扩 margin
-    int x0 = std::max(0, x - marginPx);
-    int y0 = std::max(0, y - marginPx);
-    int x1 = std::min(hu.cols, x + w + marginPx);
-    int y1 = std::min(hu.rows, y + h + marginPx);
-    return cv::Rect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
-}
+        // 连通域：找最大块
+        cv::Mat labels, stats, centroids;
+        int n = cv::connectedComponentsWithStats(mask, labels, stats, centroids,
+                                                 8, CV_32S);
+        if (n <= 1) {
+            // 没有前景
+            return cv::Rect(0, 0, hu.cols, hu.rows);
+        }
+        int bestLabel = -1;
+        int bestArea = 0;
+        for (int i = 1; i < n; ++i) {  // 0 = 背景
+            int area = stats.at<int>(i, cv::CC_STAT_AREA);
+            if (area > bestArea) {
+                bestArea = area;
+                bestLabel = i;
+            }
+        }
+        if (bestLabel < 0 || bestArea < std::max(1, minBodyAreaPx)) {
+            return cv::Rect(0, 0, hu.cols, hu.rows);
+        }
+        int x = stats.at<int>(bestLabel, cv::CC_STAT_LEFT);
+        int y = stats.at<int>(bestLabel, cv::CC_STAT_TOP);
+        int w = stats.at<int>(bestLabel, cv::CC_STAT_WIDTH);
+        int h = stats.at<int>(bestLabel, cv::CC_STAT_HEIGHT);
+
+        // 外扩 margin
+        int x0 = std::max(0, x - marginPx);
+        int y0 = std::max(0, y - marginPx);
+        int x1 = std::min(hu.cols, x + w + marginPx);
+        int y1 = std::min(hu.rows, y + h + marginPx);
+        return cv::Rect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
+    }
 
 // ---------- 工具：序列级直方图聚合 ----------
 // 对每个 slice 在 cropRect 内逐像素统计 256 bin 频数；
 // stride > 1 时按论文建议做"等距采样"以提速，结果可复现。
-static void aggregateSeriesHistogram(const std::vector<cv::Mat> &huSlices,
-                                     const cv::Rect &roi,
-                                     double gmin, double gmax, int nBins,
-                                     int stride, std::vector<int> &histOut) {
-    histOut.assign(nBins, 0);
-    if (huSlices.empty() || roi.area() <= 0) return;
-    const double span = std::max(1e-6, gmax - gmin);
-    const double hBin = span / static_cast<double>(nBins);
-    for (const cv::Mat &hu : huSlices) {
-        if (hu.empty()) continue;
-        cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
-        if (r.area() <= 0) continue;
-        for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
-            const float *row = hu.ptr<float>(yy);
-            for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
-                double v = static_cast<double>(row[xx]);
-                if (v < gmin) v = gmin;
-                if (v > gmax) v = gmax;
-                int bin = static_cast<int>((v - gmin) / hBin);
-                if (bin < 0) bin = 0;
-                if (bin >= nBins) bin = nBins - 1;
-                histOut[bin]++;
+    static void aggregateSeriesHistogram(const std::vector<cv::Mat> &huSlices,
+                                         const cv::Rect &roi,
+                                         double gmin, double gmax, int nBins,
+                                         int stride, std::vector<int> &histOut) {
+        histOut.assign(nBins, 0);
+        if (huSlices.empty() || roi.area() <= 0) return;
+        const double span = std::max(1e-6, gmax - gmin);
+        const double hBin = span / static_cast<double>(nBins);
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    double v = static_cast<double>(row[xx]);
+                    if (v < gmin) v = gmin;
+                    if (v > gmax) v = gmax;
+                    int bin = static_cast<int>((v - gmin) / hBin);
+                    if (bin < 0) bin = 0;
+                    if (bin >= nBins) bin = nBins - 1;
+                    histOut[bin]++;
+                }
             }
         }
     }
-}
 
 // ---------- 工具：序列 Gmin/Gmax 统计 ----------
 // 在所有 slice 的 ROI 内统计 min/max HU。
-static bool computeSeriesGminGmax(const std::vector<cv::Mat> &huSlices,
-                                  const cv::Rect &roi, int stride,
-                                  float &gMinOut, float &gMaxOut) {
-    gMinOut = std::numeric_limits<float>::infinity();
-    gMaxOut = -std::numeric_limits<float>::infinity();
-    bool any = false;
-    for (const cv::Mat &hu : huSlices) {
-        if (hu.empty()) continue;
-        cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
-        if (r.area() <= 0) continue;
-        for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
-            const float *row = hu.ptr<float>(yy);
-            for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
-                float v = row[xx];
-                if (v < gMinOut) gMinOut = v;
-                if (v > gMaxOut) gMaxOut = v;
-                any = true;
+    static bool computeSeriesGminGmax(const std::vector<cv::Mat> &huSlices,
+                                      const cv::Rect &roi, int stride,
+                                      float &gMinOut, float &gMaxOut) {
+        gMinOut = std::numeric_limits<float>::infinity();
+        gMaxOut = -std::numeric_limits<float>::infinity();
+        bool any = false;
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    float v = row[xx];
+                    if (v < gMinOut) gMinOut = v;
+                    if (v > gMaxOut) gMaxOut = v;
+                    any = true;
+                }
             }
         }
+        if (!any) {
+            gMinOut = 0.0f;
+            gMaxOut = 0.0f;
+            return false;
+        }
+        return true;
     }
-    if (!any) {
-        gMinOut = 0.0f;
-        gMaxOut = 0.0f;
-        return false;
-    }
-    return true;
-}
 
 // ---------- 工具：自适应调窗 ----------
 // 实现论文《自适应调节医学CT序列图像窗宽窗位算法》（东北大学学报，2023）：
@@ -484,62 +484,62 @@ static bool computeSeriesGminGmax(const std::vector<cv::Mat> &huSlices,
 //   4) 相邻组合并：若 |M[i+1] - M[i]| < T*N1，则合并
 //   5) 剩余组数 B；c = B * H_bins * 0.125；w = B * H_bins + c
 // 返回：true 表示至少能算出 (c, w)；false 表示直方图过空 / Gmin==Gmax。
-struct AdaptiveWindowResult {
-    double c = 0.0;
-    double w = 1.0;
-    double hBins = 1.0;
-    double t0 = 0.0;
-    double t1 = 0.0;
-    int b = 0;
-};
+    struct AdaptiveWindowResult {
+        double c = 0.0;
+        double w = 1.0;
+        double hBins = 1.0;
+        double t0 = 0.0;
+        double t1 = 0.0;
+        int b = 0;
+    };
 
-static bool computeAdaptiveWindow(const std::vector<int> &histOrig,
-                                  int nBins, double n0, double n1,
-                                  AdaptiveWindowResult &out) {
-    if (histOrig.empty() || nBins <= 0) return false;
-    long long T = 0;
-    for (int v : histOrig) T += v;
-    if (T <= 0) return false;
-    out.t0 = static_cast<double>(T) * n0;
-    out.t1 = static_cast<double>(T) * n1;
+    static bool computeAdaptiveWindow(const std::vector<int> &histOrig,
+                                      int nBins, double n0, double n1,
+                                      AdaptiveWindowResult &out) {
+        if (histOrig.empty() || nBins <= 0) return false;
+        long long T = 0;
+        for (int v: histOrig) T += v;
+        if (T <= 0) return false;
+        out.t0 = static_cast<double>(T) * n0;
+        out.t1 = static_cast<double>(T) * n1;
 
-    // 步骤 3：阈值剔除（保留 Hist[i] >= T0）
-    std::vector<int> M;
-    M.reserve(nBins);
-    for (int v : histOrig) {
-        if (static_cast<double>(v) >= out.t0) M.push_back(v);
-    }
-    if (M.empty()) {
-        // 全被剔除：退化用原始直方图，论文语义下"信息全在低频"，仍要给个 (c,w)
-        M = histOrig;
-    }
-
-    // 步骤 4：相邻组合并（差值绝对值 < T1 视为同一段）
-    std::vector<int> merged;
-    merged.reserve(M.size());
-    int cur = M[0];
-    for (size_t i = 1; i < M.size(); ++i) {
-        if (std::abs(M[i] - cur) < out.t1) {
-            cur += M[i];  // 合并：求和
-        } else {
-            merged.push_back(cur);
-            cur = M[i];
+        // 步骤 3：阈值剔除（保留 Hist[i] >= T0）
+        std::vector<int> M;
+        M.reserve(nBins);
+        for (int v: histOrig) {
+            if (static_cast<double>(v) >= out.t0) M.push_back(v);
         }
+        if (M.empty()) {
+            // 全被剔除：退化用原始直方图，论文语义下"信息全在低频"，仍要给个 (c,w)
+            M = histOrig;
+        }
+
+        // 步骤 4：相邻组合并（差值绝对值 < T1 视为同一段）
+        std::vector<int> merged;
+        merged.reserve(M.size());
+        int cur = M[0];
+        for (size_t i = 1; i < M.size(); ++i) {
+            if (std::abs(M[i] - cur) < out.t1) {
+                cur += M[i];  // 合并：求和
+            } else {
+                merged.push_back(cur);
+                cur = M[i];
+            }
+        }
+        merged.push_back(cur);
+
+        out.b = static_cast<int>(merged.size());
+        if (out.b <= 0) out.b = 1;
+
+        // H_bins：原直方图的组距（HU/组）
+        // 由调用方写入 out.hBins；这里给一个保底值（防止外面没填）
+        if (out.hBins <= 0.0) out.hBins = 1.0;
+
+        out.c = static_cast<double>(out.b) * out.hBins * 0.125;
+        out.w = static_cast<double>(out.b) * out.hBins + out.c;
+        if (out.w < 1.0) out.w = 1.0;  // 防止窗宽过窄导致全 0/全 255
+        return true;
     }
-    merged.push_back(cur);
-
-    out.b = static_cast<int>(merged.size());
-    if (out.b <= 0) out.b = 1;
-
-    // H_bins：原直方图的组距（HU/组）
-    // 由调用方写入 out.hBins；这里给一个保底值（防止外面没填）
-    if (out.hBins <= 0.0) out.hBins = 1.0;
-
-    out.c = static_cast<double>(out.b) * out.hBins * 0.125;
-    out.w = static_cast<double>(out.b) * out.hBins + out.c;
-    if (out.w < 1.0) out.w = 1.0;  // 防止窗宽过窄导致全 0/全 255
-    return true;
-}
 
 // ---------- 工具：HU -> 8-bit 窗映射 ----------
 // lower = c - w/2; upper = c + w/2;
@@ -547,184 +547,185 @@ static bool computeAdaptiveWindow(const std::vector<int> &histOrig,
 //   y = 255                if x > upper
 //   y = (x-lower)*255/w    else
 // photometric=MONOCHROME1 时取反。
-static cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,
-                             int photometric) {
-    cv::Mat out(hu.size(), CV_8UC1);
-    if (hu.empty()) return out;
-    const double lower = c - w * 0.5;
-    const double upper = c + w * 0.5;
-    const double invSpan = (upper > lower) ? (255.0 / (upper - lower)) : 0.0;
-    const bool invert = (photometric == 1);
+    static cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,
+                                 int photometric) {
+        cv::Mat out(hu.size(), CV_8UC1);
+        if (hu.empty()) return out;
+        const double lower = c - w * 0.5;
+        const double upper = c + w * 0.5;
+        const double invSpan = (upper > lower) ? (255.0 / (upper - lower)) : 0.0;
+        const bool invert = (photometric == 1);
 
-    for (int yy = 0; yy < hu.rows; ++yy) {
-        const float *src = hu.ptr<float>(yy);
-        uint8_t *dst = out.ptr<uint8_t>(yy);
-        for (int xx = 0; xx < hu.cols; ++xx) {
-            double x = static_cast<double>(src[xx]);
-            double y;
-            if (invSpan <= 0.0) {
-                y = 127.5;
-            } else if (x <= lower) {
-                y = 0.0;
-            } else if (x >= upper) {
-                y = 255.0;
-            } else {
-                y = (x - lower) * invSpan;
+        for (int yy = 0; yy < hu.rows; ++yy) {
+            const float *src = hu.ptr<float>(yy);
+            uint8_t *dst = out.ptr<uint8_t>(yy);
+            for (int xx = 0; xx < hu.cols; ++xx) {
+                double x = static_cast<double>(src[xx]);
+                double y;
+                if (invSpan <= 0.0) {
+                    y = 127.5;
+                } else if (x <= lower) {
+                    y = 0.0;
+                } else if (x >= upper) {
+                    y = 255.0;
+                } else {
+                    y = (x - lower) * invSpan;
+                }
+                uint8_t v = static_cast<uint8_t>(y + 0.5);
+                if (invert) v = static_cast<uint8_t>(255 - v);
+                dst[xx] = v;
             }
-            uint8_t v = static_cast<uint8_t>(y + 0.5);
-            if (invert) v = static_cast<uint8_t>(255 - v);
-            dst[xx] = v;
         }
+        return out;
     }
-    return out;
-}
 
 // ---------- 工具：8U gray -> RGBA 字节（与 Android Bitmap.ARGB_8888 兼容） ----------
-static bool gray8uToRgbaJBytes(JNIEnv *env, const cv::Mat &gray,
-                               jbyteArray &outRgba) {
-    if (gray.empty() || gray.type() != CV_8UC1) return false;
-    cv::Mat rgba;
-    cv::cvtColor(gray, rgba, cv::COLOR_GRAY2RGBA);
-    const size_t total = static_cast<size_t>(rgba.total()) * rgba.elemSize();
-    outRgba = env->NewByteArray(static_cast<jsize>(total));
-    if (outRgba == nullptr) return false;
-    env->SetByteArrayRegion(outRgba, 0, static_cast<jsize>(total),
-                            reinterpret_cast<const jbyte *>(rgba.data));
-    return true;
-}
+    static bool gray8uToRgbaJBytes(JNIEnv *env, const cv::Mat &gray,
+                                   jbyteArray &outRgba) {
+        if (gray.empty() || gray.type() != CV_8UC1) return false;
+        cv::Mat rgba;
+        cv::cvtColor(gray, rgba, cv::COLOR_GRAY2RGBA);
+        const size_t total = static_cast<size_t>(rgba.total()) * rgba.elemSize();
+        outRgba = env->NewByteArray(static_cast<jsize>(total));
+        if (outRgba == nullptr) return false;
+        env->SetByteArrayRegion(outRgba, 0, static_cast<jsize>(total),
+                                reinterpret_cast<const jbyte *>(rgba.data));
+        return true;
+    }
 
 // ---------- 工具（v2 优化）：百分位 Gmin/Gmax ----------
 // 在 ROI 内按 stride 采样，把所有 HU 收集到 vector 里排序后取 pLow/pHigh 百分位。
 // 与绝对 min/max 相比：能抗"空气段"和"骨头段"的极端尖峰，让 H_bins 反映"主体"动态范围。
-static void computePercentileHu(const std::vector<cv::Mat> &huSlices,
-                                const cv::Rect &roi, int stride,
-                                double pLow, double pHigh,
-                                float &gMinOut, float &gMaxOut) {
-    gMinOut = 0.0f;
-    gMaxOut = 1.0f;
-    // 把 ROI 内所有 HU 收集到 values。Stride>1 时只是"采样"，对百分位估计影响可忽略。
-    std::vector<float> values;
-    values.reserve(1024);
-    for (const cv::Mat &hu : huSlices) {
-        if (hu.empty()) continue;
-        cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
-        if (r.area() <= 0) continue;
-        for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
-            const float *row = hu.ptr<float>(yy);
-            for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
-                values.push_back(row[xx]);
+    static void computePercentileHu(const std::vector<cv::Mat> &huSlices,
+                                    const cv::Rect &roi, int stride,
+                                    double pLow, double pHigh,
+                                    float &gMinOut, float &gMaxOut) {
+        gMinOut = 0.0f;
+        gMaxOut = 1.0f;
+        // 把 ROI 内所有 HU 收集到 values。Stride>1 时只是"采样"，对百分位估计影响可忽略。
+        std::vector<float> values;
+        values.reserve(1024);
+        for (const cv::Mat &hu: huSlices) {
+            if (hu.empty()) continue;
+            cv::Rect r = roi & cv::Rect(0, 0, hu.cols, hu.rows);
+            if (r.area() <= 0) continue;
+            for (int yy = r.y; yy < r.y + r.height; yy += std::max(1, stride)) {
+                const float *row = hu.ptr<float>(yy);
+                for (int xx = r.x; xx < r.x + r.width; xx += std::max(1, stride)) {
+                    values.push_back(row[xx]);
+                }
             }
         }
+        if (values.empty()) return;
+        std::sort(values.begin(), values.end());
+        const size_t n = values.size();
+        // 百分位索引：pLow/pHigh 单位为百分（0..100）
+        size_t idxLow = static_cast<size_t>(
+                std::max(0.0, std::min(100.0, pLow)) * (n - 1) / 100.0);
+        size_t idxHigh = static_cast<size_t>(
+                std::max(0.0, std::min(100.0, pHigh)) * (n - 1) / 100.0);
+        if (idxLow > n - 1) idxLow = n - 1;
+        if (idxHigh > n - 1) idxHigh = n - 1;
+        gMinOut = values[idxLow];
+        gMaxOut = values[idxHigh];
+        if (!(gMaxOut > gMinOut)) gMaxOut = gMinOut + 1.0f;
+        LOGI("computePercentileHu: n=%zu pLow=%.2f pHigh=%.2f -> Gmin=%.1f Gmax=%.1f",
+             n, pLow, pHigh, gMinOut, gMaxOut);
     }
-    if (values.empty()) return;
-    std::sort(values.begin(), values.end());
-    const size_t n = values.size();
-    // 百分位索引：pLow/pHigh 单位为百分（0..100）
-    size_t idxLow = static_cast<size_t>(
-            std::max(0.0, std::min(100.0, pLow)) * (n - 1) / 100.0);
-    size_t idxHigh = static_cast<size_t>(
-            std::max(0.0, std::min(100.0, pHigh)) * (n - 1) / 100.0);
-    if (idxLow > n - 1) idxLow = n - 1;
-    if (idxHigh > n - 1) idxHigh = n - 1;
-    gMinOut = values[idxLow];
-    gMaxOut = values[idxHigh];
-    if (!(gMaxOut > gMinOut)) gMaxOut = gMinOut + 1.0f;
-    LOGI("computePercentileHu: n=%zu pLow=%.2f pHigh=%.2f -> Gmin=%.1f Gmax=%.1f",
-         n, pLow, pHigh, gMinOut, gMaxOut);
-}
 
 // ---------- 工具（v2 优化）：直方图质量统计 ----------
 // - entropy: 归一化信息熵（0..1），0=单 bin 主导
 // - maxBinFrac: 最高 bin 占总频数的比例
 // - numPeaks: 频数 > 5% 总数的连续段数
-struct HistogramStats {
-    double entropy;
-    double maxBinFrac;
-    int numPeaks;
-};
-static HistogramStats computeHistogramStats(const std::vector<int> &hist) {
-    HistogramStats s{0.0, 0.0, 0};
-    if (hist.empty()) return s;
-    long long total = 0;
-    for (int v : hist) total += v;
-    if (total <= 0) return s;
-    const double logN = std::log(static_cast<double>(hist.size()));
-    bool inPeak = false;
-    for (int v : hist) {
-        double p = static_cast<double>(v) / static_cast<double>(total);
-        if (p > 0.0 && logN > 0.0) {
-            s.entropy -= p * std::log(p) / logN;  // 归一化到 [0, 1]
+    struct HistogramStats {
+        double entropy;
+        double maxBinFrac;
+        int numPeaks;
+    };
+
+    static HistogramStats computeHistogramStats(const std::vector<int> &hist) {
+        HistogramStats s{0.0, 0.0, 0};
+        if (hist.empty()) return s;
+        long long total = 0;
+        for (int v: hist) total += v;
+        if (total <= 0) return s;
+        const double logN = std::log(static_cast<double>(hist.size()));
+        bool inPeak = false;
+        for (int v: hist) {
+            double p = static_cast<double>(v) / static_cast<double>(total);
+            if (p > 0.0 && logN > 0.0) {
+                s.entropy -= p * std::log(p) / logN;  // 归一化到 [0, 1]
+            }
+            if (p > s.maxBinFrac) s.maxBinFrac = p;
+            bool curPeak = (p > 0.05);  // 5% 视为"峰"
+            if (curPeak && !inPeak) s.numPeaks++;
+            inPeak = curPeak;
         }
-        if (p > s.maxBinFrac) s.maxBinFrac = p;
-        bool curPeak = (p > 0.05);  // 5% 视为"峰"
-        if (curPeak && !inPeak) s.numPeaks++;
-        inPeak = curPeak;
+        return s;
     }
-    return s;
-}
 
 // ---------- 工具（v2 优化）：多阈值回退自动裁剪 ----------
 // 1) 先用主阈值；2) 失败时降到 -300；3) 再降到 -100；4) 仍失败返回全图。
 // 返回时若 width<hu.cols && height<hu.rows 即视为"裁剪成功"。
-static cv::Rect tryAutoCropBodyRoiEx(const cv::Mat &hu, float bodyThreshold,
-                                     int morphSize, int minBodyAreaPx,
-                                     int marginPx) {
-    const float thresholds[3] = {bodyThreshold, -300.0f, -100.0f};
-    const char *names[3] = {"primary", "loose(-300)", "very-loose(-100)"};
-    for (int i = 0; i < 3; ++i) {
-        cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize,
-                                     minBodyAreaPx, marginPx);
-        bool ok = (r.width < hu.cols) && (r.height < hu.rows);
-        LOGI("tryAutoCropBodyRoiEx: %s thr=%.0f -> rect=(%d,%d,%d,%d) %s",
-             names[i], thresholds[i], r.x, r.y, r.width, r.height,
-             ok ? "OK" : "FULL");
-        if (ok) return r;
+    static cv::Rect tryAutoCropBodyRoiEx(const cv::Mat &hu, float bodyThreshold,
+                                         int morphSize, int minBodyAreaPx,
+                                         int marginPx) {
+        const float thresholds[3] = {bodyThreshold, -300.0f, -100.0f};
+        const char *names[3] = {"primary", "loose(-300)", "very-loose(-100)"};
+        for (int i = 0; i < 3; ++i) {
+            cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize,
+                                         minBodyAreaPx, marginPx);
+            bool ok = (r.width < hu.cols) && (r.height < hu.rows);
+            LOGI("tryAutoCropBodyRoiEx: %s thr=%.0f -> rect=(%d,%d,%d,%d) %s",
+                 names[i], thresholds[i], r.x, r.y, r.width, r.height,
+                 ok ? "OK" : "FULL");
+            if (ok) return r;
+        }
+        LOGW("tryAutoCropBodyRoiEx: all thresholds failed, fallback to full image");
+        return cv::Rect(0, 0, hu.cols, hu.rows);
     }
-    LOGW("tryAutoCropBodyRoiEx: all thresholds failed, fallback to full image");
-    return cv::Rect(0, 0, hu.cols, hu.rows);
-}
 
 // ---------- 工具（v2 优化）：直方图退化时的预设常用窗 ----------
 // 当 maxBinFrac>0.6 或 entropy<0.3 时，说明当前 ROI 数据分布严重偏斜（典型如"全在 bin 0"）。
 // 此时按"软组织窗"兜底，保证 UI 上能看见解剖结构。
-static void pickDefaultWindow(float gmin, float gmax, HistogramStats hs,
-                              double fallbackC, double fallbackW,
-                              double &cOut, double &wOut, bool &usedDefault) {
-    usedDefault = false;
-    const bool skewed = (hs.maxBinFrac > 0.6) || (hs.entropy < 0.3);
-    if (skewed) {
-        cOut = fallbackC;
-        wOut = fallbackW;
-        usedDefault = true;
-        LOGW("pickDefaultWindow: histogram skewed (entropy=%.2f maxBinFrac=%.2f) "
-             "-> fallback window c=%.1f w=%.1f",
-             hs.entropy, hs.maxBinFrac, cOut, wOut);
-        return;
+    static void pickDefaultWindow(float gmin, float gmax, HistogramStats hs,
+                                  double fallbackC, double fallbackW,
+                                  double &cOut, double &wOut, bool &usedDefault) {
+        usedDefault = false;
+        const bool skewed = (hs.maxBinFrac > 0.6) || (hs.entropy < 0.3);
+        if (skewed) {
+            cOut = fallbackC;
+            wOut = fallbackW;
+            usedDefault = true;
+            LOGW("pickDefaultWindow: histogram skewed (entropy=%.2f maxBinFrac=%.2f) "
+                 "-> fallback window c=%.1f w=%.1f",
+                 hs.entropy, hs.maxBinFrac, cOut, wOut);
+            return;
+        }
+        // 分布合理：根据 ROI 跨度给一个宽窗
+        double range = static_cast<double>(gmax) - static_cast<double>(gmin);
+        cOut = (static_cast<double>(gmin) + static_cast<double>(gmax)) * 0.5;
+        wOut = std::max(150.0, range * 0.7);
+        LOGI("pickDefaultWindow: range-based window c=%.1f w=%.1f (range=%.1f)",
+             cOut, wOut, range);
     }
-    // 分布合理：根据 ROI 跨度给一个宽窗
-    double range = static_cast<double>(gmax) - static_cast<double>(gmin);
-    cOut = (static_cast<double>(gmin) + static_cast<double>(gmax)) * 0.5;
-    wOut = std::max(150.0, range * 0.7);
-    LOGI("pickDefaultWindow: range-based window c=%.1f w=%.1f (range=%.1f)",
-         cOut, wOut, range);
-}
 
 // ---------- 工具（v2 优化）：8-bit 显示图做 CLAHE ----------
 // 仅在最终 CV_8UC1 窗映射图上做局部均衡；BORDER_REFLECT_101 避免边缘黑边。
 // 接受 enable=0 时直接返回原图（无拷贝）。
-static cv::Mat applyDisplayClahe(const cv::Mat &gray8u, bool enable,
-                                 double clip, int tile) {
-    if (!enable || gray8u.empty() || gray8u.type() != CV_8UC1) {
-        return gray8u;
+    static cv::Mat applyDisplayClahe(const cv::Mat &gray8u, bool enable,
+                                     double clip, int tile) {
+        if (!enable || gray8u.empty() || gray8u.type() != CV_8UC1) {
+            return gray8u;
+        }
+        double c = (clip > 0.0) ? clip : 2.0;
+        int t = (tile > 0) ? tile : 8;
+        cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(c, cv::Size(t, t));
+        cv::Mat out;
+        clahe->apply(gray8u, out);
+        LOGI("applyDisplayClahe: clip=%.2f tile=%d", c, t);
+        return out;
     }
-    double c = (clip > 0.0) ? clip : 2.0;
-    int t = (tile > 0) ? tile : 8;
-    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(c, cv::Size(t, t));
-    cv::Mat out;
-    clahe->apply(gray8u, out);
-    LOGI("applyDisplayClahe: clip=%.2f tile=%d", c, t);
-    return out;
-}
 
 }  // namespace
 
@@ -880,7 +881,7 @@ static jboolean native_processCtSeries(
     if (enableAutoPixelSign != 0 && bitsAllocated == 16 && pixelSigned != 0) {
         double gMinAll = std::numeric_limits<double>::infinity();
         double gMaxAll = -std::numeric_limits<double>::infinity();
-        for (const auto &sv : svMats) {
+        for (const auto &sv: svMats) {
             double a, b;
             cv::minMaxLoc(sv, &a, &b);
             if (a < gMinAll) gMinAll = a;
@@ -981,7 +982,7 @@ static jboolean native_processCtSeries(
                              hist);
     // 直方图日志：前 16 个 bin + 总频数
     long long histTotal = 0;
-    for (int v : hist) histTotal += v;
+    for (int v: hist) histTotal += v;
     LOGI("processCtSeries: hist total=%lld first16=[%lld,%d,%d,%d,%d,%d,%d,%d,"
          "%d,%d,%d,%d,%d,%d,%d,%d]",
          histTotal,
@@ -1061,7 +1062,7 @@ static jboolean native_processCtSeries(
         // 计算 srcMin/srcMax(SV) 从 rawBytes
         long long svMin = std::numeric_limits<long long>::max();
         long long svMax = std::numeric_limits<long long>::min();
-        for (const auto &rb : rawBytes) {
+        for (const auto &rb: rawBytes) {
             if (bitsAllocated == 16) {
                 for (size_t i = 0; i + 1 < rb.size(); i += 2) {
                     int16_t v = static_cast<int16_t>(
@@ -1070,7 +1071,7 @@ static jboolean native_processCtSeries(
                     if (v > svMax) svMax = v;
                 }
             } else {
-                for (uint8_t b : rb) {
+                for (uint8_t b: rb) {
                     if (b < svMin) svMin = b;
                     if (b > svMax) svMax = b;
                 }
@@ -1228,7 +1229,7 @@ static jbyteArray native_tailorImage(
     cv::RotatedRect rr;
     {
         std::vector<cv::Point2f> pts2f;
-        for (const auto &p : *maxIt) pts2f.emplace_back(p.x, p.y);
+        for (const auto &p: *maxIt) pts2f.emplace_back(p.x, p.y);
         rr = cv::minAreaRect(pts2f);
     }
     double angle = rr.angle;
@@ -1260,8 +1261,8 @@ static jbyteArray native_tailorImage(
     if (usedSobel && morphCross > 0) {
         // 锐化核：center=9
         cv::Mat sharpKernel = (cv::Mat_<float>(3, 3) <<
-                -1, -1, -1,
-                -1,  9, -1,
+                                                     -1, -1, -1,
+                -1, 9, -1,
                 -1, -1, -1);
         cv::Mat sharpened;
         cv::filter2D(img8u, sharpened, CV_32F, sharpKernel, cv::Point(-1, -1), 0);
@@ -1364,6 +1365,7 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
                                           jbyteArray rawBuffer, jint width, jint height,
                                           jint bitDepth, jboolean bigEndian, jboolean isUint16,
                                           jintArray ops, jdoubleArray params, jintArray outInfo) {
+    LOGI("native_processMedicalCT: START width=%d, height=%d, bitDepth=%d", width, height, bitDepth);
     if (rawBuffer == nullptr || ops == nullptr || params == nullptr || outInfo == nullptr) {
         LOGE("processMedicalCT: null arguments");
         return nullptr;
@@ -1373,14 +1375,17 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
     jsize opsCount = env->GetArrayLength(ops);
+    LOGD("native_processMedicalCT: opsCount=%d", opsCount);
 
     // 1. 载入原始像素
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, height, width, isUint16, 0, bigEndian);
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, height,
+                                                   width, isUint16, 0, bigEndian);
 
     // 2. 依次执行选中的预处理算子
     int paramIdx = 0;
     for (int i = 0; i < opsCount; ++i) {
         int op = pOps[i];
+        LOGI("native_processMedicalCT: Executing op ID %d (Step %d/%d)", op, i + 1, opsCount);
         switch (op) {
             case 1: // Gaussian: [kernel, sigma]
             {
@@ -1428,6 +1433,7 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
             {
                 // equalization requires 8u
                 if (mat.depth() != CV_8U) {
+                    LOGD("native_processMedicalCT: GlobalEqualize - converting to 8U");
                     double minV, maxV;
                     cv::minMaxLoc(mat, &minV, &maxV);
                     mat.convertTo(mat, CV_8U, 255.0 / (maxV - minV + 1e-7),
@@ -1442,6 +1448,7 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
                 int tx = (int) pParams[paramIdx++];
                 int ty = (int) pParams[paramIdx++];
                 if (mat.depth() != CV_8U && mat.depth() != CV_16U) {
+                    LOGD("native_processMedicalCT: CLAHE - converting to 8U");
                     double minV, maxV;
                     cv::minMaxLoc(mat, &minV, &maxV);
                     mat.convertTo(mat, CV_8U, 255.0 / (maxV - minV + 1e-7),
@@ -1463,12 +1470,13 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
                 break;
             }
             default:
-                LOGW("processMedicalCT: unknown op id %d", op);
+                LOGW("native_processMedicalCT: unknown op id %d", op);
                 break;
         }
     }
 
     // 3. 最终归一化到 8-bit RGBA 用于 Bitmap 显示
+    LOGD("native_processMedicalCT: Final conversion to RGBA");
     cv::Mat out8u;
     if (mat.depth() != CV_8U) {
         double minV, maxV;
@@ -1495,6 +1503,8 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
         cv::minMaxLoc(mat, &minV, &maxV);
         pOutInfo[2] = (int) minV;
         pOutInfo[3] = (int) maxV;
+        LOGD("native_processMedicalCT: outInfo [w=%d, h=%d, min=%d, max=%d]"
+             , pOutInfo[0], pOutInfo[1], pOutInfo[2], pOutInfo[3]);
     }
     env->ReleaseIntArrayElements(outInfo, pOutInfo, 0);
 
@@ -1503,7 +1513,7 @@ static jbyteArray native_processMedicalCT(JNIEnv *env, jclass clazz,
     env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
     env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
 
-    LOGI("processMedicalCT: done. out=%dx%d", rgba.cols, rgba.rows);
+    LOGI("native_processMedicalCT: DONE. outSize=%dx%d", rgba.cols, rgba.rows);
     return resultArr;
 }
 
