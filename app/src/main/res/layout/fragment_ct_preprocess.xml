@@ -385,22 +385,35 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:orientation="horizontal">
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_run"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="LOAD &amp; DISPLAY" />
+
+                <Button
+                    android:id="@+id/btn_full_pipeline"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="标准流水线" />
+            </LinearLayout>
 
             <Button
-                android:id="@+id/btn_run"
-                android:layout_width="0dp"
+                android:id="@+id/btn_tailor_pipeline"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="LOAD &amp; DISPLAY" />
-
-            <Button
-                android:id="@+id/btn_full_pipeline"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="标准流水线" />
+                android:layout_marginTop="4dp"
+                android:text="图片裁剪后，的标准流程" />
         </LinearLayout>
 
         <TextView

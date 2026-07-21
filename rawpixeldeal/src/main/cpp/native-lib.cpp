@@ -1533,7 +1533,8 @@ static jbyteArray native_processCTFullPipeline(JNIEnv *env, jclass clazz,
     jbyte *pRaw = env->GetByteArrayElements(rawBuffer, nullptr);
 
     // 调 C++ 完整流水线
-    cv::Mat result = CTPreprocess::CTFullPipeline(pRaw, height, width, tarW, tarH, slope, intercept);
+    cv::Mat result = CTPreprocess::CTFullPipeline(pRaw, height, width
+                                                  , tarW, tarH, slope, intercept);
 
     // 转 RGBA
     cv::Mat rgba;

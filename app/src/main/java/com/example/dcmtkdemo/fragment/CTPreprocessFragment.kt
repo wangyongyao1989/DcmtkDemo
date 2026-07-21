@@ -1,5 +1,6 @@
 package com.example.dcmtkdemo.fragment
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
@@ -48,12 +49,114 @@ class CTPreprocessFragment : Fragment() {
             runFullPipeline()
         }
 
+        binding.btnTailorPipeline.setOnClickListener {
+            runTailorPipeline()
+        }
+
         setupKeyboardDismiss()
+    }
+
+    /**
+     * 执行裁剪后标准流程 (Requirement: tailor + full pipeline)
+     */
+    @SuppressLint("SetTextI18n", "UseKtx")
+    private fun runTailorPipeline() {
+        val ctx = context ?: return
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
+        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
+        val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
+        val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
+        val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+
+        binding.btnTailorPipeline.isEnabled = false
+        binding.tvInfo.text = "Cropping & Running Pipeline..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // 1. 读取 Asset
+                val rawBytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+
+                // 2. 调 JNI 执行裁剪 (tailorImage)
+                val outInfoTailor = IntArray(6)
+                val outCroppedBytes = ByteArray(rawBytes.size) // 预分配足够空间
+                val croppedRaw = withContext(Dispatchers.IO) {
+                    com.example.rawpixeldeal.jni.RawPixelDealJni.tailorImage(
+                        rawBuffer = rawBytes,
+                        width = w,
+                        height = h,
+                        bitsAllocated = bitDepth,
+                        pixelSigned = 0, // 假设无符号
+                        minAreaThreshold = 50000, // 默认门限
+                        enableSobel = true,
+                        morphCross = 5,
+                        otsuThresholdLow = 10.0,
+                        outCroppedBytes = outCroppedBytes,
+                        outInfo = outInfoTailor
+                    )
+                }
+
+                if (croppedRaw == null || outInfoTailor[5] == 0) {
+                    throw IllegalStateException("Tailor (Crop) failed or returned empty.")
+                }
+
+                val croppedW = outInfoTailor[2]
+                val croppedH = outInfoTailor[3]
+                Log.i(TAG, "Tailor success: ${w}x${h} -> ${croppedW}x${croppedH}")
+
+                // 3. 执行标准流水线处理裁剪后的数据
+                val outInfoPipeline = IntArray(4)
+                val rgba = withContext(Dispatchers.IO) {
+                    com.example.rawpixeldeal.jni.RawPixelDealJni.processCTFullPipeline(
+                        rawBuffer = croppedRaw,
+                        width = croppedW,
+                        height = croppedH,
+                        tarW = croppedW, // 裁剪后不再二次缩放，保持裁剪尺寸
+                        tarH = croppedH,
+                        slope = slope,
+                        intercept = intercept,
+                        outInfo = outInfoPipeline
+                    )
+                }
+
+                if (rgba == null) throw IllegalStateException("Pipeline failed after crop.")
+
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    outInfoPipeline[0], outInfoPipeline[1],
+                    android.graphics.Bitmap.Config.ARGB_8888
+                )
+                bmp.copyPixelsFromBuffer(
+                    java.nio.ByteBuffer.wrap(rgba).order(java.nio.ByteOrder.nativeOrder())
+                )
+
+                if (_binding == null) return@launch
+                binding.ivImage.setImageBitmap(bmp)
+                binding.tvInfo.text = buildString {
+                    append("Tailor + Pipeline Done.\n")
+                    append("Crop Rect: (${outInfoTailor[0]}, ${outInfoTailor[1]}, $croppedW, $croppedH)\n")
+                    append("Output: ${outInfoPipeline[0]}x${outInfoPipeline[1]}\n")
+                    append("Range: [${outInfoPipeline[2]}, ${outInfoPipeline[3]}]")
+                }
+                binding.tvSummary.text =
+                    "【裁剪+流水线总结】\n1. 自动裁剪：利用 OTSU 和 Sobel 算子定位主体区域并旋转校正" +
+                            "，去除无效边缘。\n2. 标准流程：对裁剪后的主体进行 HU 校正、降噪及 CLAHE 增强。" +
+                            "\n效果：显著提升了病灶区域的视觉占比，排除了背景干扰，使诊断更聚焦。"
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Tailor pipeline failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                _binding?.btnTailorPipeline?.isEnabled = true
+            }
+        }
     }
 
     /**
      * 执行标准完整流水线
      */
+    @SuppressLint("SetTextI18n")
     private fun runFullPipeline() {
         val ctx = context ?: return
         val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
@@ -149,6 +252,7 @@ class CTPreprocessFragment : Fragment() {
         imm.hideSoftInputFromWindow(tokenOwner.windowToken, 0)
     }
 
+    @SuppressLint("SetTextI18n")
     private fun runPreprocessChain() {
         val ctx = context ?: return
 
@@ -226,10 +330,11 @@ class CTPreprocessFragment : Fragment() {
                     append("Source: $assetName (${w}x${h}@${bitDepth}bit)\n")
                     append("Output: ${result.outWidth}x${result.outHeight}\n")
                     append("Range: [${result.minVal}, ${result.maxVal}]\n")
-                    val stepsStr = if (steps.isEmpty()) "None (Original)" else steps.joinToString { it.op.displayName }
+                    val stepsStr =
+                        if (steps.isEmpty()) "None (Original)" else steps.joinToString { it.op.displayName }
                     append("Steps: $stepsStr")
                 }
-                
+
                 // Requirement 5: Summary
                 binding.tvSummary.text = generateSummary(steps)
 
@@ -262,7 +367,8 @@ class CTPreprocessFragment : Fragment() {
                 else -> {}
             }
         }
-        appendLine("\n达到效果：通过上述组合处理，图像消除了采集噪声，统一了分辨率，并针对关键特征进行了对比度增强，为后续辅助诊断提供了高质量数据基础。")
+        appendLine("\n达到效果：通过上述组合处理，图像消除了采集噪声，统一了分辨率" +
+                "，并针对关键特征进行了对比度增强，为后续辅助诊断提供了高质量数据基础。")
     }
 
     override fun onDestroyView() {
