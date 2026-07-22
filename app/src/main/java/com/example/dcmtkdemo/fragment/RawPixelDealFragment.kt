@@ -35,7 +35,7 @@ import java.util.Locale
 /**
  * 1) 最小链路验证：[runVerify] 调用 [RawPixelDealVerify.verifyChain]，
  *    验证 Kotlin -> JNI -> OpenCV 通路；
- * 2) 原始像素数据展示：[runLoadAsset] 读取 assets 下 Data610.bin / Data622.bin
+ * 2) 原始像素数据展示：[runLoadAsset] 读取 assets 下 Data610.bin / Data622.raw
  *    （项目惯例：16-bit raw，[runLoadAsset] 走 native 做归一化/CLAHE/裁剪，
  *    最终输出 Bitmap 给 ImageView 做人工筛查验证。
  * 3) CT 序列级处理管线：[runSeriesPipeline] 实现 PRD
@@ -162,7 +162,7 @@ class RawPixelDealFragment : Fragment() {
         val ctx = context ?: return
 
         val assetName =
-            if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+            if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
         val w = binding.etWidth.text.toString().toIntOrNull()
         val h = binding.etHeight.text.toString().toIntOrNull()
         val bitDepth =
@@ -260,8 +260,8 @@ class RawPixelDealFragment : Fragment() {
 
         val assetNames: List<String> = when {
             binding.rbSeries610.isChecked -> listOf("Data610.bin")
-            binding.rbSeries622.isChecked -> listOf("Data622.bin")
-            binding.rbSeries610622.isChecked -> listOf("Data610.bin", "Data622.bin")
+            binding.rbSeries622.isChecked -> listOf("Data622.raw")
+            binding.rbSeries610622.isChecked -> listOf("Data610.bin", "Data622.raw")
             else -> listOf("Data610.bin")
         }
         val meta = PixelMeta(
@@ -393,7 +393,7 @@ class RawPixelDealFragment : Fragment() {
 
         // 1) 解析 UI 参数：assets、窗方法
         val assetName =
-            if (binding.rbXray610.isChecked) "Data610.bin" else "Data622.bin"
+            if (binding.rbXray610.isChecked) "Data610.bin" else "Data622.raw"
         val method = when (binding.rgXrayWindow.checkedRadioButtonId) {
             binding.rbXrayMethodDefault.id -> WindowMethod.DEFAULT
             binding.rbXrayMethodCum72.id -> WindowMethod.CUMULATIVE_72

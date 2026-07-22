@@ -197,7 +197,10 @@ native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint 
     int outX, outY;
     double angle;
     bool ok;
-    cv::Mat cropped = XrayProcessor::tailor(sv, minArea, sobel, morph, otsuLow, outX, outY, angle,
+    cv::Mat cropped = XrayProcessor::tailor(sv, minArea,
+                                            sobel, morph,
+                                            otsuLow, outX,
+                                            outY, angle,
                                             ok);
     if (!ok) return XrayProcessor::buildFullImageResult(env, sv, outInfo);
 
@@ -247,7 +250,8 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             if (mat.depth() != CV_8U) {
                 double mn, mx;
                 cv::minMaxLoc(mat, &mn, &mx);
-                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7), -mn * 255.0 / (mx - mn + 1e-7));
+                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7),
+                              -mn * 255.0 / (mx - mn + 1e-7));
             }
             mat = CTPreprocess::EnhanceGlobalEqualize(mat);
         } else if (op == 8) {
@@ -257,7 +261,8 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             if (mat.depth() != CV_8U && mat.depth() != CV_16U) {
                 double mn, mx;
                 cv::minMaxLoc(mat, &mn, &mx);
-                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7), -mn * 255.0 / (mx - mn + 1e-7));
+                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7),
+                              -mn * 255.0 / (mx - mn + 1e-7));
             }
             mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
         } else if (op == 9) mat = CTPreprocess::EnhanceContrastStretch(mat);
@@ -272,7 +277,9 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             bool sobel = pParams[pIdx++] > 0.5;
             int morph = (int) pParams[pIdx++];
             double otsu = pParams[pIdx++];
-            cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph, otsu, outX, outY,
+            cv::Mat cropped = XrayProcessor::tailor(mat, minArea,
+                                                    sobel, morph,
+                                                    otsu, outX, outY,
                                                     angle, ok);
             if (ok && !cropped.empty()) mat = cropped;
         }
@@ -282,7 +289,8 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
     if (mat.depth() != CV_8U) {
         double mn, mx;
         cv::minMaxLoc(mat, &mn, &mx);
-        mat.convertTo(out8u, CV_8U, 255.0 / (mx - mn + 1e-7), -mn * 255.0 / (mx - mn + 1e-7));
+        mat.convertTo(out8u, CV_8U, 255.0 / (mx - mn + 1e-7),
+                      -mn * 255.0 / (mx - mn + 1e-7));
     } else out8u = mat;
     jbyteArray res;
     JniHelper::gray8uToRgbaJBytes(env, out8u, res);

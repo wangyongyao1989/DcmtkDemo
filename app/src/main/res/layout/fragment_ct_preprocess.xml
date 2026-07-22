@@ -37,13 +37,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"
-                android:text="Data610.bin" />
+                android:text="Data610" />
 
             <RadioButton
                 android:id="@+id/rb_data622"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Data622.bin" />
+                android:text="Data622" />
         </RadioGroup>
 
         <!-- 2) Base Parameters -->
@@ -298,7 +298,7 @@
                     android:layout_height="wrap_content"
                     android:imeOptions="actionDone"
                     android:inputType="number"
-                    android:text="30"
+                    android:text="300"
                     android:textSize="11sp" />
             </LinearLayout>
 

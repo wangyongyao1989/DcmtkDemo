@@ -238,7 +238,7 @@ object XrayPipeline {
     /**
      * 推断图像几何。
      *
-     * Data610.bin / Data622.bin 在 doc 中说明为 1500×1290（见 ProcessPixelData-readme）。
+     * Data610.bin / Data622.raw 在 doc 中说明为 1500×1290（见 ProcessPixelData-readme）。
      * 如果 size 不匹配，按常见探测器尺寸兜底。
      */
     private fun inferGeometry(byteSize: Int): Pair<Int, Int> {

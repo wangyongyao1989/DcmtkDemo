@@ -63,7 +63,7 @@ class CTPreprocessFragment : Fragment() {
     @SuppressLint("SetTextI18n", "UseKtx")
     private fun runTailorPipeline() {
         val ctx = context ?: return
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
@@ -160,7 +160,7 @@ class CTPreprocessFragment : Fragment() {
     @SuppressLint("SetTextI18n")
     private fun runFullPipeline() {
         val ctx = context ?: return
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
@@ -258,7 +258,7 @@ class CTPreprocessFragment : Fragment() {
         val ctx = context ?: return
 
         // 1. 获取基础参数
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.bin"
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8

@@ -13,7 +13,7 @@ import java.nio.ByteOrder
  * rawpixeldeal 模块对外的业务门面：
  *  - [verifyChain]：最小链路验证（Kotlin -> JNI -> OpenCV -> 校验非 0）。
  *  - [processAssetFromAssets]：把 assets 下的"原始像素数据缓冲"
- *    （如 Data610.bin / Data622.bin）经 OpenCV 裁剪/归一化/CLAHE 后
+ *    （如 Data610.bin / Data622.raw）经 OpenCV 裁剪/归一化/CLAHE 后
  *    输出 [Bitmap]，用于在 [RawPixelDealFragment] 做人工筛查。
  *  - [processCtSeriesFromAssets]：实现 PRD ct-opencv-raw-buffer-windowing-prd
  *    要求的"CT 序列级处理管线"：raw buffer -> HU 标准化 -> OpenCV 优化
@@ -162,11 +162,13 @@ object RawPixelDealVerify {
         Log.i(TAG, "raw after  -> ${afterHead.toList()}")
 
         // 4) 棋盘经 3x3 高斯后，边缘像素必然被"模糊"为非 0/非 255
-        val changed = (0 until src.size).any { (src[it].toInt() and 0xFF) != beforeHead.let { _ ->
-            val x = it % w
-            val y = it / w
-            if (((x + y) and 1) == 0) 0 else 255
-        } }
+        val changed = (0 until src.size).any {
+            (src[it].toInt() and 0xFF) != beforeHead.let { _ ->
+                val x = it % w
+                val y = it / w
+                if (((x + y) and 1) == 0) 0 else 255
+            }
+        }
         if (!changed) {
             throw IllegalStateException("OpenCV blur did not change any pixel, chain broken")
         }
@@ -426,8 +428,10 @@ object RawPixelDealVerify {
         if (!ok) {
             throw IllegalStateException("native processCtSeries returned false")
         }
-        Log.i(TAG, "processCtSeriesFromAssets: c=${outWindowStats[0]} w=${outWindowStats[1]} " +
-                "Gmin=${outWindowStats[2]} Gmax=${outWindowStats[3]} B=${outWindowStats[7].toInt()}")
+        Log.i(
+            TAG, "processCtSeriesFromAssets: c=${outWindowStats[0]} w=${outWindowStats[1]} " +
+                    "Gmin=${outWindowStats[2]} Gmax=${outWindowStats[3]} B=${outWindowStats[7].toInt()}"
+        )
 
         // 4) 把每片 RGBA bytes 包成 Bitmap
         val outW = outCropAndOut[4]

@@ -61,7 +61,7 @@ object RawPixelDealJni {
     ): IntArray?
 
     /**
-     * 把 assets 中"原始像素数据缓冲"（如 Data610.bin / Data622.bin）经 OpenCV
+     * 把 assets 中"原始像素数据缓冲"（如 Data610.bin / Data622.raw）经 OpenCV
      * 处理后输出为可直接填入 [android.graphics.Bitmap.ARGB_8888] 的 RGBA 字节。
      *
      * 流程：

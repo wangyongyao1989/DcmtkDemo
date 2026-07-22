@@ -210,7 +210,7 @@ PRD 明确给出了可选项：
 UI 上 `tv_series_info` 一目了然：
 
 ```
-series=[Data610.bin, Data622.bin]
+series=[Data610.bin, Data622.raw]
 nSlices=2
 cropRect=(L=137,T=82,W=1226,H=1126)
 Gmin=-1024.0  Gmax=2147.0  H_bins=12.395
@@ -231,7 +231,7 @@ histogram bins (first 16): 1, 0, 0, 0, 0, 0, 0, 0, 12, 28, 31, ...
 
 * **API 兼容**：`processRawToRgba` / `processRawGrayPixels` / `verifyChain` / `processAssetFromAssets` 全部一字未动，原 "1) Verify OpenCV Chain" 和 "2) Load Raw Asset" 按钮的行为完全不变。
 * **构建兼容**：`CMakeLists.txt` 不变，Gradle 不变；新增方法都在同一个 `kMethods[]` 表里，JVM 端依旧走 `RegisterNatives`，不会引入新 JNI 加载流程。
-* **数据兼容**：`Data610.bin` / `Data622.bin` 仍是 16-bit raw；UI 上用 Slope=1.0 / Intercept=-1024 时相当于 "假定这些 raw 已经是 HU 域"，与典型 CT 预处理流程一致。
+* **数据兼容**：`Data610.bin` / `Data622.raw` 仍是 16-bit raw；UI 上用 Slope=1.0 / Intercept=-1024 时相当于 "假定这些 raw 已经是 HU 域"，与典型 CT 预处理流程一致。
 * **UI 兼容**：原 2 个 RadioGroup、2 个按钮、ImageView 全部保留；新加的 5 个 EditText、2 个 RadioButton、1 个 CheckBox 都是独立 ID，不会和老的事件绑定冲突。
 
 ---
