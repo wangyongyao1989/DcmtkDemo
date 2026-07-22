@@ -423,6 +423,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="图片裁剪后，的标准流程" />
+
+            <Button
+                android:id="@+id/btn_invert_lut"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Invert LUTs" />
         </LinearLayout>
 
         <TextView

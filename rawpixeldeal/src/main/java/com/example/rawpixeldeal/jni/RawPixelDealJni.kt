@@ -223,6 +223,25 @@ object RawPixelDealJni {
     ): ByteArray?
 
     /**
+     * 对 16-bit 原始像素执行颜色反转 (Invert LUTs)
+     *
+     * @param rawBuffer 原始像素字节
+     * @param w 宽
+     * @param h 高
+     * @param bits 位深 (16/8)
+     * @param sign 是否有符号 (0/1)
+     * @return 反转后的原始像素字节
+     */
+    @JvmStatic
+    external fun invertLut(
+        rawBuffer: ByteArray,
+        w: Int,
+        h: Int,
+        bits: Int,
+        sign: Int
+    ): ByteArray?
+
+    /**
      * 医学图像通用预处理接口（Kotlin -> Native -> C++）。
      *
      * @param rawBuffer     原始像素字节

@@ -70,6 +70,14 @@ namespace CTPreprocess {
     // 3. 对比度线性拉伸（灰度区间压缩到0~255，原文对比度拉伸）
     cv::Mat EnhanceContrastStretch(const cv::Mat &src16);
 
+    // 4. Color Invert LUTs（颜色反转查找表）
+    /**
+     * @brief 对 16-bit 原始像素执行颜色反转
+     * @param src16 输入 16-bit Mat
+     * @return 反转后的 16-bit Mat
+     */
+    cv::Mat EnhanceInvertLut(const cv::Mat &src16);
+
     // ===================== 完整预处理流水线（对应原文标准流程） =====================
     /**
      * 流水线：Raw Buffer → HU校正 → 去噪 → 重采样 → 增强输出8bit可视化图

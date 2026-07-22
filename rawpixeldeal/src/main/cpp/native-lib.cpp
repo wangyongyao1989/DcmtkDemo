@@ -190,9 +190,11 @@ static jbyteArray
 native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bits, jint sign,
                    jint minArea, jboolean sobel, jint morph, jdouble otsuLow, jbyteArray outCropped,
                    jintArray outInfo) {
-    std::vector<uint8_t> raw;
-    if (!JniHelper::copyJByteArray(env, rawBuf, raw)) return nullptr;
-    cv::Mat sv = JniHelper::wrapRawMat(raw.data(), w, h, bits, sign);
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    if (pRaw == nullptr) return nullptr;
+
+    // 改进：使用 LoadRawPixelBuffer 处理字节序，确保裁剪算子工作在正确的值域
+    cv::Mat sv = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, true);
 
     int outX, outY;
     double angle;
@@ -202,7 +204,19 @@ native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint 
                                             otsuLow, outX,
                                             outY, angle,
                                             ok);
-    if (!ok) return XrayProcessor::buildFullImageResult(env, sv, outInfo);
+
+    if (!ok) {
+        env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+        return XrayProcessor::buildFullImageResult(env, sv, outInfo);
+    }
+
+    // 转回大端，以保持与后续 Pipeline 兼容
+    ushort *p = cropped.ptr<ushort>();
+    int total = cropped.rows * cropped.cols;
+    for (int i = 0; i < total; i++) {
+        ushort val = p[i];
+        p[i] = (val >> 8) | (val << 8);
+    }
 
     jbyteArray outBytes = env->NewByteArray(
             static_cast<jsize>(cropped.total() * cropped.elemSize()));
@@ -213,11 +227,45 @@ native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint 
         jint info[6] = {outX, outY, cropped.cols, cropped.rows, (jint) (angle * 1000), 1};
         env->SetIntArrayRegion(outInfo, 0, 6, info);
     }
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
     return outBytes;
 }
 
 // =============================================================================
-// 6) 通用医学预处理
+// 6) Invert LUTs
+// =============================================================================
+static jbyteArray
+native_invertLut(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bits, jint sign) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    if (pRaw == nullptr) return nullptr;
+
+    // 改进：使用 LoadRawPixelBuffer 处理字节序（由于此处不确定输入字节序，先按小端读，
+    // 或假设输入已由上层处理。但针对 Data610/622，它们是大端的。）
+    // 为了修复全灰 BUG，我们需要确保反转后的值仍在合理范围内。
+
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, true);
+    cv::Mat inverted = CTPreprocess::EnhanceInvertLut(mat);
+
+    // 将处理后的（本地序/小端）数据转回大端，以保持与原有 Pipeline 兼容
+    // 因为 processCTFullPipeline 内部会再次执行 LoadRawPixelBuffer(..., true)
+    ushort *p = inverted.ptr<ushort>();
+    int total = inverted.rows * inverted.cols;
+    for (int i = 0; i < total; i++) {
+        ushort val = p[i];
+        p[i] = (val >> 8) | (val << 8);
+    }
+
+    jsize byteCount = static_cast<jsize>(inverted.total() * inverted.elemSize());
+    jbyteArray outBytes = env->NewByteArray(byteCount);
+    env->SetByteArrayRegion(outBytes, 0, byteCount, reinterpret_cast<const jbyte *>(inverted.data));
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    return outBytes;
+}
+
+// =============================================================================
+// 7) 通用医学预处理
 // =============================================================================
 static jbyteArray
 native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint depth,
@@ -349,6 +397,8 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_processCtSeries},
         {"tailorImage",           "([BIIIIIZID[B[I)[B",
                 (void *) native_tailorImage},
+        {"invertLut",             "([BIIII)[B",
+                (void *) native_invertLut},
         {"processMedicalCT",      "([BIIIZZ[I[D[I)[B",
                 (void *) native_processMedicalCT},
         {"processCTFullPipeline", "([BIIIIFF[I)[B",

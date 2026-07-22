@@ -54,7 +54,113 @@ class CTPreprocessFragment : Fragment() {
             runTailorPipeline()
         }
 
+        binding.btnInvertLut.setOnClickListener {
+            runInvertLutPipeline()
+        }
+
         setupKeyboardDismiss()
+    }
+
+    /**
+     * 执行裁剪 + 颜色反转 LUT + 标准流程
+     */
+    @SuppressLint("SetTextI18n")
+    private fun runInvertLutPipeline() {
+        val ctx = context ?: return
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
+        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
+        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
+        val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
+        val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
+        val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+
+        binding.btnInvertLut.isEnabled = false
+        binding.tvInfo.text = "Inverting & Running Pipeline..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // 1. 读取 Asset
+                val rawBytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+
+                // 2. 调 JNI 执行裁剪 (tailorImage)
+                val outInfoTailor = IntArray(6)
+                val outCroppedBytes = ByteArray(rawBytes.size)
+                val croppedRaw = withContext(Dispatchers.IO) {
+                    RawPixelDealJni.tailorImage(
+                        rawBuffer = rawBytes,
+                        width = w,
+                        height = h,
+                        bitsAllocated = bitDepth,
+                        pixelSigned = 0,
+                        minAreaThreshold = 50000,
+                        enableSobel = true,
+                        morphCross = 5,
+                        otsuThresholdLow = 10.0,
+                        outCroppedBytes = outCroppedBytes,
+                        outInfo = outInfoTailor
+                    )
+                }
+
+                if (croppedRaw == null || outInfoTailor[5] == 0) {
+                    throw IllegalStateException("Tailor failed.")
+                }
+
+                val croppedW = outInfoTailor[2]
+                val croppedH = outInfoTailor[3]
+
+                // 3. 执行 Color Invert LUT (针对 16-bit 原始裁剪后缓冲)
+                val invertedRaw = withContext(Dispatchers.IO) {
+                    RawPixelDealJni.invertLut(
+                        rawBuffer = croppedRaw,
+                        w = croppedW,
+                        h = croppedH,
+                        bits = bitDepth,
+                        sign = 1 // 针对 CT 16-bit 数据，采用有符号模式进行动态范围反转
+                    )
+                }
+
+                if (invertedRaw == null) throw IllegalStateException("Invert LUT failed.")
+
+                // 4. 执行标准流水线
+                val outInfoPipeline = IntArray(4)
+                val rgba = withContext(Dispatchers.IO) {
+                    RawPixelDealJni.processCTFullPipeline(
+                        rawBuffer = invertedRaw,
+                        width = croppedW,
+                        height = croppedH,
+                        tarW = croppedW,
+                        tarH = croppedH,
+                        slope = slope,
+                        intercept = intercept,
+                        outInfo = outInfoPipeline
+                    )
+                }
+
+                if (rgba == null) throw IllegalStateException("Pipeline failed.")
+
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    outInfoPipeline[0], outInfoPipeline[1],
+                    android.graphics.Bitmap.Config.ARGB_8888
+                )
+                bmp.copyPixelsFromBuffer(
+                    java.nio.ByteBuffer.wrap(rgba).order(java.nio.ByteOrder.nativeOrder())
+                )
+
+                if (_binding == null) return@launch
+                binding.ivImage.setImageBitmap(bmp)
+                binding.tvInfo.text = "Invert LUT + Pipeline Done."
+                binding.tvSummary.text = "【颜色反转总结】\n1. 原始反转：在 16-bit 原始像素域执行查找表映射反转" +
+                        "，彻底改变图像极性。\n2. 诊断价值：模拟 Monochrome1/2 切换，有助于观察特定密度组织（如高亮钙化点）的细节。"
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Invert pipeline failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                _binding?.btnInvertLut?.isEnabled = true
+            }
+        }
     }
 
     /**

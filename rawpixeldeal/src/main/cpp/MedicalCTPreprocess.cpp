@@ -195,6 +195,24 @@ namespace CTPreprocess {
         return dst8u;
     }
 
+    cv::Mat EnhanceInvertLut(const cv::Mat &src16) {
+        LOGI("EnhanceInvertLut: type=%d depth=%d", src16.type(), src16.depth());
+        cv::Mat dst;
+        if (src16.depth() == CV_16U || src16.depth() == CV_16S) {
+            // 改进：针对医学图像，使用动态范围反转 (min + max) - val
+            // 这样反转后的值依然落在原始数据的有效量程内，避免 HU 校正后溢出导致全灰
+            double mn, mx;
+            cv::minMaxLoc(src16, &mn, &mx);
+            LOGD("EnhanceInvertLut: Range [%.0f, %.0f] -> Inverting around %.0f", mn, mx, mn + mx);
+            dst = cv::Scalar::all(mn + mx) - src16;
+        } else if (src16.depth() == CV_8U) {
+            dst = cv::Scalar::all(255) - src16;
+        } else {
+            dst = src16.clone();
+        }
+        return dst;
+    }
+
     // 完整流水线：原文标准流程（增强版）
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
                            float intercept) {
