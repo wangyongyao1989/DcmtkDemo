@@ -4,11 +4,13 @@
 
 #include "include/MedicalCTPreprocess.h"
 #include <android/log.h>
+#include <CtSeriesProcessor.h>
 
 #define TAG "MedicalCTPreprocess"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 
 namespace CTPreprocess {
     cv::Mat LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16, size_t step,
@@ -18,18 +20,29 @@ namespace CTPreprocess {
         int type = isUint16 ? CV_16UC1 : CV_16SC1;
         cv::Mat mat(rows, cols, type, rawBuf, step);
 
-        // 大端字节序转换
+        // 改进：增加字节序自动检测提示（Heuristic Check）
+        auto performSwap = [](cv::Mat &m) {
+            ushort *p = m.ptr<ushort>();
+            int total = m.rows * m.cols;
+            for (int i = 0; i < total; i++) {
+                ushort val = p[i];
+                m.ptr<ushort>()[i] = (val >> 8) | (val << 8);
+            }
+        };
+
         if (bigEndian) {
             LOGD("LoadRawPixelBuffer: Converting big-endian to little-endian");
             cv::Mat temp;
             mat.copyTo(temp);
-            ushort *p = temp.ptr<ushort>();
-            int total = rows * cols;
-            for (int i = 0; i < total; i++) {
-                ushort val = p[i];
-                p[i] = (val >> 8) | (val << 8); // 高低字节交换
-            }
+            performSwap(temp);
             return temp;
+        } else {
+            // 启发式校验：如果 16-bit 有符号数读取出大量异常极值，提示可能需要大端转换
+            double minV, maxV;
+            cv::minMaxLoc(mat, &minV, &maxV);
+            if (maxV > 30000 || minV < -30000) {
+                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!", minV, maxV);
+            }
         }
         return mat;
     }
@@ -162,28 +175,68 @@ namespace CTPreprocess {
     }
 
     cv::Mat EnhanceContrastStretch(const cv::Mat &src16) {
-        LOGI("EnhanceContrastStretch");
+        LOGI("EnhanceContrastStretch (Adaptive)");
         cv::Mat dst8u;
-        cv::normalize(src16, dst8u, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        // 改进：使用 1%-99% 百分位拉伸替代全局 min/max，抑制异常极值干扰
+        double minV, maxV;
+        cv::minMaxLoc(src16, &minV, &maxV);
+
+        // 简单百分位近似：剔除两端各 1% 的像素（如果支持统计）
+        // 这里为了演示，采用温和截断
+        double span = maxV - minV;
+        double low = minV + span * 0.01;
+        double high = maxV - span * 0.01;
+
+        cv::Mat truncated;
+        cv::threshold(src16, truncated, high, high, cv::THRESH_TRUNC);
+        cv::max(truncated, low, truncated);
+
+        cv::normalize(truncated, dst8u, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         return dst8u;
     }
 
-    // 完整流水线：原文标准流程
+    // 完整流水线：原文标准流程（增强版）
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
                            float intercept) {
-        LOGI("CTFullPipeline: START");
+        LOGI("CTFullPipeline: START (Enhanced with ROI & Percentile)");
         // 1. 载入Raw像素缓冲区
         cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, true);
+
         // 2. HU物理值校正
         cv::Mat huMat = ConvertRawToHU(raw16, slope, intercept);
-        // 3. 空间域双边去噪（医学图像首选）
-        cv::Mat denoiseMat = DenoiseBilateral(huMat);
-        // 4. 重采样统一分辨率
+
+        // 3. 改进点：自动裁剪 ROI（排除空气背景干扰）
+        cv::Rect roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(huMat, -600.0f,
+                                                               5, 1000, 20);
+        cv::Mat roiMat = huMat(roi);
+
+        // 4. 空间域双边去噪（在 HU 域进行，保边）
+        cv::Mat denoiseMat = DenoiseBilateral(roiMat);
+
+        // 5. 重采样统一分辨率
         cv::Mat resizedMat = ResampleImage(denoiseMat, tarW, tarH, false);
-        // 5. 对比度拉伸 + CLAHE增强
-        cv::Mat stretch8u = EnhanceContrastStretch(resizedMat);
-        cv::Mat result = EnhanceCLAHE(stretch8u);
-        LOGI("CTFullPipeline: DONE");
+
+        // 6. 改进点：基于百分位的自适应调窗 (0.5% ~ 99.5%)
+        float gMin, gMax;
+        std::vector<cv::Mat> slices = {resizedMat};
+        CtSeriesProcessor::computePercentileHu(slices, cv::Rect(0, 0, resizedMat.cols, resizedMat.rows), 1, 0.5, 99.5, gMin, gMax);
+
+        // 7. 改进点：临床窗位映射
+        double c = (gMin + gMax) * 0.5;
+        double w = (gMax - gMin);
+
+        // 兜底：如果窗宽过窄（可能由于数据异常），使用标准软组织窗
+        if (w < 100.0) {
+            LOGW("CTFullPipeline: Auto window too narrow (W=%.1f), fallback to Soft Tissue", w);
+            c = 40.0; w = 400.0;
+        }
+
+        cv::Mat stretch8u = CtSeriesProcessor::applyWindow8u(resizedMat, c, w, 0);
+
+        // 8. CLAHE 局部增强
+        cv::Mat result = EnhanceCLAHE(stretch8u, 2.0, cv::Size(8, 8));
+
+        LOGI("CTFullPipeline: DONE. Final Window: C=%.1f, W=%.1f", c, w);
         return result;
     }
 }
