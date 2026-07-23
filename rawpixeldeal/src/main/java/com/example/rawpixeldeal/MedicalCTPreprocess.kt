@@ -106,7 +106,8 @@ object MedicalCTPreprocess {
         tarW: Int,
         tarH: Int,
         slope: Float,
-        intercept: Float
+        intercept: Float,
+        bigEndian: Boolean = true
     ): PreprocessResult {
         val bytes = context.assets.open(assetName).use { it.readBytes() }
         val outInfo = IntArray(4)
@@ -118,6 +119,7 @@ object MedicalCTPreprocess {
             tarH = tarH,
             slope = slope,
             intercept = intercept,
+            bigEndian = bigEndian,
             outInfo = outInfo
         ) ?: throw IllegalStateException("native processCTFullPipeline returned null")
 

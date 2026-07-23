@@ -81,6 +81,7 @@ object XrayPipeline {
                 height = height,
                 bitsAllocated = 16,
                 pixelSigned = 0,                  // X-ray 探测器 raw 通常无符号
+                bigEndian = true,
                 minAreaThreshold = config.minAreaThreshold,
                 enableSobel = config.enableSobel,
                 morphCross = config.morphCross,

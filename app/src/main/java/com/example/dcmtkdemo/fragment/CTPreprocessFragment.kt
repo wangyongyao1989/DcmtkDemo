@@ -73,6 +73,7 @@ class CTPreprocessFragment : Fragment() {
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
         val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+        val isBigEndian = binding.rbBigEndian.isChecked
 
         binding.btnInvertLut.isEnabled = false
         binding.tvInfo.text = "Inverting & Running Pipeline..."
@@ -94,6 +95,7 @@ class CTPreprocessFragment : Fragment() {
                         height = h,
                         bitsAllocated = bitDepth,
                         pixelSigned = 0,
+                        bigEndian = isBigEndian,
                         minAreaThreshold = 50000,
                         enableSobel = true,
                         morphCross = 5,
@@ -117,7 +119,8 @@ class CTPreprocessFragment : Fragment() {
                         w = croppedW,
                         h = croppedH,
                         bits = bitDepth,
-                        sign = 1 // 针对 CT 16-bit 数据，采用有符号模式进行动态范围反转
+                        sign = 1, // 针对 CT 16-bit 数据，采用有符号模式进行动态范围反转
+                        bigEndian = isBigEndian
                     )
                 }
 
@@ -134,6 +137,7 @@ class CTPreprocessFragment : Fragment() {
                         tarH = croppedH,
                         slope = slope,
                         intercept = intercept,
+                        bigEndian = isBigEndian,
                         outInfo = outInfoPipeline
                     )
                 }
@@ -175,6 +179,7 @@ class CTPreprocessFragment : Fragment() {
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
         val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+        val isBigEndian = binding.rbBigEndian.isChecked
 
         binding.btnTailorPipeline.isEnabled = false
         binding.tvInfo.text = "Cropping & Running Pipeline..."
@@ -196,6 +201,7 @@ class CTPreprocessFragment : Fragment() {
                         height = h,
                         bitsAllocated = bitDepth,
                         pixelSigned = 0, // 假设无符号
+                        bigEndian = isBigEndian,
                         minAreaThreshold = 50000, // 默认门限
                         enableSobel = true,
                         morphCross = 5,
@@ -224,6 +230,7 @@ class CTPreprocessFragment : Fragment() {
                         tarH = croppedH,
                         slope = slope,
                         intercept = intercept,
+                        bigEndian = isBigEndian,
                         outInfo = outInfoPipeline
                     )
                 }
@@ -271,6 +278,7 @@ class CTPreprocessFragment : Fragment() {
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
         val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
+        val isBigEndian = binding.rbBigEndian.isChecked
 
         // 标准流程通常重采样到 512x512
         val tw = binding.etResW.text.toString().toIntOrNull() ?: 512
@@ -290,7 +298,8 @@ class CTPreprocessFragment : Fragment() {
                         tarW = tw,
                         tarH = th,
                         slope = slope,
-                        intercept = intercept
+                        intercept = intercept,
+                        bigEndian = isBigEndian
                     )
                 }
                 if (_binding == null) return@launch
@@ -368,6 +377,7 @@ class CTPreprocessFragment : Fragment() {
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+        val isBigEndian = binding.rbBigEndian.isChecked
         val slope = binding.etSlope.text.toString().toDoubleOrNull() ?: 1.0
         val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
 
@@ -432,6 +442,7 @@ class CTPreprocessFragment : Fragment() {
                         width = w,
                         height = h,
                         bitDepth = bitDepth,
+                        bigEndian = isBigEndian,
                         steps = steps
                     )
                 }

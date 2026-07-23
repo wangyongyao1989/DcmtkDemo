@@ -41,7 +41,8 @@ namespace CTPreprocess {
             double minV, maxV;
             cv::minMaxLoc(mat, &minV, &maxV);
             if (maxV > 30000 || minV < -30000) {
-                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!", minV, maxV);
+                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!"
+                     , minV, maxV);
             }
         }
         return mat;
@@ -215,10 +216,10 @@ namespace CTPreprocess {
 
     // 完整流水线：原文标准流程（增强版）
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
-                           float intercept) {
-        LOGI("CTFullPipeline: START (Enhanced with ROI & Percentile)");
+                           float intercept, bool bigEndian) {
+        LOGI("CTFullPipeline: START (Enhanced with ROI & Percentile) bigEndian=%d", bigEndian);
         // 1. 载入Raw像素缓冲区
-        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, true);
+        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, bigEndian);
 
         // 2. HU物理值校正
         cv::Mat huMat = ConvertRawToHU(raw16, slope, intercept);

@@ -83,7 +83,7 @@ namespace CTPreprocess {
      * 流水线：Raw Buffer → HU校正 → 去噪 → 重采样 → 增强输出8bit可视化图
      */
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH,
-                           float slope = 1.0f, float intercept = -1024.0f);
+                           float slope = 1.0f, float intercept = -1024.0f, bool bigEndian = true);
 }
 
 

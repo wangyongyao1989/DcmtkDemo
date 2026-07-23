@@ -114,6 +114,32 @@
                     android:checked="true"
                     android:text="16" />
             </RadioGroup>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Endian:" />
+
+            <RadioGroup
+                android:id="@+id/rg_endian"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rb_big_endian"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Big" />
+
+                <RadioButton
+                    android:id="@+id/rb_little_endian"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Little" />
+            </RadioGroup>
         </LinearLayout>
 
         <LinearLayout
@@ -444,12 +470,12 @@
         <ImageView
             android:id="@+id/iv_image"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="500dp"
             android:layout_marginTop="8dp"
             android:adjustViewBounds="true"
             android:background="#11000000"
             android:contentDescription="result image"
-            android:scaleType="fitStart" />
+            android:scaleType="fitCenter" />
 
         <TextView
             android:id="@+id/tv_summary"

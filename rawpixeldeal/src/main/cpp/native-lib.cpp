@@ -188,13 +188,13 @@ native_processCtSeries(JNIEnv *env, jclass, jobjectArray rawBuffers,
 // =============================================================================
 static jbyteArray
 native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bits, jint sign,
-                   jint minArea, jboolean sobel, jint morph, jdouble otsuLow, jbyteArray outCropped,
-                   jintArray outInfo) {
+                   jboolean bigEndian, jint minArea, jboolean sobel, jint morph, jdouble otsuLow,
+                   jbyteArray outCropped, jintArray outInfo) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     if (pRaw == nullptr) return nullptr;
 
     // 改进：使用 LoadRawPixelBuffer 处理字节序，确保裁剪算子工作在正确的值域
-    cv::Mat sv = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, true);
+    cv::Mat sv = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, bigEndian);
 
     int outX, outY;
     double angle;
@@ -210,12 +210,14 @@ native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint 
         return XrayProcessor::buildFullImageResult(env, sv, outInfo);
     }
 
-    // 转回大端，以保持与后续 Pipeline 兼容
-    ushort *p = cropped.ptr<ushort>();
-    int total = cropped.rows * cropped.cols;
-    for (int i = 0; i < total; i++) {
-        ushort val = p[i];
-        p[i] = (val >> 8) | (val << 8);
+    // 如果是处理大端数据，则在输出前转回大端，以保持与后续 Pipeline 逻辑的一致性
+    if (bigEndian) {
+        ushort *p = cropped.ptr<ushort>();
+        int total = cropped.rows * cropped.cols;
+        for (int i = 0; i < total; i++) {
+            ushort val = p[i];
+            p[i] = (val >> 8) | (val << 8);
+        }
     }
 
     jbyteArray outBytes = env->NewByteArray(
@@ -236,24 +238,23 @@ native_tailorImage(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint 
 // 6) Invert LUTs
 // =============================================================================
 static jbyteArray
-native_invertLut(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bits, jint sign) {
+native_invertLut(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bits, jint sign,
+                 jboolean bigEndian) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     if (pRaw == nullptr) return nullptr;
 
-    // 改进：使用 LoadRawPixelBuffer 处理字节序（由于此处不确定输入字节序，先按小端读，
-    // 或假设输入已由上层处理。但针对 Data610/622，它们是大端的。）
-    // 为了修复全灰 BUG，我们需要确保反转后的值仍在合理范围内。
-
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, true);
+    // 改进：使用 LoadRawPixelBuffer 处理字节序
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, sign == 0, 0, bigEndian);
     cv::Mat inverted = CTPreprocess::EnhanceInvertLut(mat);
 
-    // 将处理后的（本地序/小端）数据转回大端，以保持与原有 Pipeline 兼容
-    // 因为 processCTFullPipeline 内部会再次执行 LoadRawPixelBuffer(..., true)
-    ushort *p = inverted.ptr<ushort>();
-    int total = inverted.rows * inverted.cols;
-    for (int i = 0; i < total; i++) {
-        ushort val = p[i];
-        p[i] = (val >> 8) | (val << 8);
+    // 如果是处理大端数据，则在输出前转回大端，以保持与后续 Pipeline 兼容
+    if (bigEndian) {
+        ushort *p = inverted.ptr<ushort>();
+        int total = inverted.rows * inverted.cols;
+        for (int i = 0; i < total; i++) {
+            ushort val = p[i];
+            p[i] = (val >> 8) | (val << 8);
+        }
     }
 
     jsize byteCount = static_cast<jsize>(inverted.total() * inverted.elemSize());
@@ -361,9 +362,10 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
 
 static jbyteArray
 native_processCTFullPipeline(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint tw,
-                             jint th, jfloat slope, jfloat intercept, jintArray info) {
+                             jint th, jfloat slope, jfloat intercept, jboolean bigEndian,
+                             jintArray info) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
-    cv::Mat resMat = CTPreprocess::CTFullPipeline(pRaw, h, w, tw, th, slope, intercept);
+    cv::Mat resMat = CTPreprocess::CTFullPipeline(pRaw, h, w, tw, th, slope, intercept, bigEndian);
     jbyteArray res;
     JniHelper::gray8uToRgbaJBytes(env, resMat, res);
     if (info && env->GetArrayLength(info) >= 4) {
@@ -395,13 +397,13 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_processRawToRgba},
         {"processCtSeries",       "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
                 (void *) native_processCtSeries},
-        {"tailorImage",           "([BIIIIIZID[B[I)[B",
+        {"tailorImage",           "([BIIIIZIZID[B[I)[B",
                 (void *) native_tailorImage},
-        {"invertLut",             "([BIIII)[B",
+        {"invertLut",             "([BIIIIZ)[B",
                 (void *) native_invertLut},
         {"processMedicalCT",      "([BIIIZZ[I[D[I)[B",
                 (void *) native_processMedicalCT},
-        {"processCTFullPipeline", "([BIIIIFF[I)[B",
+        {"processCTFullPipeline", "([BIIIIFFZ[I)[B",
                 (void *) native_processCTFullPipeline},
 };
 

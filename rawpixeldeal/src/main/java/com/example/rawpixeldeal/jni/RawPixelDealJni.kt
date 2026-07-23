@@ -214,6 +214,7 @@ object RawPixelDealJni {
         height: Int,
         bitsAllocated: Int,
         pixelSigned: Int,
+        bigEndian: Boolean,
         minAreaThreshold: Int,
         enableSobel: Boolean,
         morphCross: Int,
@@ -238,7 +239,8 @@ object RawPixelDealJni {
         w: Int,
         h: Int,
         bits: Int,
-        sign: Int
+        sign: Int,
+        bigEndian: Boolean
     ): ByteArray?
 
     /**
@@ -290,6 +292,7 @@ object RawPixelDealJni {
         tarH: Int,
         slope: Float,
         intercept: Float,
+        bigEndian: Boolean,
         outInfo: IntArray
     ): ByteArray?
 }
