@@ -78,6 +78,16 @@ namespace CTPreprocess {
      */
     cv::Mat EnhanceInvertLut(const cv::Mat &src16);
 
+    // 5. 特征锐化：USM 非锐化掩膜（针对骨皮质、骨小梁）
+    /**
+     * @brief USM 锐化
+     * @param src 输入 Mat
+     * @param sigma 高斯核标准差
+     * @param strength 锐化强度
+     * @return 锐化后的 Mat
+     */
+    cv::Mat SharpenUSM(const cv::Mat &src, double sigma = 1.5, double strength = 0.6);
+
     // ===================== 完整预处理流水线（对应原文标准流程） =====================
     /**
      * 流水线：Raw Buffer → HU校正 → 去噪 → 重采样 → 增强输出8bit可视化图

@@ -25,7 +25,8 @@ object MedicalCTPreprocess {
         CONTRAST_STRETCH(9, "对比度拉伸"),
         HU_CONVERT(10, "HU校正"),
         TAILOR(11, "图片裁剪"),
-        INVERT_LUT(12, "Invert LUTs")
+        INVERT_LUT(12, "Invert LUTs"),
+        FEATURE_SHARPEN(13, "特征锐化")
     }
 
     data class PreprocessStep(

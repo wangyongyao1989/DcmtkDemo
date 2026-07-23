@@ -152,8 +152,10 @@ class CTPreprocessFragment : Fragment() {
                 if (_binding == null) return@launch
                 binding.ivBefore.setImageBitmap(result.bitmap)
                 binding.ivAfter.setImageDrawable(null)
-                binding.tvInfo.text = "Standard Pipeline Done. (Output: ${result.outWidth}x${result.outHeight})"
-                binding.tvSummary.text = "【标准流水线一键操作】\n执行了官方标准流程：HU校正、双边降噪、重采样、CLAHE增强。该流程是医学图像处理的基准。"
+                binding.tvInfo.text =
+                    "Standard Pipeline Done. (Output: ${result.outWidth}x${result.outHeight})"
+                binding.tvSummary.text =
+                    "【标准流水线一键操作】\n执行了官方标准流程：HU校正、双边降噪、重采样、CLAHE增强。该流程是医学图像处理的基准。"
             } catch (e: Exception) {
                 Log.e(TAG, "Full pipeline failed", e)
                 binding.tvInfo.text = "Error: ${e.message}"
@@ -179,21 +181,72 @@ class CTPreprocessFragment : Fragment() {
         val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
 
         val steps = mutableListOf<PreprocessStep>()
-        if (binding.cbTailor.isChecked) steps.add(PreprocessStep(Op.TAILOR, listOf(40000.0, 1.0, 25.0, 10.0)))
+        if (binding.cbTailor.isChecked) steps.add(
+            PreprocessStep(
+                Op.TAILOR,
+                listOf(40000.0, 1.0, 25.0, 10.0)
+            )
+        )
         if (binding.cbInvert.isChecked) steps.add(PreprocessStep(Op.INVERT_LUT))
-        if (binding.cbHu.isChecked) steps.add(PreprocessStep(Op.HU_CONVERT, listOf(slope, intercept)))
-        if (binding.cbGaussian.isChecked) steps.add(PreprocessStep(Op.GAUSSIAN, listOf(binding.etGaussK.text.toString().toDoubleOrNull() ?: 5.0, 0.0)))
-        if (binding.cbMedian.isChecked) steps.add(PreprocessStep(Op.MEDIAN, listOf(binding.etMedianK.text.toString().toDoubleOrNull() ?: 3.0)))
-        if (binding.cbBilateral.isChecked) steps.add(PreprocessStep(Op.BILATERAL, listOf(binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0, 50.0, 50.0)))
-        if (binding.cbFft.isChecked) steps.add(PreprocessStep(Op.FFT, listOf(binding.etFftR.text.toString().toDoubleOrNull() ?: 300.0)))
-        if (binding.cbResample.isChecked) steps.add(PreprocessStep(Op.RESAMPLE_SIZE, listOf(binding.etResW.text.toString().toDoubleOrNull() ?: 1112.0, binding.etResH.text.toString().toDoubleOrNull() ?: 1740.0, 0.0)))
+        if (binding.cbHu.isChecked) steps.add(
+            PreprocessStep(
+                Op.HU_CONVERT,
+                listOf(slope, intercept)
+            )
+        )
+        if (binding.cbGaussian.isChecked) steps.add(
+            PreprocessStep(
+                Op.GAUSSIAN,
+                listOf(binding.etGaussK.text.toString().toDoubleOrNull() ?: 5.0, 0.0)
+            )
+        )
+        if (binding.cbMedian.isChecked) steps.add(
+            PreprocessStep(
+                Op.MEDIAN,
+                listOf(binding.etMedianK.text.toString().toDoubleOrNull() ?: 3.0)
+            )
+        )
+        if (binding.cbBilateral.isChecked) steps.add(
+            PreprocessStep(
+                Op.BILATERAL,
+                listOf(binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0, 50.0, 50.0)
+            )
+        )
+        if (binding.cbFft.isChecked) steps.add(
+            PreprocessStep(
+                Op.FFT,
+                listOf(binding.etFftR.text.toString().toDoubleOrNull() ?: 300.0)
+            )
+        )
+        if (binding.cbResample.isChecked) steps.add(
+            PreprocessStep(
+                Op.RESAMPLE_SIZE,
+                listOf(
+                    binding.etResW.text.toString().toDoubleOrNull() ?: 1112.0,
+                    binding.etResH.text.toString().toDoubleOrNull() ?: 1740.0,
+                    0.0
+                )
+            )
+        )
         if (binding.cbEqualize.isChecked) steps.add(PreprocessStep(Op.GLOBAL_EQUALIZE))
-        if (binding.cbClahe.isChecked) steps.add(PreprocessStep(Op.CLAHE, listOf(binding.etClaheClip.text.toString().toDoubleOrNull() ?: 2.0, 8.0, 8.0)))
+        if (binding.cbClahe.isChecked) steps.add(
+            PreprocessStep(
+                Op.CLAHE,
+                listOf(binding.etClaheClip.text.toString().toDoubleOrNull() ?: 2.0, 8.0, 8.0)
+            )
+        )
         if (binding.cbStretch.isChecked) steps.add(PreprocessStep(Op.CONTRAST_STRETCH))
+        if (binding.cbSharpen.isChecked) steps.add(
+            PreprocessStep(
+                Op.FEATURE_SHARPEN,
+                listOf(1.5, binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 0.6)
+            )
+        )
 
         val btn = if (isWindowing) binding.btnWindowing else binding.btnRun
         btn.isEnabled = false
-        binding.tvInfo.text = if (isWindowing) "Computing Windowing Comparison..." else "Loading & Displaying Preprocess..."
+        binding.tvInfo.text =
+            if (isWindowing) "Computing Windowing Comparison..." else "Loading & Displaying Preprocess..."
 
         val windowMethodIndex = if (isWindowing) {
             when {
@@ -213,27 +266,60 @@ class CTPreprocessFragment : Fragment() {
                 if (isWindowing) {
                     // 1. 获取调窗前 (None/Min-Max)
                     val resBefore = withContext(Dispatchers.IO) {
-                        MedicalCTPreprocess.process(ctx, assetName, w, h, bitDepth, isBigEndian, false, steps, -1)
+                        MedicalCTPreprocess.process(
+                            ctx,
+                            assetName,
+                            w,
+                            h,
+                            bitDepth,
+                            isBigEndian,
+                            false,
+                            steps,
+                            -1
+                        )
                     }
                     // 2. 获取调窗后
                     val resAfter = withContext(Dispatchers.IO) {
-                        MedicalCTPreprocess.process(ctx, assetName, w, h, bitDepth, isBigEndian, false, steps, windowMethodIndex)
+                        MedicalCTPreprocess.process(
+                            ctx,
+                            assetName,
+                            w,
+                            h,
+                            bitDepth,
+                            isBigEndian,
+                            false,
+                            steps,
+                            windowMethodIndex
+                        )
                     }
                     if (_binding == null) return@launch
                     binding.ivBefore.setImageBitmap(resBefore.bitmap)
                     binding.ivAfter.setImageBitmap(resAfter.bitmap)
-                    val methodName = if (windowMethodIndex == -1) "None" else WindowMethod.values()[windowMethodIndex].displayName
-                    binding.tvInfo.text = "Comparison Ready. Method: $methodName\nRange: [${resAfter.minVal}, ${resAfter.maxVal}]"
+                    val methodName =
+                        if (windowMethodIndex == -1) "None" else WindowMethod.values()[windowMethodIndex].displayName
+                    binding.tvInfo.text =
+                        "Comparison Ready. Method: $methodName\nRange: [${resAfter.minVal}, ${resAfter.maxVal}]"
                     binding.tvSummary.text = generateSummary(steps, true, methodName)
                 } else {
                     // 仅预处理显示 - 固定在左侧 (Left/Before)
                     val result = withContext(Dispatchers.IO) {
-                        MedicalCTPreprocess.process(ctx, assetName, w, h, bitDepth, isBigEndian, false, steps, -1)
+                        MedicalCTPreprocess.process(
+                            ctx,
+                            assetName,
+                            w,
+                            h,
+                            bitDepth,
+                            isBigEndian,
+                            false,
+                            steps,
+                            -1
+                        )
                     }
                     if (_binding == null) return@launch
                     binding.ivBefore.setImageBitmap(result.bitmap)
                     binding.ivAfter.setImageDrawable(null)
-                    binding.tvInfo.text = "Preprocess Only. Range: [${result.minVal}, ${result.maxVal}]"
+                    binding.tvInfo.text =
+                        "Preprocess Only. Range: [${result.minVal}, ${result.maxVal}]"
                     binding.tvSummary.text = generateSummary(steps, false, "")
                 }
             } catch (e: Exception) {
@@ -245,7 +331,11 @@ class CTPreprocessFragment : Fragment() {
         }
     }
 
-    private fun generateSummary(steps: List<PreprocessStep>, isWin: Boolean, method: String): String = buildString {
+    private fun generateSummary(
+        steps: List<PreprocessStep>,
+        isWin: Boolean,
+        method: String
+    ): String = buildString {
         appendLine(if (isWin) "【调窗前后类比分析】" else "【预处理操作总结】")
         if (steps.isEmpty()) appendLine("- 基础映射：展示原始或最简处理后的图像。")
         steps.forEach { step ->
@@ -255,6 +345,7 @@ class CTPreprocessFragment : Fragment() {
                 Op.HU_CONVERT -> appendLine("- HU校正：还原物理密度值。")
                 Op.BILATERAL -> appendLine("- 双边去噪：保边平滑，提升信噪比。")
                 Op.CLAHE -> appendLine("- CLAHE：局部对比度增强。")
+                Op.FEATURE_SHARPEN -> appendLine("- 特征锐化：针对骨皮质和骨小梁的USM增强。")
                 else -> appendLine("- ${step.op.displayName}")
             }
         }
@@ -263,21 +354,40 @@ class CTPreprocessFragment : Fragment() {
 
     private fun setupKeyboardDismiss() {
         val editorListener = TextView.OnEditorActionListener { v, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) { v.clearFocus(); hideKeyboard(); true } else false
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                v.clearFocus(); hideKeyboard(); true
+            } else false
         }
-        listOf(binding.etWidth, binding.etHeight, binding.etSlope, binding.etIntercept, binding.etGaussK,
-            binding.etMedianK, binding.etBilateralD, binding.etFftR, binding.etResW, binding.etResH, binding.etClaheClip)
+        listOf(
+            binding.etWidth,
+            binding.etHeight,
+            binding.etSlope,
+            binding.etIntercept,
+            binding.etGaussK,
+            binding.etMedianK,
+            binding.etBilateralD,
+            binding.etFftR,
+            binding.etResW,
+            binding.etResH,
+            binding.etClaheClip,
+            binding.etSharpenStrength
+        )
             .forEach { it.setOnEditorActionListener(editorListener) }
         binding.scrollRoot.setOnClickListener { hideKeyboard(); binding.scrollRoot.requestFocus() }
     }
 
     private fun hideKeyboard() {
         val ctx = context ?: return
-        val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        val imm =
+            ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
         imm.hideSoftInputFromWindow((activity?.currentFocus ?: binding.root).windowToken, 0)
     }
 
-    override fun onDestroyView() { super.onDestroyView(); _binding = null }
+    override fun onDestroyView() {
+        super.onDestroyView(); _binding = null
+    }
 
-    companion object { private const val TAG = "CTPreprocessFragment" }
+    companion object {
+        private const val TAG = "CTPreprocessFragment"
+    }
 }

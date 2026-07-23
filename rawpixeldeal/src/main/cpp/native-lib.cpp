@@ -333,6 +333,10 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             if (ok && !cropped.empty()) mat = cropped;
         } else if (op == 12) {
             mat = CTPreprocess::EnhanceInvertLut(mat);
+        } else if (op == 13) {
+            double sigma = pParams[pIdx++];
+            double strength = pParams[pIdx++];
+            mat = CTPreprocess::SharpenUSM(mat, sigma, strength);
         }
     }
 

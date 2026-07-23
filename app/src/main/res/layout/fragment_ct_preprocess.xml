@@ -404,6 +404,30 @@
                 android:layout_columnWeight="1"
                 android:text="图片裁剪"
                 android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cb_sharpen"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="特征锐化"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/et_sharpen_strength"
+                    android:layout_width="30dp"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="numberDecimal"
+                    android:text="0.6"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </GridLayout>
 
         <Button

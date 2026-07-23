@@ -1,0 +1,81 @@
+CT 骨骼（骨皮质 + 骨小梁）分析：密度阈值、窗宽窗位 + OpenCV 定向锐化完整方案
+适配 16bit raw 像素缓冲区（CT 原始.bin 数据）
+重要原则：所有定量分析操作，必须在原始 16bit/HU 数据上执行；锐化仅用于可视化观察，不能用于骨密度定量测量！
+一、骨皮质、骨小梁标准密度区间（HU，亨氏单位）
+若.bin raw为设备原始 ADC 采样值，必须先通过RescaleSlope / RescaleIntercept转换为 HU 单位，阈值才具备物理意义。
+表格组织结构CT 值 HU 范围特征说明骨小梁（松质骨 Trabecular）150 ~ 850 HU椎体内部网状微细骨质，密度跨度大；骨质疏松时整体 HU 下降骨皮质（密质骨 Cortical）800 ~ 3000 HU骨骼外层致密硬壳，边界锐利；骨折、骨质破坏、骨皮质变薄在此区间识别骨髓（松质骨间隙）-50 ~ 100 HU骨小梁之间低密度区域OpenCV 定向分割阈值
+仅提取骨皮质：阈值 ＞ 800 HU
+提取全部骨骼（皮质 + 骨小梁）：阈值 ＞ 150 HU
+单独分离骨小梁（剔除皮质）：150 ＜ HU ＜ 800
+二、观察骨皮质、骨小梁推荐窗宽窗位（WW/WL）窗参数控制可视化对比度，等价于 ImageJ 亮度面板 Min/Max，可直接对接 OpenCV 窗宽窗位线性映射。
+计算公式：
+\(Min = WL - WW/2\)
+\(Max = WL + WW/2\)
+
+通用标准骨窗（兼顾皮质 + 骨小梁・首选）
+窗宽 WW = 2000 HU，窗位 WL = 500 HU
+显示区间：Min=-500 HU，Max=1500 HU
+优势：同时看清高密度骨皮质 + 内部低密度骨小梁网状结构，椎体 CT 常规使用。
+
+
+窄窗：精细观察骨小梁纹理（骨质疏松筛查）
+窗宽 WW = 1500 HU，窗位 WL = 400 HU
+显示区间：Min=-350 HU，Max=1150 HU
+适用：观察骨小梁稀疏程度、微小骨质改变。
+
+
+宽窗：重点观察骨皮质完整性（骨折、骨质侵蚀）
+窗宽 WW = 2500 HU，窗位 WL = 600 HU
+显示区间：Min=-650 HU，Max=1850 HU
+适用：观察皮质连续性、骨增生、硬化灶。
+
+
+实操建议：优先使用【通用标准骨窗】；需要放大骨小梁细节再切换窄窗方案。
+三、面向骨小梁 / 骨皮质的锐化算法选型（OpenCV）核心痛点CT 原始图像存在量子噪声；普通锐化会同步放大噪声，造成骨小梁纹理失真。
+算法优先级：双边滤波预处理 + USM 非锐化掩膜（首选）＞拉普拉斯保边锐化 ＞简单卷积锐化（不推荐）1、首选算法：USM 非锐化掩膜（Unsharp Mask）最适配骨骼影像，增强微细骨小梁与骨皮质边界。原理\(I_{sharp}=I_{org}+k\cdot(I_{org}-Gauss(I_{org}))\)
+k：锐化强度
+\(\sigma\)：高斯模糊半径，控制捕捉纹理尺度
+骨骼推荐参数（16bit CT 图像）
+sigma = 1.2 ~ 2.0
+细小骨小梁：1.2；粗骨质纹理：2.0
+strength (k) = 0.4 ~ 0.8
+禁止超过 1.0，避免边缘光晕伪影
+Python 实现（原生支持 16bit）python运行import cv2
+import numpy as np
+
+def usm_sharpen_16bit(img_16, sigma=1.5, strength=0.6):
+    """
+    img_16 : uint16 原始CT图像 CV_16UC1
+    return：锐化后uint16图像
+    """
+    blurred = cv2.GaussianBlur(img_16, ksize=(0,0), sigmaX=sigma)
+    sharp = cv2.addWeighted(img_16, 1.0, blurred, -1.0, 0)
+    result = cv2.addWeighted(img_16, 1.0, sharp, strength, 0)
+    # 截断，防止16位数值溢出
+    result = np.clip(result, 0, 65535).astype(np.uint16)
+    return result
+2、进阶方案：双边滤波降噪 + USM 锐化（低剂量 CT 噪声较大场景）先保边降噪，再做锐化；不会模糊骨小梁细微边缘。python运行# 骨骼专用双边滤波参数
+img_smooth = cv2.bilateralFilter(img_16, d=5, sigmaColor=80, sigmaSpace=80)
+img_sharp = usm_sharpen_16bit(img_smooth)
+3、备选：拉普拉斯二阶微分锐化适合强化骨皮质锐利边界、骨折线；缺点：对噪声更加敏感。python运行def laplacian_sharpen(img_16, alpha=0.4):
+    lap = cv2.Laplacian(img_16, cv2.CV_16S, ksize=3)
+    res = cv2.addWeighted(img_16.astype(np.int32), 1.0, lap, -alpha, 0)
+    return np.clip(res,0,65535).astype(np.uint16)
+❌ 不推荐方案直接使用 3×3 简易锐化卷积核，极易产生振铃伪影、放大噪声，破坏细微骨小梁结构。四、完整标准处理流水线（适配 CT raw .bin 文件）
+读取Data720.bin → np.fromfile → reshape 为 1112×1740 uint16 原始图像
+【可选】原始 ADC 采样值 → 转换标准 HU（非 DICOM 原始数据必须执行）
+预处理：双边保边降噪（图像噪声大时启用）
+纹理增强：USM 锐化，突出骨小梁网状纹理、骨皮质边缘
+窗宽窗位线性映射（选用骨窗参数），生成 8bit 图像用于可视化预览
+定向阈值分割：＞150 提取全部骨骼 / ＞800 单独提取骨皮质
+ROI 灰度统计、轮廓提取、骨小梁形态定量分析
+五、定向分析实操区分技巧观察骨皮质
+使用宽骨窗 WW2500/WL600；适度提高锐化强度
+阈值＞800HU 二值化，findContours提取皮质轮廓，测量骨皮质厚度
+观察骨小梁网状结构
+使用窄骨窗 WW1500/WL400；降低锐化强度 strength=0.4~0.5，避免细小骨小梁断裂失真
+阈值 150~800HU 提取松质骨；可计算骨小梁数量、间距、骨体积分数（BV/TV）
+六、医学影像重要禁忌
+严禁先转 8bit 再锐化：必须在 16bit 原始数据完成增强，再执行窗宽映射；否则灰度信息永久丢失。
+锐化仅用于可视化观察；骨密度、CT 值定量测量必须使用未经过锐化的原始图像。
+禁止过度锐化：强度大于 1.0 易产生人工伪纹理，噪声会被误识别为骨小梁。

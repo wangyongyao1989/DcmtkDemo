@@ -215,6 +215,17 @@ namespace CTPreprocess {
         return dst;
     }
 
+    cv::Mat SharpenUSM(const cv::Mat &src, double sigma, double strength) {
+        LOGI("SharpenUSM: sigma=%.2f, strength=%.2f", sigma, strength);
+        cv::Mat blurred, sharp, dst;
+        cv::GaussianBlur(src, blurred, cv::Size(0, 0), sigma, sigma);
+        // sharp = src - blurred
+        cv::addWeighted(src, 1.0, blurred, -1.0, 0, sharp);
+        // dst = src + strength * sharp
+        cv::addWeighted(src, 1.0, sharp, strength, 0, dst);
+        return dst;
+    }
+
     // 完整流水线：原文标准流程（增强版）
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
                            float intercept, bool bigEndian) {
