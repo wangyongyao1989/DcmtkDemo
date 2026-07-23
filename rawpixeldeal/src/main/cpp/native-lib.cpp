@@ -343,35 +343,83 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             double c = 127.5, w = 255.0;
             double minV, maxV;
             cv::minMaxLoc(mat, &minV, &maxV);
-            if (windowMethod == 0) { c = 127.5; w = 255.0; }
-            else if (windowMethod == 5) { c = (minV + maxV) * 0.5; w = std::max(1.0, maxV - minV); }
+            if (windowMethod == 0) {
+                c = 127.5;
+                w = 255.0;
+            }
+            else if (windowMethod == 5) {
+                c = (minV + maxV) * 0.5;
+                w = std::max(1.0, maxV - minV);
+            }
             else {
                 int nBins = 256;
                 std::vector<int> hist;
                 std::vector<cv::Mat> slices = {mat};
-                CtSeriesProcessor::aggregateSeriesHistogram(slices, cv::Rect(0, 0, mat.cols, mat.rows),
+                CtSeriesProcessor::aggregateSeriesHistogram(slices,
+                                                            cv::Rect(0, 0, mat.cols, mat.rows),
                                                             minV, maxV, nBins, 1, hist);
                 if (windowMethod == 1) {
-                    long long total = 0; for (int v: hist) total += v;
+                    long long total = 0;
+                    for (int v: hist) total += v;
                     long long threshold = (long long) (total * 0.72);
-                    long long cumulative = 0; int targetBin = 0;
-                    for (int i = 0; i < nBins; ++i) { cumulative += hist[i]; if (cumulative >= threshold) { targetBin = i; break; } }
-                    double hBin = (maxV - minV) / nBins; c = minV + (targetBin + 0.5) * hBin; w = 508.0;
+                    long long cumulative = 0;
+                    int targetBin = 0;
+                    for (int i = 0; i < nBins; ++i) {
+                        cumulative += hist[i];
+                        if (cumulative >= threshold) {
+                            targetBin = i;
+                            break;
+                        }
+                    }
+                    double hBin = (maxV - minV) / nBins;
+                    c = minV + (targetBin + 0.5) * hBin;
+                    w = 508.0;
                 } else if (windowMethod == 2) {
                     int leftPeakIdx = 0, leftPeakFreq = 0;
-                    for (int i = 0; i < nBins; i++) { if (hist[i] > leftPeakFreq) { leftPeakFreq = hist[i]; leftPeakIdx = i; } }
-                    std::vector<int> suppressed = hist; int radius = std::max(1, (int) (nBins * 0.05));
-                    for (int i = std::max(0, leftPeakIdx - radius); i <= std::min(nBins - 1, leftPeakIdx + radius); i++) suppressed[i] = 0;
+                    for (int i = 0; i < nBins; i++) {
+                        if (hist[i] > leftPeakFreq) {
+                            leftPeakFreq = hist[i];
+                            leftPeakIdx = i;
+                        }
+                    }
+                    std::vector<int> suppressed = hist;
+                    int radius = std::max(1, (int) (nBins * 0.05));
+                    for (int i = std::max(0, leftPeakIdx - radius);
+                         i <= std::min(nBins - 1, leftPeakIdx + radius); i++)
+                        suppressed[i] = 0;
                     int valleyIdx = -1, valleyFreq = 2147483647, peakIdx = -1, peakFreq = 0;
-                    for (int i = 0; i < nBins; i++) { if (suppressed[i] > 0) { if (suppressed[i] < valleyFreq) { valleyFreq = suppressed[i]; valleyIdx = i; } if (suppressed[i] > peakFreq) { peakFreq = suppressed[i]; peakIdx = i; } } }
-                    if (peakIdx >= 0 && valleyIdx >= 0) { double hBin = (maxV - minV) / nBins; c = minV + (peakIdx + 0.5) * hBin; double valleyVal = minV + (valleyIdx + 0.5) * hBin; w = 2.0 * (c - valleyVal); }
-                    else { c = (minV + maxV) * 0.5; w = maxV - minV; }
+                    for (int i = 0; i < nBins; i++) {
+                        if (suppressed[i] > 0) {
+                            if (suppressed[i] < valleyFreq) {
+                                valleyFreq = suppressed[i];
+                                valleyIdx = i;
+                            }
+                            if (suppressed[i] > peakFreq) {
+                                peakFreq = suppressed[i];
+                                peakIdx = i;
+                            }
+                        }
+                    }
+                    if (peakIdx >= 0 && valleyIdx >= 0) {
+                        double hBin = (maxV - minV) / nBins;
+                        c = minV + (peakIdx + 0.5) * hBin;
+                        double valleyVal = minV + (valleyIdx + 0.5) * hBin;
+                        w = 2.0 * (c - valleyVal);
+                    }
+                    else {
+                        c = (minV + maxV) * 0.5;
+                        w = maxV - minV;
+                    }
                 } else if (windowMethod == 3) {
                     CtSeriesProcessor::AdaptiveWindowResult aw;
                     aw.hBins = (maxV - minV) / (double) nBins;
                     CtSeriesProcessor::computeAdaptiveWindow(hist, nBins, 0.0015, 0.0015, aw);
-                    c = minV + aw.c; w = aw.w;
-                } else { c = (minV + maxV) * 0.5; w = maxV - minV; }
+                    c = minV + aw.c;
+                    w = aw.w;
+                } else {
+                    c = (minV + maxV) * 0.5;
+                    w = maxV - minV;
+                }
             }
             if (w < 1.0) w = 1.0;
             out8u = CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
@@ -432,8 +480,8 @@ native_processCTTailorInvertWindowPipeline(JNIEnv *env, jclass, jbyteArray rawBu
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     int outMin, outMax;
     cv::Mat resMat = CTPreprocess::CTTailorInvertWindowPipeline(pRaw, h, w, slope, intercept,
-                                                               bigEndian, windowMethod,
-                                                               outMin, outMax);
+                                                                bigEndian, windowMethod,
+                                                                outMin, outMax);
     jbyteArray res;
     JniHelper::gray8uToRgbaJBytes(env, resMat, res);
 
@@ -455,25 +503,25 @@ native_processCTTailorInvertWindowPipeline(JNIEnv *env, jclass, jbyteArray rawBu
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
 static const JNINativeMethod kMethods[] = {
-        {"stringFromJNI",                         "()Ljava/lang/String;",
+        {"stringFromJNI",                       "()Ljava/lang/String;",
                 (void *) native_stringFromJNI},
-        {"getOpenCVVersion",                      "()Ljava/lang/String;",
+        {"getOpenCVVersion",                    "()Ljava/lang/String;",
                 (void *) native_getOpenCVVersion},
-        {"processRawGrayPixels",                  "(II[B)[I",
+        {"processRawGrayPixels",                "(II[B)[I",
                 (void *) native_processRawGrayPixels},
-        {"processRawToRgba",                      "(III[BIIIIIDI[I)[B",
+        {"processRawToRgba",                    "(III[BIIIIIDI[I)[B",
                 (void *) native_processRawToRgba},
-        {"processCtSeries",                       "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
+        {"processCtSeries",                     "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
                 (void *) native_processCtSeries},
-        {"tailorImage",                           "([BIIIIZIZID[B[I)[B",
+        {"tailorImage",                         "([BIIIIZIZID[B[I)[B",
                 (void *) native_tailorImage},
-        {"invertLut",                             "([BIIIIZ)[B",
+        {"invertLut",                           "([BIIIIZ)[B",
                 (void *) native_invertLut},
-        {"processMedicalCT",                      "([BIIIZZ[I[DI[I)[B",
+        {"processMedicalCT",                    "([BIIIZZ[I[DI[I)[B",
                 (void *) native_processMedicalCT},
-        {"processCTFullPipeline",                 "([BIIIIFFZ[I)[B",
+        {"processCTFullPipeline",               "([BIIIIFFZ[I)[B",
                 (void *) native_processCTFullPipeline},
-        {"processCTTailorInvertWindowPipeline",   "([BIIFFZI[I)[B",
+        {"processCTTailorInvertWindowPipeline", "([BIIFFZI[I)[B",
                 (void *) native_processCTTailorInvertWindowPipeline},
 };
 

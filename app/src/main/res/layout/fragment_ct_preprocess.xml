@@ -187,6 +187,7 @@
             android:textStyle="bold" />
 
         <GridLayout
+            android:id="@+id/gl_preprocess"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
@@ -195,7 +196,6 @@
             android:padding="2dp"
             android:rowOrderPreserved="false">
 
-            <!-- Row 1, Col 1 -->
             <CheckBox
                 android:id="@+id/cb_hu"
                 android:layout_width="wrap_content"
@@ -204,7 +204,6 @@
                 android:text="HU校正"
                 android:textSize="12sp" />
 
-            <!-- Row 1, Col 2 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -235,7 +234,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Row 1, Col 3 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -266,7 +264,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Row 2, Col 1 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -297,7 +294,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Row 2, Col 2 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -328,7 +324,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Row 2, Col 3 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -362,7 +357,6 @@
                     android:textSize="10sp" />
             </LinearLayout>
 
-            <!-- Row 3, Col 1 -->
             <CheckBox
                 android:id="@+id/cb_equalize"
                 android:layout_width="wrap_content"
@@ -371,7 +365,6 @@
                 android:text="直方图均衡"
                 android:textSize="12sp" />
 
-            <!-- Row 3, Col 2 -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -396,7 +389,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Row 3, Col 3 -->
             <CheckBox
                 android:id="@+id/cb_stretch"
                 android:layout_width="wrap_content"
@@ -405,7 +397,6 @@
                 android:text="对比度拉伸"
                 android:textSize="12sp" />
 
-            <!-- Row 4, Col 1 -->
             <CheckBox
                 android:id="@+id/cb_tailor"
                 android:layout_width="wrap_content"
@@ -413,23 +404,72 @@
                 android:layout_columnWeight="1"
                 android:text="图片裁剪"
                 android:textSize="12sp" />
-
-            <!-- Row 4, Col 2 -->
-            <CheckBox
-                android:id="@+id/cb_invert"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Invert LUTs"
-                android:textSize="12sp" />
         </GridLayout>
 
-        <!-- 4) Windowing Methods -->
+        <Button
+            android:id="@+id/btn_run"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="LOAD &amp; DISPLAY" />
+
+        <!-- 4) 一键流水线 (One-Click Pipelines) -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="4) Windowing Methods"
+            android:layout_marginTop="12dp"
+            android:text="4) 一键流水线 (One-Click Pipelines)"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_full_pipeline"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="标准流水线" />
+
+            <Button
+                android:id="@+id/btn_tailor_pipeline"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="图片裁剪后标准流程" />
+        </LinearLayout>
+
+        <!-- 5) 色度反转 (Chromatic Inversion) -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="5) 色度反转 (Chromatic Inversion)"
+            android:textStyle="bold" />
+
+        <CheckBox
+            android:id="@+id/cb_invert"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Invert LUTs (Include in pipeline)"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_invert_lut"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Invert LUTs" />
+
+        <!-- 6) 调窗算法 (Windowing Methods) -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="6) 调窗算法 (Windowing Methods)"
             android:textStyle="bold" />
 
         <GridLayout
@@ -495,74 +535,60 @@
                 android:textSize="10sp" />
         </GridLayout>
 
-        <!-- 5) Execution -->
-        <LinearLayout
+        <Button
+            android:id="@+id/btn_windowing"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="vertical">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/btn_run"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="LOAD &amp; DISPLAY" />
-
-                <Button
-                    android:id="@+id/btn_full_pipeline"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:text="标准流水线" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/btn_tailor_pipeline"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="图片裁剪后，的标准流程" />
-
-            <Button
-                android:id="@+id/btn_invert_lut"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Invert LUTs" />
-
-            <Button
-                android:id="@+id/btn_windowing"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="调窗" />
-        </LinearLayout>
+            android:layout_marginTop="4dp"
+            android:text="调窗" />
 
         <TextView
             android:id="@+id/tv_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:fontFamily="monospace"
             android:padding="4dp"
             android:text="(status info)"
             android:textSize="11sp" />
 
-        <ImageView
-            android:id="@+id/iv_image"
+        <!-- Comparison Display -->
+        <TextView
             android:layout_width="match_parent"
-            android:layout_height="500dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:adjustViewBounds="true"
-            android:background="#11000000"
-            android:contentDescription="result image"
-            android:scaleType="fitCenter" />
+            android:text="Comparison: Before (Left) vs After (Right)"
+            android:textSize="12sp"
+            android:textStyle="italic" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="350dp"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iv_before"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="#10000000"
+                android:contentDescription="before windowing"
+                android:scaleType="fitCenter" />
+
+            <View
+                android:layout_width="2dp"
+                android:layout_height="match_parent"
+                android:background="#44000000" />
+
+            <ImageView
+                android:id="@+id/iv_after"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="#10000000"
+                android:contentDescription="after windowing"
+                android:scaleType="fitCenter" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_summary"
