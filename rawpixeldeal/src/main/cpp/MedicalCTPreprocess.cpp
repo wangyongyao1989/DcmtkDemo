@@ -5,6 +5,7 @@
 #include "include/MedicalCTPreprocess.h"
 #include <android/log.h>
 #include <CtSeriesProcessor.h>
+#include <XrayProcessor.h>
 
 #define TAG "MedicalCTPreprocess"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -41,8 +42,8 @@ namespace CTPreprocess {
             double minV, maxV;
             cv::minMaxLoc(mat, &minV, &maxV);
             if (maxV > 30000 || minV < -30000) {
-                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!"
-                     , minV, maxV);
+                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!",
+                     minV, maxV);
             }
         }
         return mat;
@@ -238,7 +239,9 @@ namespace CTPreprocess {
         // 6. 改进点：基于百分位的自适应调窗 (0.5% ~ 99.5%)
         float gMin, gMax;
         std::vector<cv::Mat> slices = {resizedMat};
-        CtSeriesProcessor::computePercentileHu(slices, cv::Rect(0, 0, resizedMat.cols, resizedMat.rows), 1, 0.5, 99.5, gMin, gMax);
+        CtSeriesProcessor::computePercentileHu(slices,
+                                               cv::Rect(0, 0, resizedMat.cols, resizedMat.rows), 1,
+                                               0.5, 99.5, gMin, gMax);
 
         // 7. 改进点：临床窗位映射
         double c = (gMin + gMax) * 0.5;
@@ -247,7 +250,8 @@ namespace CTPreprocess {
         // 兜底：如果窗宽过窄（可能由于数据异常），使用标准软组织窗
         if (w < 100.0) {
             LOGW("CTFullPipeline: Auto window too narrow (W=%.1f), fallback to Soft Tissue", w);
-            c = 40.0; w = 400.0;
+            c = 40.0;
+            w = 400.0;
         }
 
         cv::Mat stretch8u = CtSeriesProcessor::applyWindow8u(resizedMat, c, w, 0);
@@ -256,6 +260,148 @@ namespace CTPreprocess {
         cv::Mat result = EnhanceCLAHE(stretch8u, 2.0, cv::Size(8, 8));
 
         LOGI("CTFullPipeline: DONE. Final Window: C=%.1f, W=%.1f", c, w);
+        return result;
+    }
+
+    cv::Mat CTTailorInvertWindowPipeline(void *rawBuf, int rows, int cols,
+                                         float slope, float intercept,
+                                         bool bigEndian, int windowMethod,
+                                         int &outMin, int &outMax) {
+        LOGI("CTTailorInvertWindowPipeline: START method=%d bigEndian=%d", windowMethod, bigEndian);
+
+        // 1. 载入 Raw 像素
+        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, bigEndian);
+
+        // 2. 自动裁剪 (tailorImage 逻辑)
+        int tx, ty;
+        double ta;
+        bool tok;
+        cv::Mat cropped = XrayProcessor::tailor(raw16, 40000, true,
+                                                25, 10.0, tx, ty, ta, tok);
+        if (!tok || cropped.empty()) {
+            LOGW("CTTailorInvertWindowPipeline: Tailor failed, using full image.");
+            cropped = raw16.clone();
+        }
+
+        // 3. 颜色反转 (Invert LUTs)
+        cv::Mat inverted = EnhanceInvertLut(cropped);
+
+        // 4. HU 校正
+        cv::Mat huMat = ConvertRawToHU(inverted, slope, intercept);
+
+        // 5. 标准流水线去噪：双边滤波
+        cv::Mat denoiseMat = DenoiseBilateral(huMat);
+
+        // 6. 多种调窗方法实现 (Requirement 1 & 2)
+        double c = 127.5, w = 255.0;
+        double minV, maxV;
+        cv::minMaxLoc(denoiseMat, &minV, &maxV);
+        outMin = (int) minV;
+        outMax = (int) maxV;
+
+        if (windowMethod == -1) {
+            // Requirement: 不选择调窗算法时，仅执行“裁剪+反转+标准流程”
+            // 采用标准百分位自适应映射 (0.5% - 99.5%) 以保证图像可见，对应“标准流程”的效果
+            float gMin, gMax;
+            std::vector<cv::Mat> slices = {denoiseMat};
+            CtSeriesProcessor::computePercentileHu(slices,
+                                                   cv::Rect(0, 0, denoiseMat.cols, denoiseMat.rows),
+                                                   1, 0.5, 99.5, gMin, gMax);
+            c = (gMin + gMax) * 0.5;
+            w = (gMax - gMin);
+            if (w < 100.0) {
+                c = 40.0;
+                w = 400.0;
+            }
+        } else if (windowMethod == 0) { // DEFAULT
+            c = 127.5;
+            w = 255.0;
+        } else if (windowMethod == 5) { // MIN_MAX
+            c = (minV + maxV) * 0.5;
+            w = std::max(1.0, maxV - minV);
+        } else {
+            // 需要统计直方图的方法
+            int nBins = 256;
+            std::vector<int> hist;
+            std::vector<cv::Mat> slices = {denoiseMat};
+            CtSeriesProcessor::aggregateSeriesHistogram(slices,
+                                                        cv::Rect(0, 0, denoiseMat.cols,
+                                                                 denoiseMat.rows),
+                                                        minV, maxV, nBins, 1, hist);
+
+            if (windowMethod == 1) { // CUMULATIVE_72
+                long long total = 0;
+                for (int v: hist) total += v;
+                long long threshold = (long long) (total * 0.72);
+                long long cumulative = 0;
+                int targetBin = 0;
+                for (int i = 0; i < nBins; ++i) {
+                    cumulative += hist[i];
+                    if (cumulative >= threshold) {
+                        targetBin = i;
+                        break;
+                    }
+                }
+                double hBin = (maxV - minV) / nBins;
+                c = minV + (targetBin + 0.5) * hBin;
+                w = 508.0;
+            } else if (windowMethod == 2) { // BIMODAL_PEAK (近似)
+                int leftPeakIdx = 0;
+                int leftPeakFreq = 0;
+                for (int i = 0; i < nBins; i++) {
+                    if (hist[i] > leftPeakFreq) {
+                        leftPeakFreq = hist[i];
+                        leftPeakIdx = i;
+                    }
+                }
+                std::vector<int> suppressed = hist;
+                int radius = std::max(1, (int) (nBins * 0.05));
+                for (int i = std::max(0, leftPeakIdx - radius);
+                     i <= std::min(nBins - 1, leftPeakIdx + radius); i++) {
+                    suppressed[i] = 0;
+                }
+                int valleyIdx = -1, valleyFreq = 2147483647;
+                int peakIdx = -1, peakFreq = 0;
+                for (int i = 0; i < nBins; i++) {
+                    if (suppressed[i] > 0) {
+                        if (suppressed[i] < valleyFreq) {
+                            valleyFreq = suppressed[i];
+                            valleyIdx = i;
+                        }
+                        if (suppressed[i] > peakFreq) {
+                            peakFreq = suppressed[i];
+                            peakIdx = i;
+                        }
+                    }
+                }
+                if (peakIdx >= 0 && valleyIdx >= 0) {
+                    double hBin = (maxV - minV) / nBins;
+                    c = minV + (peakIdx + 0.5) * hBin;
+                    double valleyVal = minV + (valleyIdx + 0.5) * hBin;
+                    w = 2.0 * (c - valleyVal);
+                } else {
+                    c = (minV + maxV) * 0.5;
+                    w = maxV - minV;
+                }
+            } else if (windowMethod == 3) { // ADAPTIVE
+                CtSeriesProcessor::AdaptiveWindowResult aw;
+                aw.hBins = (maxV - minV) / (double) nBins;
+                CtSeriesProcessor::computeAdaptiveWindow(hist, nBins, 0.0015, 0.0015, aw);
+                c = minV + aw.c;
+                w = aw.w;
+            } else { // 4: HISTOGRAM_TYPE (Fallback)
+                c = (minV + maxV) * 0.5;
+                w = maxV - minV;
+            }
+        }
+
+        if (w < 1.0) w = 1.0;
+        cv::Mat stretch8u = CtSeriesProcessor::applyWindow8u(denoiseMat, c, w, 0);
+
+        // 7. CLAHE 局部增强
+        cv::Mat result = EnhanceCLAHE(stretch8u, 2.0, cv::Size(8, 8));
+
+        LOGI("CTTailorInvertWindowPipeline: DONE. Final Window: C=%.1f, W=%.1f", c, w);
         return result;
     }
 }

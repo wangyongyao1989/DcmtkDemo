@@ -295,4 +295,24 @@ object RawPixelDealJni {
         bigEndian: Boolean,
         outInfo: IntArray
     ): ByteArray?
+
+    /**
+     * RAW裁剪后的标准流程 -> Invert LUTs -> 调窗 (Requirement 1 & 2)
+     *
+     * 步骤：
+     * 1. 自动裁剪 (tailorImage)
+     * 2. 颜色反转 (invertLut)
+     * 3. 标准流水线 (processCTFullPipeline 逻辑) + 自定义调窗方法
+     */
+    @JvmStatic
+    external fun processCTTailorInvertWindowPipeline(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        slope: Float,
+        intercept: Float,
+        bigEndian: Boolean,
+        windowMethod: Int,
+        outInfo: IntArray
+    ): ByteArray?
 }

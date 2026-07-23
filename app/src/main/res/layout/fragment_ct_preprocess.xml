@@ -415,7 +415,78 @@
                 android:textSize="12sp" />
         </GridLayout>
 
-        <!-- 4) Execution -->
+        <!-- 4) Windowing Methods -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="4) Windowing Methods"
+            android:textStyle="bold" />
+
+        <GridLayout
+            android:id="@+id/gl_window_method"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:columnCount="3">
+
+            <RadioButton
+                android:id="@+id/rb_win_none"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="None"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_default"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Default"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_72"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="72% Area"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_bimodal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Bimodal"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_adaptive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Adaptive"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_hist_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Hist Type"
+                android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_min_max"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Min-Max"
+                android:textSize="10sp" />
+        </GridLayout>
+
+        <!-- 5) Execution -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -456,6 +527,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Invert LUTs" />
+
+            <Button
+                android:id="@+id/btn_tailor_invert_window_pipeline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="RAW裁剪后的标准流程->Invert LUTs->调窗" />
         </LinearLayout>
 
         <TextView

@@ -19,6 +19,7 @@ import com.example.rawpixeldeal.MedicalCTPreprocess
 import com.example.rawpixeldeal.MedicalCTPreprocess.Op
 import com.example.rawpixeldeal.MedicalCTPreprocess.PreprocessStep
 import com.example.rawpixeldeal.jni.RawPixelDealJni
+import com.example.rawpixeldeal.xray.WindowMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +59,135 @@ class CTPreprocessFragment : Fragment() {
             runInvertLutPipeline()
         }
 
+        binding.btnTailorInvertWindowPipeline.setOnClickListener {
+            runTailorInvertWindowPipeline()
+        }
+
+        setupWindowMethodRadioLogic()
         setupKeyboardDismiss()
+    }
+
+    /**
+     * 手动管理 GridLayout 中的 RadioButton 单选逻辑 (Requirement 1 & 2)
+     */
+    private fun setupWindowMethodRadioLogic() {
+        val radioButtons = listOf(
+            binding.rbWinNone,
+            binding.rbWinDefault,
+            binding.rbWin72,
+            binding.rbWinBimodal,
+            binding.rbWinAdaptive,
+            binding.rbWinHistType,
+            binding.rbWinMinMax
+        )
+        radioButtons.forEach { rb ->
+            rb.setOnClickListener {
+                // 如果点击的是已经选中的，则反选（实现“可去掉所有调窗算法”的需求）
+                val wasChecked = rb.tag as? Boolean ?: false
+                if (wasChecked) {
+                    rb.isChecked = false
+                    rb.tag = false
+                } else {
+                    // 清除其他所有按钮状态
+                    radioButtons.forEach {
+                        it.isChecked = false
+                        it.tag = false
+                    }
+                    rb.isChecked = true
+                    rb.tag = true
+                }
+            }
+        }
+    }
+
+    /**
+     * 执行 RAW裁剪后的标准流程 -> Invert LUTs -> 调窗 (Requirement 1 & 2)
+     */
+    @SuppressLint("SetTextI18n")
+    private fun runTailorInvertWindowPipeline() {
+        val ctx = context ?: return
+        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
+        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
+        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
+        val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
+        val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
+        val isBigEndian = binding.rbBigEndian.isChecked
+
+        // 获取选中的 WindowMethod 索引 (手动判断)
+        val windowMethodIndex = when {
+            binding.rbWinNone.isChecked -> -1
+            binding.rbWinDefault.isChecked -> 0
+            binding.rbWin72.isChecked -> 1
+            binding.rbWinBimodal.isChecked -> 2
+            binding.rbWinAdaptive.isChecked -> 3
+            binding.rbWinHistType.isChecked -> 4
+            binding.rbWinMinMax.isChecked -> 5
+            else -> -1 // 什么都没选
+        }
+
+        binding.btnTailorInvertWindowPipeline.isEnabled = false
+        binding.tvInfo.text = "Running Tailor + Invert + Window Pipeline..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // 1. 读取 Asset
+                val rawBytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+
+                // 2. 调 JNI 执行复合流水线
+                val outInfo = IntArray(4)
+                val rgba = withContext(Dispatchers.IO) {
+                    RawPixelDealJni.processCTTailorInvertWindowPipeline(
+                        rawBuffer = rawBytes,
+                        width = w,
+                        height = h,
+                        slope = slope,
+                        intercept = intercept,
+                        bigEndian = isBigEndian,
+                        windowMethod = windowMethodIndex,
+                        outInfo = outInfo
+                    )
+                }
+
+                if (rgba == null) throw IllegalStateException("Compound pipeline failed.")
+
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    outInfo[0], outInfo[1],
+                    android.graphics.Bitmap.Config.ARGB_8888
+                )
+                bmp.copyPixelsFromBuffer(
+                    java.nio.ByteBuffer.wrap(rgba).order(java.nio.ByteOrder.nativeOrder())
+                )
+
+                if (_binding == null) return@launch
+                binding.ivImage.setImageBitmap(bmp)
+
+                val methodName = if (windowMethodIndex == -1) {
+                    "None (Standard Mapping)"
+                } else {
+                    WindowMethod.values()[windowMethodIndex].displayName
+                }
+
+                binding.tvInfo.text = buildString {
+                    append("Tailor + Invert + Window Done.\n")
+                    append("Output: ${outInfo[0]}x${outInfo[1]}\n")
+                    append("Range: [${outInfo[2]}, ${outInfo[3]}]\n")
+                    append("Method: $methodName")
+                }
+                binding.tvSummary.text = "【复合流水线总结】\n" +
+                        "1. 自动裁剪：精确定位主体并去除背景干扰。\n" +
+                        "2. 颜色反转：在原始像素域执行查找表映射，改变图像极性。\n" +
+                        "3. 标准处理：包含 HU 校正与双边滤波降噪。\n" +
+                        "4. 自定义调窗：采用 ${methodName} 进行最终可视化映射。"
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Compound pipeline failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                _binding?.btnTailorInvertWindowPipeline?.isEnabled = true
+            }
+        }
     }
 
     /**

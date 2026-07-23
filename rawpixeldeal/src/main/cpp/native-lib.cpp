@@ -382,29 +382,56 @@ native_processCTFullPipeline(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jin
     return res;
 }
 
+static jbyteArray
+native_processCTTailorInvertWindowPipeline(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
+                                           jfloat slope, jfloat intercept, jboolean bigEndian,
+                                           jint windowMethod, jintArray info) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    int outMin, outMax;
+    cv::Mat resMat = CTPreprocess::CTTailorInvertWindowPipeline(pRaw, h, w, slope, intercept,
+                                                               bigEndian, windowMethod,
+                                                               outMin, outMax);
+    jbyteArray res;
+    JniHelper::gray8uToRgbaJBytes(env, resMat, res);
+
+    if (info && env->GetArrayLength(info) >= 4) {
+        jint *pI = env->GetIntArrayElements(info, nullptr);
+        pI[0] = resMat.cols;
+        pI[1] = resMat.rows;
+        pI[2] = outMin;
+        pI[3] = outMax;
+        env->ReleaseIntArrayElements(info, pI, 0);
+    }
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    return res;
+}
+
 // =============================================================================
 // JNI 注册
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
 static const JNINativeMethod kMethods[] = {
-        {"stringFromJNI",         "()Ljava/lang/String;",
+        {"stringFromJNI",                         "()Ljava/lang/String;",
                 (void *) native_stringFromJNI},
-        {"getOpenCVVersion",      "()Ljava/lang/String;",
+        {"getOpenCVVersion",                      "()Ljava/lang/String;",
                 (void *) native_getOpenCVVersion},
-        {"processRawGrayPixels",  "(II[B)[I",
+        {"processRawGrayPixels",                  "(II[B)[I",
                 (void *) native_processRawGrayPixels},
-        {"processRawToRgba",      "(III[BIIIIIDI[I)[B",
+        {"processRawToRgba",                      "(III[BIIIIIDI[I)[B",
                 (void *) native_processRawToRgba},
-        {"processCtSeries",       "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
+        {"processCtSeries",                       "([[BIIIIDDIFIIIIDDIIIDDFFIFFIDDIDII[[B[D[I[I[I)Z",
                 (void *) native_processCtSeries},
-        {"tailorImage",           "([BIIIIZIZID[B[I)[B",
+        {"tailorImage",                           "([BIIIIZIZID[B[I)[B",
                 (void *) native_tailorImage},
-        {"invertLut",             "([BIIIIZ)[B",
+        {"invertLut",                             "([BIIIIZ)[B",
                 (void *) native_invertLut},
-        {"processMedicalCT",      "([BIIIZZ[I[D[I)[B",
+        {"processMedicalCT",                      "([BIIIZZ[I[D[I)[B",
                 (void *) native_processMedicalCT},
-        {"processCTFullPipeline", "([BIIIIFFZ[I)[B",
+        {"processCTFullPipeline",                 "([BIIIIFFZ[I)[B",
                 (void *) native_processCTFullPipeline},
+        {"processCTTailorInvertWindowPipeline",   "([BIIFFZI[I)[B",
+                (void *) native_processCTTailorInvertWindowPipeline},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {

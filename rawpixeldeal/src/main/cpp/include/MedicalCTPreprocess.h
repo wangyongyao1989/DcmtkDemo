@@ -84,6 +84,14 @@ namespace CTPreprocess {
      */
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH,
                            float slope = 1.0f, float intercept = -1024.0f, bool bigEndian = true);
+
+    /**
+     * RAW裁剪后的标准流程 -> Invert LUTs -> 调窗
+     */
+    cv::Mat CTTailorInvertWindowPipeline(void *rawBuf, int rows, int cols,
+                                         float slope, float intercept,
+                                         bool bigEndian, int windowMethod,
+                                         int &outMin, int &outMax);
 }
 
 
