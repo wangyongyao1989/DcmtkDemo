@@ -24,7 +24,8 @@ object MedicalCTPreprocess {
         CLAHE(8, "CLAHE增强"),
         CONTRAST_STRETCH(9, "对比度拉伸"),
         HU_CONVERT(10, "HU校正"),
-        TAILOR(11, "图片裁剪")
+        TAILOR(11, "图片裁剪"),
+        INVERT_LUT(12, "Invert LUTs")
     }
 
     data class PreprocessStep(
@@ -42,6 +43,8 @@ object MedicalCTPreprocess {
 
     /**
      * 执行预处理流水线
+     *
+     * @param windowMethod  调窗方法索引 (-1 表示 None，0-5 对应不同算法)
      */
     fun process(
         context: Context,
@@ -51,7 +54,8 @@ object MedicalCTPreprocess {
         bitDepth: Int,
         bigEndian: Boolean = true,
         isUint16: Boolean = false,
-        steps: List<PreprocessStep>
+        steps: List<PreprocessStep>,
+        windowMethod: Int = -1
     ): PreprocessResult {
         // 1. 读取 Asset
         val bytes = context.assets.open(assetName).use { it.readBytes() }
@@ -75,6 +79,7 @@ object MedicalCTPreprocess {
             isUint16 = isUint16,
             ops = opIds,
             params = params,
+            windowMethod = windowMethod,
             outInfo = outInfo
         ) ?: throw IllegalStateException("native processMedicalCT returned null")
 

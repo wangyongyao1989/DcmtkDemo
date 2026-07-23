@@ -413,6 +413,15 @@
                 android:layout_columnWeight="1"
                 android:text="图片裁剪"
                 android:textSize="12sp" />
+
+            <!-- Row 4, Col 2 -->
+            <CheckBox
+                android:id="@+id/cb_invert"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Invert LUTs"
+                android:textSize="12sp" />
         </GridLayout>
 
         <!-- 4) Windowing Methods -->
@@ -529,11 +538,11 @@
                 android:text="Invert LUTs" />
 
             <Button
-                android:id="@+id/btn_tailor_invert_window_pipeline"
+                android:id="@+id/btn_windowing"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="RAW裁剪后的标准流程->Invert LUTs->调窗" />
+                android:text="调窗" />
         </LinearLayout>
 
         <TextView

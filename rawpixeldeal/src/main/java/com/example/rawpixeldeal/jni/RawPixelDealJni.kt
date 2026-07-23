@@ -254,6 +254,7 @@ object RawPixelDealJni {
      * @param isUint16      是否无符号 16 位
      * @param ops           预处理操作 ID 列表
      * @param params        每个操作对应的参数（扁平化数组）
+     * @param windowMethod  调窗方法索引 (-1 表示 None，0-5 对应不同算法)
      * @param outInfo       out [outW, outH, srcMin, srcMax]
      * @return              处理后的 RGBA8888 字节
      */
@@ -267,6 +268,7 @@ object RawPixelDealJni {
         isUint16: Boolean,
         ops: IntArray,
         params: DoubleArray,
+        windowMethod: Int,
         outInfo: IntArray
     ): ByteArray?
 

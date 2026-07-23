@@ -23,6 +23,7 @@ import com.example.rawpixeldeal.xray.WindowMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.graphics.createBitmap
 
 /**
  * CTPreprocessFragment (Requirement 3 & 4 & 5)
@@ -59,8 +60,8 @@ class CTPreprocessFragment : Fragment() {
             runInvertLutPipeline()
         }
 
-        binding.btnTailorInvertWindowPipeline.setOnClickListener {
-            runTailorInvertWindowPipeline()
+        binding.btnWindowing.setOnClickListener {
+            runPreprocessChain(isWindowing = true)
         }
 
         setupWindowMethodRadioLogic()
@@ -96,96 +97,6 @@ class CTPreprocessFragment : Fragment() {
                     rb.isChecked = true
                     rb.tag = true
                 }
-            }
-        }
-    }
-
-    /**
-     * 执行 RAW裁剪后的标准流程 -> Invert LUTs -> 调窗 (Requirement 1 & 2)
-     */
-    @SuppressLint("SetTextI18n")
-    private fun runTailorInvertWindowPipeline() {
-        val ctx = context ?: return
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
-        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
-        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
-        val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
-        val intercept = binding.etIntercept.text.toString().toFloatOrNull() ?: -1024.0f
-        val isBigEndian = binding.rbBigEndian.isChecked
-
-        // 获取选中的 WindowMethod 索引 (手动判断)
-        val windowMethodIndex = when {
-            binding.rbWinNone.isChecked -> -1
-            binding.rbWinDefault.isChecked -> 0
-            binding.rbWin72.isChecked -> 1
-            binding.rbWinBimodal.isChecked -> 2
-            binding.rbWinAdaptive.isChecked -> 3
-            binding.rbWinHistType.isChecked -> 4
-            binding.rbWinMinMax.isChecked -> 5
-            else -> -1 // 什么都没选
-        }
-
-        binding.btnTailorInvertWindowPipeline.isEnabled = false
-        binding.tvInfo.text = "Running Tailor + Invert + Window Pipeline..."
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                // 1. 读取 Asset
-                val rawBytes = withContext(Dispatchers.IO) {
-                    ctx.assets.open(assetName).use { it.readBytes() }
-                }
-
-                // 2. 调 JNI 执行复合流水线
-                val outInfo = IntArray(4)
-                val rgba = withContext(Dispatchers.IO) {
-                    RawPixelDealJni.processCTTailorInvertWindowPipeline(
-                        rawBuffer = rawBytes,
-                        width = w,
-                        height = h,
-                        slope = slope,
-                        intercept = intercept,
-                        bigEndian = isBigEndian,
-                        windowMethod = windowMethodIndex,
-                        outInfo = outInfo
-                    )
-                }
-
-                if (rgba == null) throw IllegalStateException("Compound pipeline failed.")
-
-                val bmp = android.graphics.Bitmap.createBitmap(
-                    outInfo[0], outInfo[1],
-                    android.graphics.Bitmap.Config.ARGB_8888
-                )
-                bmp.copyPixelsFromBuffer(
-                    java.nio.ByteBuffer.wrap(rgba).order(java.nio.ByteOrder.nativeOrder())
-                )
-
-                if (_binding == null) return@launch
-                binding.ivImage.setImageBitmap(bmp)
-
-                val methodName = if (windowMethodIndex == -1) {
-                    "None (Standard Mapping)"
-                } else {
-                    WindowMethod.values()[windowMethodIndex].displayName
-                }
-
-                binding.tvInfo.text = buildString {
-                    append("Tailor + Invert + Window Done.\n")
-                    append("Output: ${outInfo[0]}x${outInfo[1]}\n")
-                    append("Range: [${outInfo[2]}, ${outInfo[3]}]\n")
-                    append("Method: $methodName")
-                }
-                binding.tvSummary.text = "【复合流水线总结】\n" +
-                        "1. 自动裁剪：精确定位主体并去除背景干扰。\n" +
-                        "2. 颜色反转：在原始像素域执行查找表映射，改变图像极性。\n" +
-                        "3. 标准处理：包含 HU 校正与双边滤波降噪。\n" +
-                        "4. 自定义调窗：采用 ${methodName} 进行最终可视化映射。"
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Compound pipeline failed", e)
-                binding.tvInfo.text = "Error: ${e.message}"
-            } finally {
-                _binding?.btnTailorInvertWindowPipeline?.isEnabled = true
             }
         }
     }
@@ -273,10 +184,7 @@ class CTPreprocessFragment : Fragment() {
 
                 if (rgba == null) throw IllegalStateException("Pipeline failed.")
 
-                val bmp = android.graphics.Bitmap.createBitmap(
-                    outInfoPipeline[0], outInfoPipeline[1],
-                    android.graphics.Bitmap.Config.ARGB_8888
-                )
+                val bmp = createBitmap(outInfoPipeline[0], outInfoPipeline[1])
                 bmp.copyPixelsFromBuffer(
                     java.nio.ByteBuffer.wrap(rgba).order(java.nio.ByteOrder.nativeOrder())
                 )
@@ -498,7 +406,7 @@ class CTPreprocessFragment : Fragment() {
     }
 
     @SuppressLint("SetTextI18n")
-    private fun runPreprocessChain() {
+    private fun runPreprocessChain(isWindowing: Boolean = false) {
         val ctx = context ?: return
 
         // 1. 获取基础参数
@@ -515,7 +423,11 @@ class CTPreprocessFragment : Fragment() {
 
         if (binding.cbTailor.isChecked) {
             // 参数：[minAreaThreshold, enableSobel, morphCross, otsuThresholdLow]
-            steps.add(PreprocessStep(Op.TAILOR, listOf(50000.0, 1.0, 5.0, 10.0)))
+            steps.add(PreprocessStep(Op.TAILOR, listOf(40000.0, 1.0, 25.0, 10.0)))
+        }
+
+        if (binding.cbInvert.isChecked) {
+            steps.add(PreprocessStep(Op.INVERT_LUT))
         }
 
         if (binding.cbHu.isChecked) {
@@ -558,9 +470,24 @@ class CTPreprocessFragment : Fragment() {
             Log.i(TAG, "No preprocess steps selected, loading original image.")
         }
 
-        binding.btnRun.isEnabled = false
-        binding.tvInfo.text = "Processing..."
+        val btn = if (isWindowing) binding.btnWindowing else binding.btnRun
+        btn.isEnabled = false
+        binding.tvInfo.text = if (isWindowing) "Windowing..." else "Processing..."
         binding.ivImage.setImageDrawable(null)
+
+        // 获取选中的 WindowMethod 索引
+        val windowMethodIndex = if (isWindowing) {
+            when {
+                binding.rbWinNone.isChecked -> -1
+                binding.rbWinDefault.isChecked -> 0
+                binding.rbWin72.isChecked -> 1
+                binding.rbWinBimodal.isChecked -> 2
+                binding.rbWinAdaptive.isChecked -> 3
+                binding.rbWinHistType.isChecked -> 4
+                binding.rbWinMinMax.isChecked -> 5
+                else -> -1
+            }
+        } else -1
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -572,36 +499,42 @@ class CTPreprocessFragment : Fragment() {
                         height = h,
                         bitDepth = bitDepth,
                         bigEndian = isBigEndian,
-                        steps = steps
+                        steps = steps,
+                        windowMethod = windowMethodIndex
                     )
                 }
 
                 if (_binding == null) return@launch
                 binding.ivImage.setImageBitmap(result.bitmap)
+                
+                val methodName = if (windowMethodIndex == -1) "None" else WindowMethod.values()[windowMethodIndex].displayName
+                
                 binding.tvInfo.text = buildString {
+                    append(if (isWindowing) "Windowing Done.\n" else "Preprocess Done.\n")
                     append("Source: $assetName (${w}x${h}@${bitDepth}bit)\n")
                     append("Output: ${result.outWidth}x${result.outHeight}\n")
                     append("Range: [${result.minVal}, ${result.maxVal}]\n")
+                    if (isWindowing) append("Window Method: $methodName\n")
                     val stepsStr =
                         if (steps.isEmpty()) "None (Original)" else steps.joinToString { it.op.displayName }
                     append("Steps: $stepsStr")
                 }
 
                 // Requirement 5: Summary
-                binding.tvSummary.text = generateSummary(steps)
+                binding.tvSummary.text = generateSummary(steps, isWindowing, methodName)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Preprocess failed", e)
+                Log.e(TAG, "Process failed", e)
                 binding.tvInfo.text = "Error: ${e.message}"
             } finally {
-                _binding?.btnRun?.isEnabled = true
+                btn.isEnabled = true
             }
         }
     }
 
-    private fun generateSummary(steps: List<PreprocessStep>): String = buildString {
-        appendLine("【预处理总结与效果】")
-        if (steps.isEmpty()) {
+    private fun generateSummary(steps: List<PreprocessStep>, isWindowing: Boolean = false, methodName: String = ""): String = buildString {
+        appendLine(if (isWindowing) "【调窗处理总结与效果】" else "【预处理总结与效果】")
+        if (steps.isEmpty() && !isWindowing) {
             appendLine("- 未选择预处理方法：当前展示为原始图像。图像仅经过了大/小端转换及基本的 8-bit 线性映射，用于基准对比。")
             return@buildString
         }
@@ -617,11 +550,15 @@ class CTPreprocessFragment : Fragment() {
                 Op.CLAHE -> appendLine("- CLAHE：局部自适应增强对比度，抑制噪声放大，突出细节结构。")
                 Op.CONTRAST_STRETCH -> appendLine("- 对比度拉伸：将灰度区间映射到0-255，提升视觉可读性。")
                 Op.TAILOR -> appendLine("- 图片裁剪：自动定位主体区域并旋转校正，去除无效边缘干扰。")
+                Op.INVERT_LUT -> appendLine("- Invert LUTs：在原始像素域执行颜色反转，模拟 Monochrome1/2 切换。")
                 else -> {}
             }
         }
+        if (isWindowing) {
+            appendLine("- 调窗算法 ($methodName)：对处理后的 16-bit 数据执行特定的窗口映射，优化视觉诊断效果。")
+        }
         appendLine("\n达到效果：通过上述组合处理，图像消除了采集噪声，统一了分辨率" +
-                "，并针对关键特征进行了对比度增强，为后续辅助诊断提供了高质量数据基础。")
+                "，并针对关键特征进行了对比度增强与动态范围优化，为后续辅助诊断提供了高质量数据基础。")
     }
 
     override fun onDestroyView() {

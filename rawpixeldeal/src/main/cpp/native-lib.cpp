@@ -271,7 +271,7 @@ native_invertLut(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bi
 static jbyteArray
 native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint depth,
                         jboolean big, jboolean isU16,
-                        jintArray ops, jdoubleArray params, jintArray info) {
+                        jintArray ops, jdoubleArray params, jint windowMethod, jintArray info) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
@@ -331,16 +331,59 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
                                                     otsu, outX, outY,
                                                     angle, ok);
             if (ok && !cropped.empty()) mat = cropped;
+        } else if (op == 12) {
+            mat = CTPreprocess::EnhanceInvertLut(mat);
         }
     }
 
     cv::Mat out8u;
     if (mat.depth() != CV_8U) {
-        double mn, mx;
-        cv::minMaxLoc(mat, &mn, &mx);
-        mat.convertTo(out8u, CV_8U, 255.0 / (mx - mn + 1e-7),
-                      -mn * 255.0 / (mx - mn + 1e-7));
+        // 如果是 16-bit 且提供了 windowMethod，则使用 CTTailorInvertWindowPipeline 里的调窗逻辑
+        if (windowMethod != -1) {
+            double c = 127.5, w = 255.0;
+            double minV, maxV;
+            cv::minMaxLoc(mat, &minV, &maxV);
+            if (windowMethod == 0) { c = 127.5; w = 255.0; }
+            else if (windowMethod == 5) { c = (minV + maxV) * 0.5; w = std::max(1.0, maxV - minV); }
+            else {
+                int nBins = 256;
+                std::vector<int> hist;
+                std::vector<cv::Mat> slices = {mat};
+                CtSeriesProcessor::aggregateSeriesHistogram(slices, cv::Rect(0, 0, mat.cols, mat.rows),
+                                                            minV, maxV, nBins, 1, hist);
+                if (windowMethod == 1) {
+                    long long total = 0; for (int v: hist) total += v;
+                    long long threshold = (long long) (total * 0.72);
+                    long long cumulative = 0; int targetBin = 0;
+                    for (int i = 0; i < nBins; ++i) { cumulative += hist[i]; if (cumulative >= threshold) { targetBin = i; break; } }
+                    double hBin = (maxV - minV) / nBins; c = minV + (targetBin + 0.5) * hBin; w = 508.0;
+                } else if (windowMethod == 2) {
+                    int leftPeakIdx = 0, leftPeakFreq = 0;
+                    for (int i = 0; i < nBins; i++) { if (hist[i] > leftPeakFreq) { leftPeakFreq = hist[i]; leftPeakIdx = i; } }
+                    std::vector<int> suppressed = hist; int radius = std::max(1, (int) (nBins * 0.05));
+                    for (int i = std::max(0, leftPeakIdx - radius); i <= std::min(nBins - 1, leftPeakIdx + radius); i++) suppressed[i] = 0;
+                    int valleyIdx = -1, valleyFreq = 2147483647, peakIdx = -1, peakFreq = 0;
+                    for (int i = 0; i < nBins; i++) { if (suppressed[i] > 0) { if (suppressed[i] < valleyFreq) { valleyFreq = suppressed[i]; valleyIdx = i; } if (suppressed[i] > peakFreq) { peakFreq = suppressed[i]; peakIdx = i; } } }
+                    if (peakIdx >= 0 && valleyIdx >= 0) { double hBin = (maxV - minV) / nBins; c = minV + (peakIdx + 0.5) * hBin; double valleyVal = minV + (valleyIdx + 0.5) * hBin; w = 2.0 * (c - valleyVal); }
+                    else { c = (minV + maxV) * 0.5; w = maxV - minV; }
+                } else if (windowMethod == 3) {
+                    CtSeriesProcessor::AdaptiveWindowResult aw;
+                    aw.hBins = (maxV - minV) / (double) nBins;
+                    CtSeriesProcessor::computeAdaptiveWindow(hist, nBins, 0.0015, 0.0015, aw);
+                    c = minV + aw.c; w = aw.w;
+                } else { c = (minV + maxV) * 0.5; w = maxV - minV; }
+            }
+            if (w < 1.0) w = 1.0;
+            out8u = CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
+        } else {
+            // 默认 Min-Max 可视化
+            double mn, mx;
+            cv::minMaxLoc(mat, &mn, &mx);
+            mat.convertTo(out8u, CV_8U, 255.0 / (mx - mn + 1e-7),
+                          -mn * 255.0 / (mx - mn + 1e-7));
+        }
     } else out8u = mat;
+
     jbyteArray res;
     JniHelper::gray8uToRgbaJBytes(env, out8u, res);
 
@@ -426,7 +469,7 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_tailorImage},
         {"invertLut",                             "([BIIIIZ)[B",
                 (void *) native_invertLut},
-        {"processMedicalCT",                      "([BIIIZZ[I[D[I)[B",
+        {"processMedicalCT",                      "([BIIIZZ[I[DI[I)[B",
                 (void *) native_processMedicalCT},
         {"processCTFullPipeline",                 "([BIIIIFFZ[I)[B",
                 (void *) native_processCTFullPipeline},
