@@ -69,26 +69,11 @@
                 android:layout_marginEnd="6dp"
                 android:text="Asset:" />
 
-            <RadioGroup
-                android:id="@+id/rg_asset"
+            <Spinner
+                android:id="@+id/spinner_asset"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="horizontal">
-
-                <RadioButton
-                    android:id="@+id/rb_data610"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Data610.bin" />
-
-                <RadioButton
-                    android:id="@+id/rb_data622"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Data622.raw" />
-            </RadioGroup>
+                android:layout_weight="1" />
         </LinearLayout>
 
         <!-- 宽 / 高 / 位深 一行参数 -->
@@ -335,31 +320,11 @@
             android:layout_marginEnd="6dp"
             android:text="Series (slices):" />
 
-        <RadioGroup
-            android:id="@+id/rg_series"
+        <Spinner
+            android:id="@+id/spinner_series"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/rb_series_610"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="[610]" />
-
-            <RadioButton
-                android:id="@+id/rb_series_622"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="[622]" />
-
-            <RadioButton
-                android:id="@+id/rb_series_610_622"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="[610+622] (2 slices)" />
-        </RadioGroup>
+            android:layout_marginTop="4dp" />
 
         <!--
             HU 转换 + 像素几何：
@@ -616,26 +581,11 @@
             android:textStyle="bold" />
 
         <!-- X-ray 数据源选择 -->
-        <RadioGroup
-            android:id="@+id/rg_xray_asset"
-            android:layout_width="wrap_content"
+        <Spinner
+            android:id="@+id/spinner_xray_asset"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/rb_xray_610"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="Data610.bin" />
-
-            <RadioButton
-                android:id="@+id/rb_xray_622"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Data622.raw" />
-        </RadioGroup>
+            android:layout_marginTop="6dp" />
 
         <!-- X-ray 调窗方法选择 -->
         <RadioGroup

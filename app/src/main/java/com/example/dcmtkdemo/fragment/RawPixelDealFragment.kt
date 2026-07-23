@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -35,7 +36,7 @@ import java.util.Locale
 /**
  * 1) 最小链路验证：[runVerify] 调用 [RawPixelDealVerify.verifyChain]，
  *    验证 Kotlin -> JNI -> OpenCV 通路；
- * 2) 原始像素数据展示：[runLoadAsset] 读取 assets 下 Data610.bin / Data622.raw
+ * 2) 原始像素数据展示：[runLoadAsset] 动态读取 assets 下 .bin/.raw 文件
  *    （项目惯例：16-bit raw，[runLoadAsset] 走 native 做归一化/CLAHE/裁剪，
  *    最终输出 Bitmap 给 ImageView 做人工筛查验证。
  * 3) CT 序列级处理管线：[runSeriesPipeline] 实现 PRD
@@ -61,6 +62,8 @@ class RawPixelDealFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        setupAssetSpinners()
 
         binding.btnVerify.setOnClickListener {
             runVerify()
@@ -127,6 +130,25 @@ class RawPixelDealFragment : Fragment() {
         }
     }
 
+    private fun setupAssetSpinners() {
+        val ctx = context ?: return
+        val assets = ctx.assets.list("") ?: emptyArray()
+        val fileList = assets.filter { it.endsWith(".bin") || it.endsWith(".raw") }
+
+        if (fileList.isNotEmpty()) {
+            val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, fileList)
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            binding.spinnerAsset.adapter = adapter
+            binding.spinnerXrayAsset.adapter = adapter
+
+            val seriesList = mutableListOf("All Assets")
+            seriesList.addAll(fileList)
+            val seriesAdapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, seriesList)
+            seriesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            binding.spinnerSeries.adapter = seriesAdapter
+        }
+    }
+
     private fun hideKeyboard() {
         val ctx = context ?: return
         val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -161,8 +183,7 @@ class RawPixelDealFragment : Fragment() {
     private fun runLoadAsset() {
         val ctx = context ?: return
 
-        val assetName =
-            if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
+        val assetName = binding.spinnerAsset.selectedItem?.toString() ?: return
         val w = binding.etWidth.text.toString().toIntOrNull()
         val h = binding.etHeight.text.toString().toIntOrNull()
         val bitDepth =
@@ -258,11 +279,12 @@ class RawPixelDealFragment : Fragment() {
         val pHigh = binding.etPHigh.text.toString().toFloatOrNull() ?: 99.5f
         val enableDisplayClahe = binding.cbDisplayClahe.isChecked
 
-        val assetNames: List<String> = when {
-            binding.rbSeries610.isChecked -> listOf("Data610.bin")
-            binding.rbSeries622.isChecked -> listOf("Data622.raw")
-            binding.rbSeries610622.isChecked -> listOf("Data610.bin", "Data622.raw")
-            else -> listOf("Data610.bin")
+        val selected = binding.spinnerSeries.selectedItem?.toString() ?: return
+        val assetNames: List<String> = if (selected == "All Assets") {
+            val assets = context?.assets?.list("") ?: emptyArray()
+            assets.filter { it.endsWith(".bin") || it.endsWith(".raw") }
+        } else {
+            listOf(selected)
         }
         val meta = PixelMeta(
             rows = h,
@@ -392,8 +414,7 @@ class RawPixelDealFragment : Fragment() {
         val ctx = context ?: return
 
         // 1) 解析 UI 参数：assets、窗方法
-        val assetName =
-            if (binding.rbXray610.isChecked) "Data610.bin" else "Data622.raw"
+        val assetName = binding.spinnerXrayAsset.selectedItem?.toString() ?: return
         val method = when (binding.rgXrayWindow.checkedRadioButtonId) {
             binding.rbXrayMethodDefault.id -> WindowMethod.DEFAULT
             binding.rbXrayMethodCum72.id -> WindowMethod.CUMULATIVE_72

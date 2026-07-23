@@ -13,7 +13,7 @@ import java.nio.ByteOrder
  * rawpixeldeal 模块对外的业务门面：
  *  - [verifyChain]：最小链路验证（Kotlin -> JNI -> OpenCV -> 校验非 0）。
  *  - [processAssetFromAssets]：把 assets 下的"原始像素数据缓冲"
- *    （如 Data610.bin / Data622.raw）经 OpenCV 裁剪/归一化/CLAHE 后
+ *    （如 .bin / .raw 文件）经 OpenCV 裁剪/归一化/CLAHE 后
  *    输出 [Bitmap]，用于在 [RawPixelDealFragment] 做人工筛查。
  *  - [processCtSeriesFromAssets]：实现 PRD ct-opencv-raw-buffer-windowing-prd
  *    要求的"CT 序列级处理管线"：raw buffer -> HU 标准化 -> OpenCV 优化
@@ -340,7 +340,7 @@ object RawPixelDealVerify {
      * [SeriesWindowResult]。
      *
      * @param context   Android Context（用于读 assets）
-     * @param assetNames 要处理的文件名列表（如 ["Data610.bin"] 单张，或
+     * @param assetNames 要处理的文件名列表（如 ["test.bin"] 单张，或
      *                   多张同尺寸 raw）。注意所有文件必须同 width/height/bitDepth
      * @param meta      DICOM 像素元数据；可只填 width/height/bitDepth/slope/intercept
      * @param config    调窗/裁剪/优化参数；默认使用 [CtSeriesConfig] 默认值

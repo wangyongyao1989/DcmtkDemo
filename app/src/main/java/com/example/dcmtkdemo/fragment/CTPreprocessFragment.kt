@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.ArrayAdapter
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -66,8 +67,22 @@ class CTPreprocessFragment : Fragment() {
             runPreprocessChain(isWindowing = true)
         }
 
+        setupAssetSpinner()
         setupWindowMethodRadioLogic()
         setupKeyboardDismiss()
+    }
+
+    private fun setupAssetSpinner() {
+        val ctx = context ?: return
+        val assets = ctx.assets.list("") ?: emptyArray()
+        val fileList = assets.filter { it.endsWith(".bin") || it.endsWith(".raw") }
+        if (fileList.isNotEmpty()) {
+            val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, fileList)
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            binding.spinnerAsset.adapter = adapter
+        } else {
+            binding.tvInfo.text = "No .bin or .raw files found in assets!"
+        }
     }
 
     private fun setupWindowMethodRadioLogic() {
@@ -128,7 +143,7 @@ class CTPreprocessFragment : Fragment() {
     @SuppressLint("SetTextI18n")
     private fun runFullPipeline() {
         val ctx = context ?: return
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
+        val assetName = binding.spinnerAsset.selectedItem?.toString() ?: return
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val slope = binding.etSlope.text.toString().toFloatOrNull() ?: 1.0f
@@ -172,7 +187,7 @@ class CTPreprocessFragment : Fragment() {
     private fun runPreprocessChain(isWindowing: Boolean) {
         val ctx = context ?: return
 
-        val assetName = if (binding.rbData610.isChecked) "Data610.bin" else "Data622.raw"
+        val assetName = binding.spinnerAsset.selectedItem?.toString() ?: return
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8

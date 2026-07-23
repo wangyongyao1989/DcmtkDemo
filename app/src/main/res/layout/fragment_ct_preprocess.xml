@@ -26,25 +26,11 @@
             android:text="1) Asset Source"
             android:textStyle="bold" />
 
-        <RadioGroup
-            android:id="@+id/rg_asset"
+        <Spinner
+            android:id="@+id/spinner_asset"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/rb_data610"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="Data610" />
-
-            <RadioButton
-                android:id="@+id/rb_data622"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Data622" />
-        </RadioGroup>
+            android:layout_marginTop="4dp" />
 
         <!-- 2) Base Parameters -->
         <TextView

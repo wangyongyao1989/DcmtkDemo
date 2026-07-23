@@ -53,7 +53,7 @@ object XrayPipeline {
             LogUtil.e(TAG, "raw too small: ${rawBytes.size}")
             return null
         }
-        // 16-bit 大端：默认 width × height 推断（这里用最常见的 1500×1290，与 Data610/622 一致）
+        // 16-bit 大端：默认 width × height 推断
         // 真实场景应通过 DICOM meta 或 UI 输入解析
         val (width, height) = inferGeometry(rawBytes.size)
         LogUtil.i(TAG, "① raw loaded size=${rawBytes.size} geom=${width}x${height}")
@@ -239,10 +239,10 @@ object XrayPipeline {
     /**
      * 推断图像几何。
      *
-     * Data610.bin / Data622.raw 在 doc 中说明为 1500×1290（见 ProcessPixelData-readme）。
      * 如果 size 不匹配，按常见探测器尺寸兜底。
      */
     private fun inferGeometry(byteSize: Int): Pair<Int, Int> {
+        // 1500x1290 常见
         if (byteSize == 1500 * 1290 * 2) return Pair(1500, 1290)
         // 兜底：找最接近的 W×H（只支持常见 1:1 / 4:3 / 16:9 比例）
         val npix = byteSize / 2

@@ -191,7 +191,7 @@ class FileCompareFragment : Fragment() {
                         raw[idx++] = ((v shr 8) and 0xFF).toByte()
                     }
                 }
-                val rawFile = File(dir,"Data610.bin")
+                val rawFile = File(dir,"synth_test.bin")
                 withContext(Dispatchers.IO) {
                     rawFile.writeBytes(raw)
                 }
