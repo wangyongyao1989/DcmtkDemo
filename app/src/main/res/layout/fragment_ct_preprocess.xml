@@ -566,28 +566,28 @@
             android:layout_height="350dp"
             android:orientation="horizontal">
 
-            <ImageView
+            <com.example.dcmtkdemo.view.ZoomImageView
                 android:id="@+id/iv_before"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="#10000000"
                 android:contentDescription="before windowing"
-                android:scaleType="fitCenter" />
+                android:scaleType="matrix" />
 
             <View
                 android:layout_width="2dp"
                 android:layout_height="match_parent"
                 android:background="#44000000" />
 
-            <ImageView
+            <com.example.dcmtkdemo.view.ZoomImageView
                 android:id="@+id/iv_after"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="#10000000"
                 android:contentDescription="after windowing"
-                android:scaleType="fitCenter" />
+                android:scaleType="matrix" />
         </LinearLayout>
 
         <TextView
