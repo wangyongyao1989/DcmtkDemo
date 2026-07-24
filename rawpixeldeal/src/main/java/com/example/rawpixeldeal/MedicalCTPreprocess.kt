@@ -383,4 +383,68 @@ object MedicalCTPreprocess {
             )
         }
     }
+
+    /**
+     * 动态调窗：用户直接指定窗位 C 和窗宽 W。
+     *
+     * 核心原理（参考 CSDN 博客 u013598963/121023205）：
+     *  - 逐像素线性映射：(C-W/2)→0, (C+W/2)→255
+     *  - 超出范围的值用 saturate_cast 截断
+     *
+     * 与 [process] 的区别：用显式 (C, W) 替代 windowMethod 算法选择，
+     * 适用于用户通过 SeekBar 实时拖动调节窗宽窗位的交互场景。
+     *
+     * @param windowCenter  窗位 C（HU 域）
+     * @param windowWidth   窗宽 W（HU 域）
+     * @return 处理后的 [PreprocessResult]
+     */
+    fun processWithCustomWindow(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean = true,
+        isUint16: Boolean = true,
+        steps: List<PreprocessStep>,
+        windowCenter: Double,
+        windowWidth: Double
+    ): PreprocessResult {
+        val opIds = steps.map { it.op.id }.toIntArray()
+        val paramList = mutableListOf<Double>()
+        steps.forEach { step -> paramList.addAll(step.params) }
+        val params = paramList.toDoubleArray()
+
+        val outInfo = IntArray(4)
+        val outHuRange = DoubleArray(2)
+        val rgba = RawPixelDealJni.processMedicalCTCustomWindow(
+            rawBuffer = rawBuffer,
+            width = width,
+            height = height,
+            bitDepth = bitDepth,
+            bigEndian = bigEndian,
+            isUint16 = isUint16,
+            ops = opIds,
+            params = params,
+            windowCenter = windowCenter,
+            windowWidth = windowWidth,
+            outInfo = outInfo,
+            outHuRange = outHuRange
+        ) ?: throw IllegalStateException("native processMedicalCTCustomWindow returned null")
+
+        val outW = outInfo[0]
+        val outH = outInfo[1]
+        val bmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        val buf = ByteBuffer.wrap(rgba).order(ByteOrder.nativeOrder())
+        bmp.copyPixelsFromBuffer(buf)
+
+        return PreprocessResult(
+            bitmap = bmp,
+            outWidth = outW,
+            outHeight = outH,
+            minVal = outInfo[2],
+            maxVal = outInfo[3],
+            minValD = outHuRange[0],
+            maxValD = outHuRange[1]
+        )
+    }
 }

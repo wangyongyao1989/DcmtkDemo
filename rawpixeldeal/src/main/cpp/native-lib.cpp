@@ -659,6 +659,71 @@ native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, ji
 }
 
 // =============================================================================
+// 9) 动态调窗：用户指定 (windowCenter, windowWidth) 而非算法索引
+//    核心思路（参考 CSDN 博客 https://blog.csdn.net/u013598963/article/details/121023205）：
+//    逐像素线性映射 (L-W/2,0) ~ (L+W/2,255)，saturate_cast 截断。
+//    这里直接复用 CtSeriesProcessor::applyWindow8u 实现。
+// =============================================================================
+/**
+ * @param windowCenter  窗位 C（HU 域）
+ * @param windowWidth   窗宽 W（HU 域）
+ * @param outInfo       out [outW, outH, srcMin(int), srcMax(int)]
+ * @param outHuRange    out [srcMin(double), srcMax(double)]
+ * @return RGBA8888 字节
+ */
+static jbyteArray
+native_processMedicalCTCustomWindow(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
+                                    jint depth, jboolean big, jboolean isU16,
+                                    jintArray ops, jdoubleArray params,
+                                    jdouble windowCenter, jdouble windowWidth,
+                                    jintArray info, jdoubleArray outHuRange) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
+
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
+
+    // 应用用户指定的窗宽窗位
+    double c = windowCenter;
+    double winW = windowWidth;
+    if (winW < 1.0) winW = 1.0;
+
+    cv::Mat out8u;
+    if (mat.depth() != CV_8U) {
+        out8u = CtSeriesProcessor::applyWindow8u(mat, c, winW, /*photometric=*/0);
+    } else {
+        out8u = mat;  // 8-bit 数据直接使用
+    }
+
+    jbyteArray res;
+    JniHelper::gray8uToRgbaJBytes(env, out8u, res);
+
+    if (info && env->GetArrayLength(info) >= 4) {
+        jint *pI = env->GetIntArrayElements(info, nullptr);
+        pI[0] = out8u.cols;
+        pI[1] = out8u.rows;
+        double mn, mx;
+        cv::minMaxLoc(mat, &mn, &mx);
+        pI[2] = (int) mn;
+        pI[3] = (int) mx;
+        env->ReleaseIntArrayElements(info, pI, 0);
+    }
+    if (outHuRange && env->GetArrayLength(outHuRange) >= 2) {
+        double mn, mx;
+        cv::minMaxLoc(mat, &mn, &mx);
+        jdouble range[2] = {(jdouble) mn, (jdouble) mx};
+        env->SetDoubleArrayRegion(outHuRange, 0, 2, range);
+    }
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+    return res;
+}
+
+// =============================================================================
 // JNI 注册
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
@@ -685,6 +750,8 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_processCTTailorInvertWindowPipeline},
         {"processMedicalCTCompareWindows",      "([BIIIZZ[I[D[I[[B[I[D)V",
                 (void *) native_processMedicalCTCompareWindows},
+        {"processMedicalCTCustomWindow",          "([BIIIZZ[I[DDD[I[D)[B",
+                (void *) native_processMedicalCTCustomWindow},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {

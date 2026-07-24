@@ -352,4 +352,35 @@ object RawPixelDealJni {
         outInfo: IntArray,
         outHuRange: DoubleArray?
     )
+
+    /**
+     * 动态调窗：用户直接指定窗位 C 和窗宽 W，不使用算法索引。
+     *
+     * 核心原理（参考 CSDN 博客 u013598963/121023205）：
+     *  - 逐像素线性映射：(L-W/2)→0, (L+W/2)→255
+     *  - 超出范围的值用 saturate_cast 截断
+     *
+     * 与 [processMedicalCT] 的区别：用显式 (C, W) 替代 windowMethod 算法选择。
+     *
+     * @param windowCenter  窗位 C（HU 域）
+     * @param windowWidth   窗宽 W（HU 域）
+     * @param outInfo       out [outW, outH, srcMin(int), srcMax(int)]
+     * @param outHuRange    out [srcMin(double), srcMax(double)]
+     * @return RGBA8888 字节
+     */
+    @JvmStatic
+    external fun processMedicalCTCustomWindow(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean,
+        isUint16: Boolean,
+        ops: IntArray,
+        params: DoubleArray,
+        windowCenter: Double,
+        windowWidth: Double,
+        outInfo: IntArray,
+        outHuRange: DoubleArray?
+    ): ByteArray?
 }

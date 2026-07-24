@@ -552,6 +552,125 @@
             android:layout_marginTop="4dp"
             android:text="调窗" />
 
+        <!-- 6.1) 窗宽窗位动态调节 (Dynamic Windowing) -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="6.1) 窗宽窗位动态调节 (Dynamic WL/WW)"
+            android:textStyle="bold" />
+
+        <CheckBox
+            android:id="@+id/cb_dynamic_window"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="启用动态调窗（拖动 SeekBar 实时调节）"
+            android:textSize="12sp" />
+
+        <!-- 窗位 Window Center (L) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗位 L:"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/sb_window_center"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="2000"
+                android:progress="400" />
+
+            <TextView
+                android:id="@+id/tv_window_center"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="400"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- 窗宽 Window Width (W) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗宽 W:"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/sb_window_width"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="4000"
+                android:progress="1500" />
+
+            <TextView
+                android:id="@+id/tv_window_width"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="1500"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- 快捷预设按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/dp_20"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_preset_brain"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="36dp"
+                android:text="脑窗\n(40,80)"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_preset_lung"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="36dp"
+                android:text="肺窗\n(-600,1500)"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_preset_bone"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="36dp"
+                android:text="骨窗\n(400,1500)"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/btn_preset_soft"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="36dp"
+                android:text="软组织\n(40,400)"
+                android:textSize="10sp" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tv_info"
             android:layout_width="match_parent"

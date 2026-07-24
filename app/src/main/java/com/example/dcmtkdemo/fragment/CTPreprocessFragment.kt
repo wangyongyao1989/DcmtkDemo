@@ -3,7 +3,10 @@ package com.example.dcmtkdemo.fragment
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.SeekBar
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +24,8 @@ import com.example.rawpixeldeal.MedicalCTPreprocess.PreprocessStep
 import com.example.rawpixeldeal.jni.RawPixelDealJni
 import com.example.rawpixeldeal.xray.WindowMethod
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -32,6 +37,27 @@ class CTPreprocessFragment : Fragment() {
 
     private var _binding: FragmentCtPreprocessBinding? = null
     private val binding get() = _binding!!
+
+    // ---- 动态调窗缓存 ----
+    /** 缓存上一次预处理使用的 raw buffer，避免 SeekBar 拖动时重复读 asset */
+    private var cachedRawBuffer: ByteArray? = null
+    private var cachedWidth: Int = 0
+    private var cachedHeight: Int = 0
+    private var cachedBitDepth: Int = 16
+    private var cachedBigEndian: Boolean = true
+    private var cachedSteps: List<PreprocessStep> = emptyList()
+    /** 动态调窗防抖：SeekBar 高频回调合并为一次 native 调用 */
+    private val debounceHandler = Handler(Looper.getMainLooper())
+    private var debounceRunnable: Runnable? = null
+    private var dynamicWindowJob: Job? = null
+
+    /** 窗位 SeekBar 映射：max=2000 → HU [-1000, +1000] */
+    private fun mapCenter(progress: Int): Double = (progress - 1000).toDouble()
+    /** 窗宽 SeekBar 映射：max=4000 → [1, 4000] */
+    private fun mapWidth(progress: Int): Double = maxOf(1.0, progress.toDouble())
+    /** 反向映射：HU → SeekBar progress */
+    private fun centerToProgress(center: Double): Int = (center + 1000).toInt().coerceIn(0, 2000)
+    private fun widthToProgress(width: Double): Int = width.toInt().coerceIn(0, 4000)
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -71,7 +97,141 @@ class CTPreprocessFragment : Fragment() {
         setupWindowMethodRadioLogic()
         // P1-8: 8-bit 单选时禁用 HU/FFT 等不适用的算子，避免产生无意义或全黑结果
         setupBitDepthLogic()
+        setupDynamicWindow()
         setupKeyboardDismiss()
+    }
+
+    /**
+     * 6.1) 窗宽窗位动态调节。
+     *
+     * 核心原理（参考 CSDN 博客 u013598963/121023205）：
+     *  - 窗位 L(=C) 控制映射中心：像素值 < L-W/2 → 黑(0)，> L+W/2 → 白(255)
+     *  - 窗宽 W(=WW) 控制映射范围：W 越窄，对比度越高
+     *  - 公式：output = saturate_cast<uchar>(255 * (pixel - (L - W/2)) / W)
+     *
+     * 交互策略：
+     *  1) 用户先 LOAD & DISPLAY 或 调窗 生成一次预处理结果，缓存 raw buffer + steps；
+     *  2) 勾选「启用动态调窗」后，SeekBar 拖动时复用缓存数据，仅重做 (L,W)→8bit 映射；
+     *  3) 防抖 150ms，避免高频回调导致 native 调用堆积。
+     */
+    private fun setupDynamicWindow() {
+        // 初始禁用 SeekBar，需先勾选启用
+        val seekBars = listOf(binding.sbWindowCenter, binding.sbWindowWidth)
+        seekBars.forEach { it.isEnabled = false }
+
+        binding.cbDynamicWindow.setOnCheckedChangeListener { _, isChecked ->
+            seekBars.forEach { it.isEnabled = isChecked }
+            if (isChecked) {
+                // 勾选时如果还没缓存数据，提示用户先执行一次预处理
+                if (cachedRawBuffer == null) {
+                    binding.tvInfo.text = "请先点击 LOAD & DISPLAY 或 调窗 生成预处理数据，再拖动 SeekBar"
+                } else {
+                    applyDynamicWindow(debounceMs = 0)
+                }
+            }
+        }
+
+        // 窗位 SeekBar
+        binding.sbWindowCenter.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val center = mapCenter(progress)
+                binding.tvWindowCenter.text = "%.0f".format(center)
+                if (fromUser && binding.cbDynamicWindow.isChecked) applyDynamicWindow()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        // 窗宽 SeekBar
+        binding.sbWindowWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val width = mapWidth(progress)
+                binding.tvWindowWidth.text = "%.0f".format(width)
+                if (fromUser && binding.cbDynamicWindow.isChecked) applyDynamicWindow()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        // 快捷预设按钮
+        binding.btnPresetBrain.setOnClickListener { applyPreset(40.0, 80.0) }
+        binding.btnPresetLung.setOnClickListener { applyPreset(-600.0, 1500.0) }
+        binding.btnPresetBone.setOnClickListener { applyPreset(400.0, 1500.0) }
+        binding.btnPresetSoft.setOnClickListener { applyPreset(40.0, 400.0) }
+    }
+
+    /**
+     * 将预设 (C, W) 同步到 SeekBar 并触发动态调窗。
+     */
+    private fun applyPreset(center: Double, width: Double) {
+        if (!binding.cbDynamicWindow.isChecked) {
+            binding.cbDynamicWindow.isChecked = true
+        }
+        binding.sbWindowCenter.progress = centerToProgress(center)
+        binding.sbWindowWidth.progress = widthToProgress(width)
+        // onProgressChanged 会自动调用 applyDynamicWindow
+    }
+
+    /**
+     * 防抖调用 [MedicalCTPreprocess.processWithCustomWindow]。
+     *
+     * SeekBar 高频回调时（每 pixel 拖动一次），不做每次 native 调用，
+     * 而是延迟 [debounceMs] 后合并为一次。若在此期间又有新回调，取消旧任务。
+     */
+    private fun applyDynamicWindow(debounceMs: Long = 150L) {
+        val raw = cachedRawBuffer ?: return
+        val center = mapCenter(binding.sbWindowCenter.progress)
+        val width = mapWidth(binding.sbWindowWidth.progress)
+
+        // 取消之前 pending 的防抖任务
+        debounceRunnable?.let { debounceHandler.removeCallbacks(it) }
+        dynamicWindowJob?.cancel()
+
+        if (debounceMs > 0) {
+            val r = Runnable {
+                doDynamicWindowNative(raw, center, width)
+            }
+            debounceRunnable = r
+            debounceHandler.postDelayed(r, debounceMs)
+        } else {
+            doDynamicWindowNative(raw, center, width)
+        }
+    }
+
+    /**
+     * 在 IO 线程执行 native 动态调窗，结果回主线程更新 UI。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun doDynamicWindowNative(raw: ByteArray, center: Double, width: Double) {
+        if (cachedWidth <= 0 || cachedHeight <= 0) return
+        binding.tvInfo.text = "动态调窗: C=%.0f, W=%.0f ...".format(center, width)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    MedicalCTPreprocess.processWithCustomWindow(
+                        rawBuffer = raw,
+                        width = cachedWidth,
+                        height = cachedHeight,
+                        bitDepth = cachedBitDepth,
+                        bigEndian = cachedBigEndian,
+                        isUint16 = true,
+                        steps = cachedSteps,
+                        windowCenter = center,
+                        windowWidth = width
+                    )
+                }
+                if (_binding == null) return@launch
+                binding.ivAfter.setImageBitmap(result.bitmap)
+                binding.tvInfo.text =
+                    "动态调窗: C=%.0f, W=%.0f | HU Range: [%.1f, %.1f]".format(
+                        center, width, result.minValD, result.maxValD
+                    )
+            } catch (e: Exception) {
+                Log.e(TAG, "Dynamic window failed", e)
+                if (_binding != null) binding.tvInfo.text = "动态调窗错误: ${e.message}"
+            }
+        }
     }
 
     /**
@@ -313,14 +473,24 @@ class CTPreprocessFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                // 1) 读取 Asset 数据并缓存
+                val bytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+                cachedRawBuffer = bytes
+                cachedWidth = w
+                cachedHeight = h
+                cachedBitDepth = bitDepth
+                cachedBigEndian = isBigEndian
+                cachedSteps = steps.toList()
+
                 if (isWindowing) {
                     // 优化：以前对同一份 raw 调两次 process()，重负载跑两遍。
                     // 现在改用 processCompareWindows：重负载（裁剪/HU/去噪/重采样/增强）
                     // 只跑一次，然后对每个调窗方法只重做 8-bit 映射。
                     val results = withContext(Dispatchers.IO) {
                         MedicalCTPreprocess.processCompareWindows(
-                            context = ctx,
-                            assetName = assetName,
+                            rawBuffer = bytes,
                             width = w,
                             height = h,
                             bitDepth = bitDepth,
@@ -343,15 +513,14 @@ class CTPreprocessFragment : Fragment() {
                     // 仅预处理显示 - 固定在左侧 (Left/Before)
                     val result = withContext(Dispatchers.IO) {
                         MedicalCTPreprocess.process(
-                            ctx,
-                            assetName,
-                            w,
-                            h,
-                            bitDepth,
-                            isBigEndian,
-                            true,
-                            steps,
-                            -1
+                            rawBuffer = bytes,
+                            width = w,
+                            height = h,
+                            bitDepth = bitDepth,
+                            bigEndian = isBigEndian,
+                            isUint16 = true,
+                            steps = steps,
+                            windowMethod = -1
                         )
                     }
                     if (_binding == null) return@launch
