@@ -69,7 +69,35 @@ class CTPreprocessFragment : Fragment() {
 
         setupAssetSpinner()
         setupWindowMethodRadioLogic()
+        // P1-8: 8-bit 单选时禁用 HU/FFT 等不适用的算子，避免产生无意义或全黑结果
+        setupBitDepthLogic()
         setupKeyboardDismiss()
+    }
+
+    /**
+     * P1-8: 位深切换联动。
+     *
+     * 8-bit 数据范围 [0, 255] 无法承载 HU（[-1024, 3071]），HU 转换会截断/溢出；
+     * FFT 在 8-bit 上也容易因数值精度不足产生伪影。因此当用户切到 8-bit 时：
+     *  - 自动取消勾选 [cbHu]，并禁用 checkbox 与 Slope/Intercept 输入框；
+     *  - 禁用 [cbFft]（视觉价值低，且容易引发全图暗化）；
+     *  - 16-bit 切回时恢复 enable，用户可自由重新勾选。
+     */
+    private fun setupBitDepthLogic() {
+        val onChanged = {
+            val is8Bit = binding.rb8bit.isChecked
+            binding.cbHu.isEnabled = !is8Bit
+            binding.cbFft.isEnabled = !is8Bit
+            binding.etSlope.isEnabled = !is8Bit
+            binding.etIntercept.isEnabled = !is8Bit
+            if (is8Bit) {
+                if (binding.cbHu.isChecked) binding.cbHu.isChecked = false
+                if (binding.cbFft.isChecked) binding.cbFft.isChecked = false
+            }
+        }
+        binding.rb8bit.setOnClickListener { onChanged() }
+        binding.rb16bit.setOnClickListener { onChanged() }
+        // 初始以 16-bit 为默认，无需操作；保持初始态即可
     }
 
     private fun setupAssetSpinner() {
@@ -279,41 +307,30 @@ class CTPreprocessFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 if (isWindowing) {
-                    // 1. 获取调窗前 (None/Min-Max)
-                    val resBefore = withContext(Dispatchers.IO) {
-                        MedicalCTPreprocess.process(
-                            ctx,
-                            assetName,
-                            w,
-                            h,
-                            bitDepth,
-                            isBigEndian,
-                            false,
-                            steps,
-                            -1
-                        )
-                    }
-                    // 2. 获取调窗后
-                    val resAfter = withContext(Dispatchers.IO) {
-                        MedicalCTPreprocess.process(
-                            ctx,
-                            assetName,
-                            w,
-                            h,
-                            bitDepth,
-                            isBigEndian,
-                            false,
-                            steps,
-                            windowMethodIndex
+                    // 优化：以前对同一份 raw 调两次 process()，重负载跑两遍。
+                    // 现在改用 processCompareWindows：重负载（裁剪/HU/去噪/重采样/增强）
+                    // 只跑一次，然后对每个调窗方法只重做 8-bit 映射。
+                    val results = withContext(Dispatchers.IO) {
+                        MedicalCTPreprocess.processCompareWindows(
+                            context = ctx,
+                            assetName = assetName,
+                            width = w,
+                            height = h,
+                            bitDepth = bitDepth,
+                            bigEndian = isBigEndian,
+                            isUint16 = true,
+                            steps = steps,
+                            // 第 0 个是"调窗前"（min-max），第 1 个是选中的调窗方法
+                            windowMethods = listOf(-1, windowMethodIndex)
                         )
                     }
                     if (_binding == null) return@launch
-                    binding.ivBefore.setImageBitmap(resBefore.bitmap)
-                    binding.ivAfter.setImageBitmap(resAfter.bitmap)
+                    binding.ivBefore.setImageBitmap(results[0].bitmap)
+                    binding.ivAfter.setImageBitmap(results[1].bitmap)
                     val methodName =
                         if (windowMethodIndex == -1) "None" else WindowMethod.values()[windowMethodIndex].displayName
                     binding.tvInfo.text =
-                        "Comparison Ready. Method: $methodName\nRange: [${resAfter.minVal}, ${resAfter.maxVal}]"
+                        "Comparison Ready. Method: $methodName"
                     binding.tvSummary.text = generateSummary(steps, true, methodName)
                 } else {
                     // 仅预处理显示 - 固定在左侧 (Left/Before)
@@ -325,7 +342,7 @@ class CTPreprocessFragment : Fragment() {
                             h,
                             bitDepth,
                             isBigEndian,
-                            false,
+                            true,
                             steps,
                             -1
                         )
@@ -333,8 +350,9 @@ class CTPreprocessFragment : Fragment() {
                     if (_binding == null) return@launch
                     binding.ivBefore.setImageBitmap(result.bitmap)
                     binding.ivAfter.setImageDrawable(null)
+                    // P1-6: 展示浮点精度的 HU 范围（不再截断为 int）
                     binding.tvInfo.text =
-                        "Preprocess Only. Range: [${result.minVal}, ${result.maxVal}]"
+                        "Preprocess Only. Range: [${"%.2f".format(result.minValD)}, ${"%.2f".format(result.maxValD)}] HU"
                     binding.tvSummary.text = generateSummary(steps, false, "")
                 }
             } catch (e: Exception) {

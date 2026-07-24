@@ -251,6 +251,109 @@ namespace CtSeriesProcessor {
         wOut = std::max(150.0, range * 0.7);
     }
 
+    void pickWindowCenterWidth(int method, double minV, double maxV,
+                               const std::vector<int> *hist, int nBins,
+                               double &cOut, double &wOut) {
+        // 兜底默认值（DEFAULT 调窗）
+        cOut = 127.5;
+        wOut = 255.0;
+        const double span = maxV - minV;
+
+        switch (method) {
+            case 0: { // DEFAULT
+                cOut = 127.5;
+                wOut = 255.0;
+                return;
+            }
+            case 5: { // MIN_MAX
+                cOut = (minV + maxV) * 0.5;
+                wOut = std::max(1.0, span);
+                return;
+            }
+            case 1: { // CUMULATIVE_72
+                if (hist == nullptr || hist->empty() || nBins <= 0) {
+                    cOut = (minV + maxV) * 0.5;
+                    wOut = std::max(1.0, span);
+                    return;
+                }
+                long long total = 0;
+                for (int v: *hist) total += v;
+                long long threshold = (long long) (total * 0.72);
+                long long cumulative = 0;
+                int targetBin = 0;
+                for (int i = 0; i < nBins; ++i) {
+                    cumulative += (*hist)[i];
+                    if (cumulative >= threshold) { targetBin = i; break; }
+                }
+                const double hBin = span / static_cast<double>(nBins);
+                cOut = minV + (targetBin + 0.5) * hBin;
+                wOut = 508.0; // 临床经验值
+                return;
+            }
+            case 2: { // BIMODAL
+                if (hist == nullptr || hist->empty() || nBins <= 0) {
+                    cOut = (minV + maxV) * 0.5;
+                    wOut = std::max(1.0, span);
+                    return;
+                }
+                // 1) 找最高频 bin
+                int leftPeakIdx = 0;
+                int leftPeakFreq = 0;
+                for (int i = 0; i < nBins; i++) {
+                    if ((*hist)[i] > leftPeakFreq) {
+                        leftPeakFreq = (*hist)[i];
+                        leftPeakIdx = i;
+                    }
+                }
+                // 2) 抑制主峰 ±5% 区间
+                std::vector<int> suppressed(*hist);
+                int radius = std::max(1, (int) (nBins * 0.05));
+                for (int i = std::max(0, leftPeakIdx - radius);
+                     i <= std::min(nBins - 1, leftPeakIdx + radius); i++) {
+                    suppressed[i] = 0;
+                }
+                // 3) 在剩余 bin 上同时找次峰和谷
+                int valleyIdx = -1, valleyFreq = 2147483647;
+                int peakIdx = -1, peakFreq = 0;
+                for (int i = 0; i < nBins; i++) {
+                    if (suppressed[i] > 0) {
+                        if (suppressed[i] < valleyFreq) { valleyFreq = suppressed[i]; valleyIdx = i; }
+                        if (suppressed[i] > peakFreq)   { peakFreq = suppressed[i];   peakIdx = i;   }
+                    }
+                }
+                if (peakIdx >= 0 && valleyIdx >= 0) {
+                    const double hBin = span / static_cast<double>(nBins);
+                    cOut = minV + (peakIdx + 0.5) * hBin;
+                    const double valleyVal = minV + (valleyIdx + 0.5) * hBin;
+                    wOut = 2.0 * (cOut - valleyVal);
+                } else {
+                    cOut = (minV + maxV) * 0.5;
+                    wOut = std::max(1.0, span);
+                }
+                return;
+            }
+            case 3: { // ADAPTIVE
+                if (hist == nullptr || hist->empty() || nBins <= 0) {
+                    cOut = (minV + maxV) * 0.5;
+                    wOut = std::max(1.0, span);
+                    return;
+                }
+                AdaptiveWindowResult aw;
+                aw.hBins = span / static_cast<double>(nBins);
+                computeAdaptiveWindow(*hist, nBins, 0.0015, 0.0015, aw);
+                cOut = minV + aw.c;
+                wOut = aw.w;
+                return;
+            }
+            case 4: // HIST_TYPE：min/max 兜底
+            default: {
+                cOut = (minV + maxV) * 0.5;
+                wOut = std::max(1.0, span);
+                return;
+            }
+        }
+    }
+
     cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,
                          int photometric) {
         cv::Mat out(hu.size(), CV_8UC1);

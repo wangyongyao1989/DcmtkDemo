@@ -55,6 +55,26 @@ namespace CtSeriesProcessor {
                           double fallbackC, double fallbackW,
                           double &cOut, double &wOut, bool &usedDefault);
 
+    /**
+     * 统一的"调窗方法 → (c, w)"分派。
+     *
+     * 以前 native-lib.cpp 的 native_processMedicalCT 与
+     * MedicalCTPreprocess.cpp 的 CTTailorInvertWindowPipeline 各写了一份
+     * DEFAULT/72/BIMODAL/ADAPTIVE/MIN_MAX/HIST_TYPE 实现，已出现细微差异。
+     * 这里把所有分派集中到一处，调用方只需传 method index + min/max + 可选 hist。
+     *
+     * @param method      调窗方法索引：-1=百分位自适应，0=DEFAULT(127.5/255)，
+     *                    1=CUMULATIVE_72, 2=BIMODAL, 3=ADAPTIVE,
+     *                    4=HIST_TYPE(min/max 兜底), 5=MIN_MAX
+     * @param minV/maxV   当前数据实际 min/max（HU 或 raw 16-bit）
+     * @param hist        直方图（仅 method∈{1,2,3} 需要；其它可为 null）
+     * @param nBins       直方图 bin 数
+     * @param cOut/wOut   出参：窗位 / 窗宽
+     */
+    void pickWindowCenterWidth(int method, double minV, double maxV,
+                               const std::vector<int> *hist, int nBins,
+                               double &cOut, double &wOut);
+
     cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,
                          int photometric);
 

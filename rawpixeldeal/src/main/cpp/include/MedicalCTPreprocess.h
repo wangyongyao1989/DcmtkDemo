@@ -13,19 +13,37 @@
 #include "opencv2/core/mat.hpp"
 
 namespace CTPreprocess {
+    // 预处理算子枚举（与 Kotlin 端 MedicalCTPreprocess.Op.id 严格对齐）
+    enum class Op : int {
+        GAUSSIAN       = 1,
+        MEDIAN         = 2,
+        BILATERAL      = 3,
+        FFT            = 4,
+        RESAMPLE_SIZE  = 5,
+        RESAMPLE_SCALE = 6,
+        GLOBAL_EQUALIZE= 7,
+        CLAHE          = 8,
+        CONTRAST_STRETCH=9,
+        HU_CONVERT     = 10,
+        TAILOR         = 11,
+        INVERT_LUT     = 12,
+        FEATURE_SHARPEN= 13,
+    };
+
     // ===================== 一、Raw裸像素缓冲区载入（硬件void*内存，无DICOM） =====================
     /**
      * @brief 采集卡/FPGA裸16bit像素内存直接映射cv::Mat（零拷贝）
      * @param rawBuf 硬件原始像素缓冲区指针 int16/uint16
      * @param rows 图像高
      * @param cols 图像宽
-     * @param isUint16 true=CV_16UC1, false=CV_16SC1(CT标准HU存储)
+     * @param isUint16 true=CV_16UC1, false=CV_16SC1。**CT/HU 场景下必须传 true**，
+     *                否则 > 32767 的像素被解释为负数，HU 校正后全黑。
      * @param step 硬件行对齐步长（采集卡存在填充时传入，0自动计算）
      * @param bigEndian 设备Raw大端字节序，true自动反转字节
      * @return 16bit单通道cv::Mat
      */
     cv::Mat
-    LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16 = false, size_t step = 0,
+    LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16 = true, size_t step = 0,
                        bool bigEndian = true);
 
     // HU值校正：HU = pixel * slope + intercept
@@ -93,7 +111,8 @@ namespace CTPreprocess {
      * 流水线：Raw Buffer → HU校正 → 去噪 → 重采样 → 增强输出8bit可视化图
      */
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH,
-                           float slope = 1.0f, float intercept = -1024.0f, bool bigEndian = true);
+                           float slope = 1.0f, float intercept = -1024.0f,
+                           bool bigEndian = true, bool isUint16 = true);
 
     /**
      * RAW裁剪后的标准流程 -> Invert LUTs -> 调窗

@@ -255,7 +255,9 @@ object RawPixelDealJni {
      * @param ops           预处理操作 ID 列表
      * @param params        每个操作对应的参数（扁平化数组）
      * @param windowMethod  调窗方法索引 (-1 表示 None，0-5 对应不同算法)
-     * @param outInfo       out [outW, outH, srcMin, srcMax]
+     * @param outInfo       out [outW, outH, srcMin(int), srcMax(int)] —— 向后兼容
+     * @param outHuRange    out [srcMin(double), srcMax(double)] —— **P1-6: 保留 HU 浮点精度**
+     *                      可为 null（不关心时省略）；outInfo 中 int 截断的精度可在此参数中找回。
      * @return              处理后的 RGBA8888 字节
      */
     @JvmStatic
@@ -269,21 +271,24 @@ object RawPixelDealJni {
         ops: IntArray,
         params: DoubleArray,
         windowMethod: Int,
-        outInfo: IntArray
+        outInfo: IntArray,
+        outHuRange: DoubleArray?
     ): ByteArray?
 
     /**
      * 完整预处理流水线（原文标准流程）。
      *
-     * @param rawBuffer 原始像素字节
-     * @param width     宽
-     * @param height    高
-     * @param tarW      目标宽
-     * @param tarH      目标高
-     * @param slope     Slope
-     * @param intercept Intercept
-     * @param outInfo   out [outW, outH, srcMin, srcMax]
-     * @return          处理后的 RGBA8888 字节
+     * @param rawBuffer   原始像素字节
+     * @param width       宽
+     * @param height      高
+     * @param tarW        目标宽
+     * @param tarH        目标高
+     * @param slope       Slope
+     * @param intercept   Intercept
+     * @param isUint16    raw buffer 是否为 16-bit 无符号
+     * @param outInfo     out [outW, outH, srcMin(int), srcMax(int)] —— 向后兼容
+     * @param outHuRange  out [srcMin(double), srcMax(double)] —— P1-6: 保留 HU 浮点精度
+     * @return            处理后的 RGBA8888 字节
      */
     @JvmStatic
     external fun processCTFullPipeline(
@@ -295,7 +300,9 @@ object RawPixelDealJni {
         slope: Float,
         intercept: Float,
         bigEndian: Boolean,
-        outInfo: IntArray
+        isUint16: Boolean,
+        outInfo: IntArray,
+        outHuRange: DoubleArray?
     ): ByteArray?
 
     /**
@@ -317,4 +324,32 @@ object RawPixelDealJni {
         windowMethod: Int,
         outInfo: IntArray
     ): ByteArray?
+
+    /**
+     * 调窗对比：重负载（裁剪/HU/去噪/重采样/增强）只跑一次，
+     * 8-bit 映射按 windowMethods 列表逐个执行，输出多张 RGBA8888 字节。
+     *
+     * 适用场景：CTPreprocessFragment 的 "调窗前后对比"，避免对同一份预处理数据
+     * 调用两次 native_processMedicalCT（重复执行双边滤波等 O(N) 操作）。
+     *
+     * @param windowMethods   调窗方法列表；-1 表示 min-max 归一化；0..5 见 WindowMethod
+     * @param outDisplays     out，长度 = windowMethods.size；每项一张 RGBA8888
+     * @param outInfo         out，长度 >= 2，前 2 元素 [outW, outH]
+     * @param outHuRange      out [srcMin(double), srcMax(double)] —— P1-6: 保留 HU 浮点精度
+     */
+    @JvmStatic
+    external fun processMedicalCTCompareWindows(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean,
+        isUint16: Boolean,
+        ops: IntArray,
+        params: DoubleArray,
+        windowMethods: IntArray,
+        outDisplays: Array<ByteArray?>,
+        outInfo: IntArray,
+        outHuRange: DoubleArray?
+    )
 }

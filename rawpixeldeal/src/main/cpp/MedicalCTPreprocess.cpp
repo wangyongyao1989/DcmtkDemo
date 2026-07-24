@@ -14,29 +14,45 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 
 namespace CTPreprocess {
+    /**
+     * 载入 16-bit raw 像素缓冲区。
+     *
+     * @param rawBuf    16-bit raw 字节（rows * cols * 2 字节）
+     * @param rows      图像高
+     * @param cols      图像宽
+     * @param isUint16  true=无符号 (CV_16UC1)，false=有符号 (CV_16SC1)。
+     *                  **CT/HU 场景下必须传 true**。
+     * @param step      步长（字节），传 0 走默认 cols*elemSize。
+     * @param bigEndian 是否大端字节序；为 true 时会原地 swap 为 little-endian。
+     */
     cv::Mat LoadRawPixelBuffer(void *rawBuf, int rows, int cols, bool isUint16, size_t step,
                                bool bigEndian) {
         LOGI("LoadRawPixelBuffer: rows=%d, cols=%d, isUint16=%d, bigEndian=%d", rows, cols,
              isUint16, bigEndian);
+
+        // 校验 buffer 指针与几何
+        if (rawBuf == nullptr) {
+            LOGE("LoadRawPixelBuffer: rawBuf is null");
+            return cv::Mat();
+        }
+        if (rows <= 0 || cols <= 0) {
+            LOGE("LoadRawPixelBuffer: invalid geometry rows=%d cols=%d", rows, cols);
+            return cv::Mat();
+        }
+
         int type = isUint16 ? CV_16UC1 : CV_16SC1;
         cv::Mat mat(rows, cols, type, rawBuf, step);
 
-        // 改进：增加字节序自动检测提示（Heuristic Check）
-        auto performSwap = [](cv::Mat &m) {
-            ushort *p = m.ptr<ushort>();
-            int total = m.rows * m.cols;
-            for (int i = 0; i < total; i++) {
-                ushort val = p[i];
-                m.ptr<ushort>()[i] = (val >> 8) | (val << 8);
-            }
-        };
-
+        // 原地字节序反转：bigEndian 时把每个 16-bit 单元按字节翻转
+        // 不再 copyTo + 临时 Mat，省一次全图拷贝
         if (bigEndian) {
-            LOGD("LoadRawPixelBuffer: Converting big-endian to little-endian");
-            cv::Mat temp;
-            mat.copyTo(temp);
-            performSwap(temp);
-            return temp;
+            LOGD("LoadRawPixelBuffer: Swapping big-endian to little-endian in-place");
+            ushort *p = mat.ptr<ushort>();
+            const int total = mat.rows * mat.cols;
+            for (int i = 0; i < total; i++) {
+                const ushort val = p[i];
+                p[i] = static_cast<ushort>((val >> 8) | (val << 8));
+            }
         } else {
             // 启发式校验：如果 16-bit 有符号数读取出大量异常极值，提示可能需要大端转换
             double minV, maxV;
@@ -54,9 +70,13 @@ namespace CTPreprocess {
         cv::Mat f32Mat;
         src16.convertTo(f32Mat, CV_32FC1);
         f32Mat = f32Mat * slope + intercept;
-        // 截断CT有效HU范围 [-1024, 3071]
-        cv::threshold(f32Mat, f32Mat, -1024, -1024, cv::THRESH_TOZERO);
-        cv::threshold(f32Mat, f32Mat, 3071, 3071, cv::THRESH_TRUNC);
+        // 截断到 CT 有效 HU 范围 [-1024, 3071]
+        // 修复：原代码用 cv::threshold(... THRESH_TOZERO) 把所有 <= -1024 的值塞成 0
+        //      这会把空气背景强行拉到 0 HU，与软组织混在一起。
+        //      下限应使用 cv::max（值 < -1024 时夹到 -1024），
+        //      上限应使用 cv::min（值 > 3071 时夹到 3071）。
+        cv::max(f32Mat, -1024.0f, f32Mat);
+        cv::min(f32Mat, 3071.0f, f32Mat);
 
         double minV, maxV;
         cv::minMaxLoc(f32Mat, &minV, &maxV);
@@ -228,10 +248,11 @@ namespace CTPreprocess {
 
     // 完整流水线：原文标准流程（增强版）
     cv::Mat CTFullPipeline(void *rawBuf, int rows, int cols, int tarW, int tarH, float slope,
-                           float intercept, bool bigEndian) {
-        LOGI("CTFullPipeline: START (Enhanced with ROI & Percentile) bigEndian=%d", bigEndian);
+                           float intercept, bool bigEndian, bool isUint16) {
+        LOGI("CTFullPipeline: START (Enhanced with ROI & Percentile) bigEndian=%d isUint16=%d",
+             bigEndian, isUint16);
         // 1. 载入Raw像素缓冲区
-        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, bigEndian);
+        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, isUint16, 0, bigEndian);
 
         // 2. HU物理值校正
         cv::Mat huMat = ConvertRawToHU(raw16, slope, intercept);
@@ -280,8 +301,8 @@ namespace CTPreprocess {
                                          int &outMin, int &outMax) {
         LOGI("CTTailorInvertWindowPipeline: START method=%d bigEndian=%d", windowMethod, bigEndian);
 
-        // 1. 载入 Raw 像素
-        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, false, 0, bigEndian);
+        // 1. 载入 Raw 像素（CT/HU 场景下使用无符号 16-bit）
+        cv::Mat raw16 = LoadRawPixelBuffer(rawBuf, rows, cols, /*isUint16=*/true, 0, bigEndian);
 
         // 2. 自动裁剪 (tailorImage 逻辑)
         int tx, ty;
@@ -303,16 +324,16 @@ namespace CTPreprocess {
         // 5. 标准流水线去噪：双边滤波
         cv::Mat denoiseMat = DenoiseBilateral(huMat);
 
-        // 6. 多种调窗方法实现 (Requirement 1 & 2)
-        double c = 127.5, w = 255.0;
-        double minV, maxV;
+        // 6. 调窗：method=-1 走"百分位自适应"，否则统一委托 pickWindowCenterWidth
+        double minV = 0.0, maxV = 0.0;
         cv::minMaxLoc(denoiseMat, &minV, &maxV);
         outMin = (int) minV;
         outMax = (int) maxV;
 
+        double c = 127.5, w = 255.0;
         if (windowMethod == -1) {
-            // Requirement: 不选择调窗算法时，仅执行“裁剪+反转+标准流程”
-            // 采用标准百分位自适应映射 (0.5% - 99.5%) 以保证图像可见，对应“标准流程”的效果
+            // Requirement: 不选择调窗算法时，仅执行"裁剪+反转+标准流程"
+            // 采用标准百分位自适应映射 (0.5% - 99.5%) 以保证图像可见
             float gMin, gMax;
             std::vector<cv::Mat> slices = {denoiseMat};
             CtSeriesProcessor::computePercentileHu(slices,
@@ -324,86 +345,20 @@ namespace CTPreprocess {
                 c = 40.0;
                 w = 400.0;
             }
-        } else if (windowMethod == 0) { // DEFAULT
-            c = 127.5;
-            w = 255.0;
-        } else if (windowMethod == 5) { // MIN_MAX
-            c = (minV + maxV) * 0.5;
-            w = std::max(1.0, maxV - minV);
         } else {
-            // 需要统计直方图的方法
+            // 1/2/3 需要直方图；0/4/5 不需要
             int nBins = 256;
             std::vector<int> hist;
-            std::vector<cv::Mat> slices = {denoiseMat};
-            CtSeriesProcessor::aggregateSeriesHistogram(slices,
-                                                        cv::Rect(0, 0, denoiseMat.cols,
-                                                                 denoiseMat.rows),
-                                                        minV, maxV, nBins, 1, hist);
-
-            if (windowMethod == 1) { // CUMULATIVE_72
-                long long total = 0;
-                for (int v: hist) total += v;
-                long long threshold = (long long) (total * 0.72);
-                long long cumulative = 0;
-                int targetBin = 0;
-                for (int i = 0; i < nBins; ++i) {
-                    cumulative += hist[i];
-                    if (cumulative >= threshold) {
-                        targetBin = i;
-                        break;
-                    }
-                }
-                double hBin = (maxV - minV) / nBins;
-                c = minV + (targetBin + 0.5) * hBin;
-                w = 508.0;
-            } else if (windowMethod == 2) { // BIMODAL_PEAK (近似)
-                int leftPeakIdx = 0;
-                int leftPeakFreq = 0;
-                for (int i = 0; i < nBins; i++) {
-                    if (hist[i] > leftPeakFreq) {
-                        leftPeakFreq = hist[i];
-                        leftPeakIdx = i;
-                    }
-                }
-                std::vector<int> suppressed = hist;
-                int radius = std::max(1, (int) (nBins * 0.05));
-                for (int i = std::max(0, leftPeakIdx - radius);
-                     i <= std::min(nBins - 1, leftPeakIdx + radius); i++) {
-                    suppressed[i] = 0;
-                }
-                int valleyIdx = -1, valleyFreq = 2147483647;
-                int peakIdx = -1, peakFreq = 0;
-                for (int i = 0; i < nBins; i++) {
-                    if (suppressed[i] > 0) {
-                        if (suppressed[i] < valleyFreq) {
-                            valleyFreq = suppressed[i];
-                            valleyIdx = i;
-                        }
-                        if (suppressed[i] > peakFreq) {
-                            peakFreq = suppressed[i];
-                            peakIdx = i;
-                        }
-                    }
-                }
-                if (peakIdx >= 0 && valleyIdx >= 0) {
-                    double hBin = (maxV - minV) / nBins;
-                    c = minV + (peakIdx + 0.5) * hBin;
-                    double valleyVal = minV + (valleyIdx + 0.5) * hBin;
-                    w = 2.0 * (c - valleyVal);
-                } else {
-                    c = (minV + maxV) * 0.5;
-                    w = maxV - minV;
-                }
-            } else if (windowMethod == 3) { // ADAPTIVE
-                CtSeriesProcessor::AdaptiveWindowResult aw;
-                aw.hBins = (maxV - minV) / (double) nBins;
-                CtSeriesProcessor::computeAdaptiveWindow(hist, nBins, 0.0015, 0.0015, aw);
-                c = minV + aw.c;
-                w = aw.w;
-            } else { // 4: HISTOGRAM_TYPE (Fallback)
-                c = (minV + maxV) * 0.5;
-                w = maxV - minV;
+            const std::vector<int> *histPtr = nullptr;
+            if (windowMethod == 1 || windowMethod == 2 || windowMethod == 3) {
+                std::vector<cv::Mat> slices = {denoiseMat};
+                CtSeriesProcessor::aggregateSeriesHistogram(slices,
+                                                            cv::Rect(0, 0, denoiseMat.cols,
+                                                                     denoiseMat.rows),
+                                                            minV, maxV, nBins, 1, hist);
+                histPtr = &hist;
             }
+            CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
         }
 
         if (w < 1.0) w = 1.0;

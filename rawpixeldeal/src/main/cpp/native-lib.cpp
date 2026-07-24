@@ -268,171 +268,185 @@ native_invertLut(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint bi
 // =============================================================================
 // 7) 通用医学预处理
 // =============================================================================
+
+/**
+ * 把 16-bit / float Mat 归一化到 0..255 的 8-bit Mat（无调窗时的默认显示）。
+ * 内部用 min-max 线性缩放 + 1e-7 防 0 除。
+ */
+static cv::Mat normalizeTo8u(const cv::Mat &mat) {
+    cv::Mat out8u;
+    double mn = 0.0, mx = 0.0;
+    cv::minMaxLoc(mat, &mn, &mx);
+    const double span = std::max(1e-7, mx - mn);
+    mat.convertTo(out8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
+    return out8u;
+}
+
+/**
+ * 调窗（含 DEFAULT/MIN_MAX/72/BIMODAL/ADAPTIVE/HIST_TYPE）的统一入口。
+ * 内部委托给 CtSeriesProcessor::pickWindowCenterWidth，避免与
+ * CTTailorInvertWindowPipeline 里另一份重复实现漂移。
+ */
+static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
+    double minV = 0.0, maxV = 0.0;
+    cv::minMaxLoc(mat, &minV, &maxV);
+
+    int nBins = 256;
+    std::vector<int> hist;
+    const std::vector<int> *histPtr = nullptr;
+    if (windowMethod == 1 || windowMethod == 2 || windowMethod == 3) {
+        std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
+        CtSeriesProcessor::aggregateSeriesHistogram(
+                slices, cv::Rect(0, 0, mat.cols, mat.rows),
+                minV, maxV, nBins, 1, hist);
+        histPtr = &hist;
+    }
+
+    double c = 127.5, w = 255.0;
+    CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
+    if (w < 1.0) w = 1.0;
+    return CtSeriesProcessor::applyWindow8u(mat, c, w, /*photometric=*/0);
+}
+
+/**
+ * 通用医学预处理 (P1-6: 新增 jdoubleArray outHuRange，保留 srcMin/srcMax 浮点精度)
+ *
+ * @param outInfo    out，长度 4：[outW, outH, (int)srcMin, (int)srcMax] —— 向后兼容
+ * @param outHuRange out，长度 2：[srcMin, srcMax]（double）—— 新增，保留 HU 浮点精度
+ *                  可为 null（Kotlin 端若不关心可传 null）。
+ */
 static jbyteArray
 native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint depth,
                         jboolean big, jboolean isU16,
-                        jintArray ops, jdoubleArray params, jint windowMethod, jintArray info) {
+                        jintArray ops, jdoubleArray params, jint windowMethod, jintArray info,
+                        jdoubleArray outHuRange) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
     jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
 
     cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+
     int pIdx = 0;
     for (int i = 0; i < opsCount; ++i) {
-        int op = pOps[i];
-        if (op == 1)
-            mat = CTPreprocess::DenoiseGaussian(mat, (int) pParams[pIdx++], pParams[pIdx++]);
-        else if (op == 2) mat = CTPreprocess::DenoiseMedian(mat, (int) pParams[pIdx++]);
-        else if (op == 3)
-            mat = CTPreprocess::DenoiseBilateral(mat, (int) pParams[pIdx++], pParams[pIdx++],
-                                                 pParams[pIdx++]);
-        else if (op == 4) mat = CTPreprocess::DenoiseFrequencyFFT(mat, (float) pParams[pIdx++]);
-        else if (op == 5) {
-            int tw = (int) pParams[pIdx++];
-            int th = (int) pParams[pIdx++];
-            mat = CTPreprocess::ResampleImage(mat, tw, th, pParams[pIdx++] > 0.5);
-        } else if (op == 6)
-            mat = CTPreprocess::ResampleByScale(mat, (float) pParams[pIdx++],
-                                                (float) pParams[pIdx++]);
-        else if (op == 7) {
-            if (mat.depth() != CV_8U) {
-                double mn, mx;
-                cv::minMaxLoc(mat, &mn, &mx);
-                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7),
-                              -mn * 255.0 / (mx - mn + 1e-7));
+        const int opId = pOps[i];
+        // 边界保护：缺参数时直接 break 退出，避免越界读
+        auto need = [&](int n) -> bool {
+            if (pIdx + n > paramsCount) {
+                LOGE("native_processMedicalCT: param underflow at op=%d idx=%d need=%d total=%d",
+                     opId, pIdx, n, paramsCount);
+                return false;
             }
-            mat = CTPreprocess::EnhanceGlobalEqualize(mat);
-        } else if (op == 8) {
-            double c = pParams[pIdx++];
-            int tx = (int) pParams[pIdx++];
-            int ty = (int) pParams[pIdx++];
-            if (mat.depth() != CV_8U && mat.depth() != CV_16U) {
-                double mn, mx;
-                cv::minMaxLoc(mat, &mn, &mx);
-                mat.convertTo(mat, CV_8U, 255.0 / (mx - mn + 1e-7),
-                              -mn * 255.0 / (mx - mn + 1e-7));
+            return true;
+        };
+
+        switch (static_cast<CTPreprocess::Op>(opId)) {
+            case CTPreprocess::Op::GAUSSIAN: {
+                if (!need(2)) goto done;
+                const int kernel = (int) pParams[pIdx++];
+                const double sigma = pParams[pIdx++];
+                mat = CTPreprocess::DenoiseGaussian(mat, kernel, sigma);
+                break;
             }
-            mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
-        } else if (op == 9) mat = CTPreprocess::EnhanceContrastStretch(mat);
-        else if (op == 10)
-            mat = CTPreprocess::ConvertRawToHU(mat, (float) pParams[pIdx++],
-                                               (float) pParams[pIdx++]);
-        else if (op == 11) {
-            int outX, outY;
-            double angle;
-            bool ok;
-            int minArea = (int) pParams[pIdx++];
-            bool sobel = pParams[pIdx++] > 0.5;
-            int morph = (int) pParams[pIdx++];
-            double otsu = pParams[pIdx++];
-            cv::Mat cropped = XrayProcessor::tailor(mat, minArea,
-                                                    sobel, morph,
-                                                    otsu, outX, outY,
-                                                    angle, ok);
-            if (ok && !cropped.empty()) mat = cropped;
-        } else if (op == 12) {
-            mat = CTPreprocess::EnhanceInvertLut(mat);
-        } else if (op == 13) {
-            double sigma = pParams[pIdx++];
-            double strength = pParams[pIdx++];
-            mat = CTPreprocess::SharpenUSM(mat, sigma, strength);
+            case CTPreprocess::Op::MEDIAN: {
+                if (!need(1)) goto done;
+                const int kernel = (int) pParams[pIdx++];
+                mat = CTPreprocess::DenoiseMedian(mat, kernel);
+                break;
+            }
+            case CTPreprocess::Op::BILATERAL: {
+                if (!need(3)) goto done;
+                const int d = (int) pParams[pIdx++];
+                const double sigmaColor = pParams[pIdx++];
+                const double sigmaSpace = pParams[pIdx++];
+                mat = CTPreprocess::DenoiseBilateral(mat, d, sigmaColor, sigmaSpace);
+                break;
+            }
+            case CTPreprocess::Op::FFT: {
+                if (!need(1)) goto done;
+                const float radius = (float) pParams[pIdx++];
+                mat = CTPreprocess::DenoiseFrequencyFFT(mat, radius);
+                break;
+            }
+            case CTPreprocess::Op::RESAMPLE_SIZE: {
+                if (!need(3)) goto done;
+                const int tw = (int) pParams[pIdx++];
+                const int th = (int) pParams[pIdx++];
+                const bool isUp = pParams[pIdx++] > 0.5;
+                mat = CTPreprocess::ResampleImage(mat, tw, th, isUp);
+                break;
+            }
+            case CTPreprocess::Op::RESAMPLE_SCALE: {
+                if (!need(2)) goto done;
+                const float sx = (float) pParams[pIdx++];
+                const float sy = (float) pParams[pIdx++];
+                mat = CTPreprocess::ResampleByScale(mat, sx, sy);
+                break;
+            }
+            case CTPreprocess::Op::GLOBAL_EQUALIZE: {
+                if (mat.depth() != CV_8U) mat = normalizeTo8u(mat);
+                mat = CTPreprocess::EnhanceGlobalEqualize(mat);
+                break;
+            }
+            case CTPreprocess::Op::CLAHE: {
+                if (!need(3)) goto done;
+                const double c = pParams[pIdx++];
+                const int tx = (int) pParams[pIdx++];
+                const int ty = (int) pParams[pIdx++];
+                if (mat.depth() != CV_8U && mat.depth() != CV_16U) mat = normalizeTo8u(mat);
+                mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
+                break;
+            }
+            case CTPreprocess::Op::CONTRAST_STRETCH:
+                mat = CTPreprocess::EnhanceContrastStretch(mat);
+                break;
+            case CTPreprocess::Op::HU_CONVERT: {
+                if (!need(2)) goto done;
+                const float slope = (float) pParams[pIdx++];
+                const float intercept = (float) pParams[pIdx++];
+                mat = CTPreprocess::ConvertRawToHU(mat, slope, intercept);
+                break;
+            }
+            case CTPreprocess::Op::TAILOR: {
+                if (!need(4)) goto done;
+                int outX, outY;
+                double angle;
+                bool ok;
+                const int minArea = (int) pParams[pIdx++];
+                const bool sobel = pParams[pIdx++] > 0.5;
+                const int morph = (int) pParams[pIdx++];
+                const double otsu = pParams[pIdx++];
+                cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph,
+                                                        otsu, outX, outY, angle, ok);
+                if (ok && !cropped.empty()) mat = cropped;
+                break;
+            }
+            case CTPreprocess::Op::INVERT_LUT:
+                mat = CTPreprocess::EnhanceInvertLut(mat);
+                break;
+            case CTPreprocess::Op::FEATURE_SHARPEN: {
+                if (!need(2)) goto done;
+                const double sigma = pParams[pIdx++];
+                const double strength = pParams[pIdx++];
+                mat = CTPreprocess::SharpenUSM(mat, sigma, strength);
+                break;
+            }
+            default:
+                LOGW("native_processMedicalCT: unknown op id=%d, skipped", opId);
+                break;
         }
     }
+done:
 
     cv::Mat out8u;
     if (mat.depth() != CV_8U) {
-        // 如果是 16-bit 且提供了 windowMethod，则使用 CTTailorInvertWindowPipeline 里的调窗逻辑
         if (windowMethod != -1) {
-            double c = 127.5, w = 255.0;
-            double minV, maxV;
-            cv::minMaxLoc(mat, &minV, &maxV);
-            if (windowMethod == 0) {
-                c = 127.5;
-                w = 255.0;
-            }
-            else if (windowMethod == 5) {
-                c = (minV + maxV) * 0.5;
-                w = std::max(1.0, maxV - minV);
-            }
-            else {
-                int nBins = 256;
-                std::vector<int> hist;
-                std::vector<cv::Mat> slices = {mat};
-                CtSeriesProcessor::aggregateSeriesHistogram(slices,
-                                                            cv::Rect(0, 0, mat.cols, mat.rows),
-                                                            minV, maxV, nBins, 1, hist);
-                if (windowMethod == 1) {
-                    long long total = 0;
-                    for (int v: hist) total += v;
-                    long long threshold = (long long) (total * 0.72);
-                    long long cumulative = 0;
-                    int targetBin = 0;
-                    for (int i = 0; i < nBins; ++i) {
-                        cumulative += hist[i];
-                        if (cumulative >= threshold) {
-                            targetBin = i;
-                            break;
-                        }
-                    }
-                    double hBin = (maxV - minV) / nBins;
-                    c = minV + (targetBin + 0.5) * hBin;
-                    w = 508.0;
-                } else if (windowMethod == 2) {
-                    int leftPeakIdx = 0, leftPeakFreq = 0;
-                    for (int i = 0; i < nBins; i++) {
-                        if (hist[i] > leftPeakFreq) {
-                            leftPeakFreq = hist[i];
-                            leftPeakIdx = i;
-                        }
-                    }
-                    std::vector<int> suppressed = hist;
-                    int radius = std::max(1, (int) (nBins * 0.05));
-                    for (int i = std::max(0, leftPeakIdx - radius);
-                         i <= std::min(nBins - 1, leftPeakIdx + radius); i++)
-                        suppressed[i] = 0;
-                    int valleyIdx = -1, valleyFreq = 2147483647, peakIdx = -1, peakFreq = 0;
-                    for (int i = 0; i < nBins; i++) {
-                        if (suppressed[i] > 0) {
-                            if (suppressed[i] < valleyFreq) {
-                                valleyFreq = suppressed[i];
-                                valleyIdx = i;
-                            }
-                            if (suppressed[i] > peakFreq) {
-                                peakFreq = suppressed[i];
-                                peakIdx = i;
-                            }
-                        }
-                    }
-                    if (peakIdx >= 0 && valleyIdx >= 0) {
-                        double hBin = (maxV - minV) / nBins;
-                        c = minV + (peakIdx + 0.5) * hBin;
-                        double valleyVal = minV + (valleyIdx + 0.5) * hBin;
-                        w = 2.0 * (c - valleyVal);
-                    }
-                    else {
-                        c = (minV + maxV) * 0.5;
-                        w = maxV - minV;
-                    }
-                } else if (windowMethod == 3) {
-                    CtSeriesProcessor::AdaptiveWindowResult aw;
-                    aw.hBins = (maxV - minV) / (double) nBins;
-                    CtSeriesProcessor::computeAdaptiveWindow(hist, nBins, 0.0015, 0.0015, aw);
-                    c = minV + aw.c;
-                    w = aw.w;
-                } else {
-                    c = (minV + maxV) * 0.5;
-                    w = maxV - minV;
-                }
-            }
-            if (w < 1.0) w = 1.0;
-            out8u = CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
+            // 调窗（委托给 pickWindowCenterWidth + applyWindow8u）
+            out8u = windowTo8u(mat, windowMethod);
         } else {
             // 默认 Min-Max 可视化
-            double mn, mx;
-            cv::minMaxLoc(mat, &mn, &mx);
-            mat.convertTo(out8u, CV_8U, 255.0 / (mx - mn + 1e-7),
-                          -mn * 255.0 / (mx - mn + 1e-7));
+            out8u = normalizeTo8u(mat);
         }
     } else out8u = mat;
 
@@ -449,6 +463,13 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
         pI[3] = (int) mx;
         env->ReleaseIntArrayElements(info, pI, 0);
     }
+    // P1-6: 浮点 outHuRange（保留 HU 小数）
+    if (outHuRange && env->GetArrayLength(outHuRange) >= 2) {
+        double mn, mx;
+        cv::minMaxLoc(mat, &mn, &mx);
+        jdouble range[2] = {(jdouble) mn, (jdouble) mx};
+        env->SetDoubleArrayRegion(outHuRange, 0, 2, range);
+    }
     env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
     env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
     env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
@@ -458,9 +479,10 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
 static jbyteArray
 native_processCTFullPipeline(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint tw,
                              jint th, jfloat slope, jfloat intercept, jboolean bigEndian,
-                             jintArray info) {
+                             jboolean isU16, jintArray info, jdoubleArray outHuRange) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
-    cv::Mat resMat = CTPreprocess::CTFullPipeline(pRaw, h, w, tw, th, slope, intercept, bigEndian);
+    cv::Mat resMat = CTPreprocess::CTFullPipeline(pRaw, h, w, tw, th, slope, intercept,
+                                                  bigEndian, isU16);
     jbyteArray res;
     JniHelper::gray8uToRgbaJBytes(env, resMat, res);
     if (info && env->GetArrayLength(info) >= 4) {
@@ -472,6 +494,13 @@ native_processCTFullPipeline(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jin
         pI[2] = (int) mn;
         pI[3] = (int) mx;
         env->ReleaseIntArrayElements(info, pI, 0);
+    }
+    // P1-6: 浮点 outHuRange
+    if (outHuRange && env->GetArrayLength(outHuRange) >= 2) {
+        double mn, mx;
+        cv::minMaxLoc(resMat, &mn, &mx);
+        jdouble range[2] = {(jdouble) mn, (jdouble) mx};
+        env->SetDoubleArrayRegion(outHuRange, 0, 2, range);
     }
     env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
     return res;
@@ -503,6 +532,180 @@ native_processCTTailorInvertWindowPipeline(JNIEnv *env, jclass, jbyteArray rawBu
 }
 
 // =============================================================================
+// 8) 多调窗对比：跑一遍重负载（裁剪/HU/去噪/重采样）+ N 次 8-bit 映射
+// =============================================================================
+/**
+ * 设计目的：
+ *  - 调窗对比场景下，Kotlin 端以前要调用 N 次 processMedicalCT，每次都重做
+ *    裁剪/HU/双边滤波等重操作。
+ *  - 这个 JNI 入口把重操作跑一次得到"预处理后 16-bit Mat"，然后只对 8-bit 映射
+ *    做 N 次（min-max + 每个 windowMethod），显著降低 CPU 占用。
+ *
+ * 签名：
+ *   raw bytes (16-bit), w, h, depth, bigEndian, isU16,
+ *   ops int[], params double[],
+ *   windowMethods int[]  // 调窗方法列表；至少 1 个；-1 表示 min-max
+ *   outDisplays Array<ByteArray?>  // 出参，每项一张 RGBA8888
+ *   outInfo int[]                  // 出参，前 2 元素 [outW, outH]；所有对比图尺寸相同
+ *   outHuRange double[]            // P1-6: 出参，长度 2，[srcMin, srcMax] (HU 浮点)
+ */
+static void
+native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
+                                      jint depth, jboolean big, jboolean isU16,
+                                      jintArray ops, jdoubleArray params,
+                                      jintArray windowMethods,
+                                      jobjectArray outDisplays, jintArray outInfo,
+                                      jdoubleArray outHuRange) {
+    if (outDisplays == nullptr || windowMethods == nullptr) return;
+    jsize nMethods = env->GetArrayLength(windowMethods);
+    if (nMethods <= 0) return;
+    if (env->GetArrayLength(outDisplays) < nMethods) return;
+
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jint *pMethods = env->GetIntArrayElements(windowMethods, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
+
+    // 1) 跑重负载：沿用 native_processMedicalCT 的算子派发逻辑，但 windowMethod=-1
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    int pIdx = 0;
+    for (int i = 0; i < opsCount; ++i) {
+        const int opId = pOps[i];
+        auto need = [&](int n) -> bool {
+            if (pIdx + n > paramsCount) {
+                LOGE("native_processMedicalCTCompareWindows: param underflow op=%d idx=%d", opId, pIdx);
+                return false;
+            }
+            return true;
+        };
+        switch (static_cast<CTPreprocess::Op>(opId)) {
+            case CTPreprocess::Op::GAUSSIAN: {
+                if (!need(2)) goto done;
+                mat = CTPreprocess::DenoiseGaussian(mat, (int) pParams[pIdx++], pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::MEDIAN: {
+                if (!need(1)) goto done;
+                mat = CTPreprocess::DenoiseMedian(mat, (int) pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::BILATERAL: {
+                if (!need(3)) goto done;
+                mat = CTPreprocess::DenoiseBilateral(mat, (int) pParams[pIdx++], pParams[pIdx++],
+                                                     pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::FFT: {
+                if (!need(1)) goto done;
+                mat = CTPreprocess::DenoiseFrequencyFFT(mat, (float) pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::RESAMPLE_SIZE: {
+                if (!need(3)) goto done;
+                mat = CTPreprocess::ResampleImage(mat, (int) pParams[pIdx++],
+                                                  (int) pParams[pIdx++], pParams[pIdx++] > 0.5);
+                break;
+            }
+            case CTPreprocess::Op::RESAMPLE_SCALE: {
+                if (!need(2)) goto done;
+                mat = CTPreprocess::ResampleByScale(mat, (float) pParams[pIdx++],
+                                                    (float) pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::GLOBAL_EQUALIZE: {
+                if (mat.depth() != CV_8U) mat = normalizeTo8u(mat);
+                mat = CTPreprocess::EnhanceGlobalEqualize(mat);
+                break;
+            }
+            case CTPreprocess::Op::CLAHE: {
+                if (!need(3)) goto done;
+                const double c = pParams[pIdx++];
+                const int tx = (int) pParams[pIdx++];
+                const int ty = (int) pParams[pIdx++];
+                if (mat.depth() != CV_8U && mat.depth() != CV_16U) mat = normalizeTo8u(mat);
+                mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
+                break;
+            }
+            case CTPreprocess::Op::CONTRAST_STRETCH:
+                mat = CTPreprocess::EnhanceContrastStretch(mat);
+                break;
+            case CTPreprocess::Op::HU_CONVERT: {
+                if (!need(2)) goto done;
+                mat = CTPreprocess::ConvertRawToHU(mat, (float) pParams[pIdx++],
+                                                   (float) pParams[pIdx++]);
+                break;
+            }
+            case CTPreprocess::Op::TAILOR: {
+                if (!need(4)) goto done;
+                int outX, outY;
+                double angle;
+                bool ok;
+                const int minArea = (int) pParams[pIdx++];
+                const bool sobel = pParams[pIdx++] > 0.5;
+                const int morph = (int) pParams[pIdx++];
+                const double otsu = pParams[pIdx++];
+                cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph,
+                                                        otsu, outX, outY, angle, ok);
+                if (ok && !cropped.empty()) mat = cropped;
+                break;
+            }
+            case CTPreprocess::Op::INVERT_LUT:
+                mat = CTPreprocess::EnhanceInvertLut(mat);
+                break;
+            case CTPreprocess::Op::FEATURE_SHARPEN: {
+                if (!need(2)) goto done;
+                mat = CTPreprocess::SharpenUSM(mat, pParams[pIdx++], pParams[pIdx++]);
+                break;
+            }
+            default:
+                LOGW("native_processMedicalCTCompareWindows: unknown op id=%d, skipped", opId);
+                break;
+        }
+    }
+done:
+
+    // 2) 共享的预处理结果已经拿到；现在按 method 列表逐个做 8-bit 映射
+    for (int mi = 0; mi < nMethods; ++mi) {
+        const int method = pMethods[mi];
+        cv::Mat out8u;
+        if (mat.depth() != CV_8U) {
+            if (method == -1) {
+                out8u = normalizeTo8u(mat);
+            } else {
+                out8u = windowTo8u(mat, method);
+            }
+        } else out8u = mat;
+
+        jbyteArray rgba;
+        JniHelper::gray8uToRgbaJBytes(env, out8u, rgba);
+        env->SetObjectArrayElement(outDisplays, mi, rgba);
+        env->DeleteLocalRef(rgba);
+    }
+
+    // 3) outInfo 写 [outW, outH]
+    if (outInfo && env->GetArrayLength(outInfo) >= 2) {
+        jint *pI = env->GetIntArrayElements(outInfo, nullptr);
+        pI[0] = mat.cols;
+        pI[1] = mat.rows;
+        env->ReleaseIntArrayElements(outInfo, pI, 0);
+    }
+    // P1-6: 浮点 outHuRange（HU 域 min/max 保留小数）
+    if (outHuRange && env->GetArrayLength(outHuRange) >= 2) {
+        double mn, mx;
+        cv::minMaxLoc(mat, &mn, &mx);
+        jdouble range[2] = {(jdouble) mn, (jdouble) mx};
+        env->SetDoubleArrayRegion(outHuRange, 0, 2, range);
+    }
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+    env->ReleaseIntArrayElements(windowMethods, pMethods, JNI_ABORT);
+}
+
+// =============================================================================
 // JNI 注册
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
@@ -521,12 +724,14 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_tailorImage},
         {"invertLut",                           "([BIIIIZ)[B",
                 (void *) native_invertLut},
-        {"processMedicalCT",                    "([BIIIZZ[I[DI[I)[B",
+        {"processMedicalCT",                    "([BIIIZZ[I[DI[I[D)[B",
                 (void *) native_processMedicalCT},
-        {"processCTFullPipeline",               "([BIIIIFFZ[I)[B",
+        {"processCTFullPipeline",               "([BIIIIFFZZ[I[D)[B",
                 (void *) native_processCTFullPipeline},
         {"processCTTailorInvertWindowPipeline", "([BIIFFZI[I)[B",
                 (void *) native_processCTTailorInvertWindowPipeline},
+        {"processMedicalCTCompareWindows",      "([BIIIZZ[I[D[I[[B[I[D)V",
+                (void *) native_processMedicalCTCompareWindows},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
