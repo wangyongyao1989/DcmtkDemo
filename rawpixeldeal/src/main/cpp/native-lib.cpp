@@ -309,32 +309,24 @@ static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
 }
 
 /**
- * 通用医学预处理 (P1-6: 新增 jdoubleArray outHuRange，保留 srcMin/srcMax 浮点精度)
+ * P3-fix (问题5): 公共算子派发函数，消除 native_processMedicalCT 与
+ * native_processMedicalCTCompareWindows 之间约 120 行重复 switch-case。
  *
- * @param outInfo    out，长度 4：[outW, outH, (int)srcMin, (int)srcMax] —— 向后兼容
- * @param outHuRange out，长度 2：[srcMin, srcMax]（double）—— 新增，保留 HU 浮点精度
- *                  可为 null（Kotlin 端若不关心可传 null）。
+ * 同时包含以下改进：
+ * - 问题7: GLOBAL_EQUALIZE / CLAHE 在 HU 域 (CV_32FC1) 时，
+ *   先记录 HU 范围 → 临时映射 8-bit → 执行增强 → 反映射回 HU 域，
+ *   避免静默精度降级。
+ * - 问题8: TAILOR 在 HU 域时委托 CtSeriesProcessor::tryAutoCropBodyRoiEx，
+ *   而非 XrayProcessor::tailor（后者为 X 光设计，不适用于 CT HU 数据）。
  */
-static jbyteArray
-native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint depth,
-                        jboolean big, jboolean isU16,
-                        jintArray ops, jdoubleArray params, jint windowMethod, jintArray info,
-                        jdoubleArray outHuRange) {
-    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
-    jint *pOps = env->GetIntArrayElements(ops, nullptr);
-    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
-    jsize opsCount = env->GetArrayLength(ops);
-    const jsize paramsCount = env->GetArrayLength(params);
-
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
-
+static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
+                           const jdouble *pParams, jsize paramsCount) {
     int pIdx = 0;
     for (int i = 0; i < opsCount; ++i) {
         const int opId = pOps[i];
-        // 边界保护：缺参数时直接 break 退出，避免越界读
         auto need = [&](int n) -> bool {
             if (pIdx + n > paramsCount) {
-                LOGE("native_processMedicalCT: param underflow at op=%d idx=%d need=%d total=%d",
+                LOGE("dispatchOps: param underflow at op=%d idx=%d need=%d total=%d",
                      opId, pIdx, n, paramsCount);
                 return false;
             }
@@ -385,8 +377,19 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
                 break;
             }
             case CTPreprocess::Op::GLOBAL_EQUALIZE: {
-                if (mat.depth() != CV_8U) mat = normalizeTo8u(mat);
-                mat = CTPreprocess::EnhanceGlobalEqualize(mat);
+                // P1-fix (问题7): HU 域数据做均衡化时保留精度
+                if (mat.depth() == CV_32F) {
+                    double mn, mx;
+                    cv::minMaxLoc(mat, &mn, &mx);
+                    const double span = std::max(1e-7, mx - mn);
+                    cv::Mat tmp8u;
+                    mat.convertTo(tmp8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
+                    tmp8u = CTPreprocess::EnhanceGlobalEqualize(tmp8u);
+                    tmp8u.convertTo(mat, CV_32F, span / 255.0, mn);
+                } else {
+                    if (mat.depth() != CV_8U) mat = normalizeTo8u(mat);
+                    mat = CTPreprocess::EnhanceGlobalEqualize(mat);
+                }
                 break;
             }
             case CTPreprocess::Op::CLAHE: {
@@ -394,8 +397,19 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
                 const double c = pParams[pIdx++];
                 const int tx = (int) pParams[pIdx++];
                 const int ty = (int) pParams[pIdx++];
-                if (mat.depth() != CV_8U && mat.depth() != CV_16U) mat = normalizeTo8u(mat);
-                mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
+                // P1-fix (问题7): HU 域数据做 CLAHE 时保留精度
+                if (mat.depth() == CV_32F) {
+                    double mn, mx;
+                    cv::minMaxLoc(mat, &mn, &mx);
+                    const double span = std::max(1e-7, mx - mn);
+                    cv::Mat tmp8u;
+                    mat.convertTo(tmp8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
+                    tmp8u = CTPreprocess::EnhanceCLAHE(tmp8u, c, cv::Size(tx, ty));
+                    tmp8u.convertTo(mat, CV_32F, span / 255.0, mn);
+                } else {
+                    if (mat.depth() != CV_8U && mat.depth() != CV_16U) mat = normalizeTo8u(mat);
+                    mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
+                }
                 break;
             }
             case CTPreprocess::Op::CONTRAST_STRETCH:
@@ -410,16 +424,25 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
             }
             case CTPreprocess::Op::TAILOR: {
                 if (!need(4)) goto done;
-                int outX, outY;
-                double angle;
-                bool ok;
                 const int minArea = (int) pParams[pIdx++];
                 const bool sobel = pParams[pIdx++] > 0.5;
                 const int morph = (int) pParams[pIdx++];
                 const double otsu = pParams[pIdx++];
-                cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph,
-                                                        otsu, outX, outY, angle, ok);
-                if (ok && !cropped.empty()) mat = cropped;
+                // P1-fix (问题8): HU 域数据使用 CT 专用裁剪而非 X 光裁剪
+                if (mat.depth() == CV_32F) {
+                    cv::Rect roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(
+                            mat, -600.0f, morph, minArea, 20);
+                    if (roi.width > 0 && roi.height > 0) {
+                        mat = mat(roi).clone();
+                    }
+                } else {
+                    int outX, outY;
+                    double angle;
+                    bool ok;
+                    cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph,
+                                                            otsu, outX, outY, angle, ok);
+                    if (ok && !cropped.empty()) mat = cropped;
+                }
                 break;
             }
             case CTPreprocess::Op::INVERT_LUT:
@@ -433,11 +456,35 @@ native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, 
                 break;
             }
             default:
-                LOGW("native_processMedicalCT: unknown op id=%d, skipped", opId);
+                LOGW("dispatchOps: unknown op id=%d, skipped", opId);
                 break;
         }
     }
-done:
+    done:
+    return mat;
+}
+
+/**
+ * 通用医学预处理 (P1-6: 新增 jdoubleArray outHuRange，保留 srcMin/srcMax 浮点精度)
+ *
+ * @param outInfo    out，长度 4：[outW, outH, (int)srcMin, (int)srcMax] —— 向后兼容
+ * @param outHuRange out，长度 2：[srcMin, srcMax]（double）—— 新增，保留 HU 浮点精度
+ *                  可为 null（Kotlin 端若不关心可传 null）。
+ */
+static jbyteArray
+native_processMedicalCT(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h, jint depth,
+                        jboolean big, jboolean isU16,
+                        jintArray ops, jdoubleArray params, jint windowMethod, jintArray info,
+                        jdoubleArray outHuRange) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
+
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    // P3-fix (问题5): 委托公共 dispatchOps，消除重复 switch-case
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     cv::Mat out8u;
     if (mat.depth() != CV_8U) {
@@ -568,103 +615,9 @@ native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, ji
     jsize opsCount = env->GetArrayLength(ops);
     const jsize paramsCount = env->GetArrayLength(params);
 
-    // 1) 跑重负载：沿用 native_processMedicalCT 的算子派发逻辑，但 windowMethod=-1
+    // 1) 跑重负载：委托公共 dispatchOps 执行算子链
     cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
-    int pIdx = 0;
-    for (int i = 0; i < opsCount; ++i) {
-        const int opId = pOps[i];
-        auto need = [&](int n) -> bool {
-            if (pIdx + n > paramsCount) {
-                LOGE("native_processMedicalCTCompareWindows: param underflow op=%d idx=%d", opId, pIdx);
-                return false;
-            }
-            return true;
-        };
-        switch (static_cast<CTPreprocess::Op>(opId)) {
-            case CTPreprocess::Op::GAUSSIAN: {
-                if (!need(2)) goto done;
-                mat = CTPreprocess::DenoiseGaussian(mat, (int) pParams[pIdx++], pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::MEDIAN: {
-                if (!need(1)) goto done;
-                mat = CTPreprocess::DenoiseMedian(mat, (int) pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::BILATERAL: {
-                if (!need(3)) goto done;
-                mat = CTPreprocess::DenoiseBilateral(mat, (int) pParams[pIdx++], pParams[pIdx++],
-                                                     pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::FFT: {
-                if (!need(1)) goto done;
-                mat = CTPreprocess::DenoiseFrequencyFFT(mat, (float) pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::RESAMPLE_SIZE: {
-                if (!need(3)) goto done;
-                mat = CTPreprocess::ResampleImage(mat, (int) pParams[pIdx++],
-                                                  (int) pParams[pIdx++], pParams[pIdx++] > 0.5);
-                break;
-            }
-            case CTPreprocess::Op::RESAMPLE_SCALE: {
-                if (!need(2)) goto done;
-                mat = CTPreprocess::ResampleByScale(mat, (float) pParams[pIdx++],
-                                                    (float) pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::GLOBAL_EQUALIZE: {
-                if (mat.depth() != CV_8U) mat = normalizeTo8u(mat);
-                mat = CTPreprocess::EnhanceGlobalEqualize(mat);
-                break;
-            }
-            case CTPreprocess::Op::CLAHE: {
-                if (!need(3)) goto done;
-                const double c = pParams[pIdx++];
-                const int tx = (int) pParams[pIdx++];
-                const int ty = (int) pParams[pIdx++];
-                if (mat.depth() != CV_8U && mat.depth() != CV_16U) mat = normalizeTo8u(mat);
-                mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
-                break;
-            }
-            case CTPreprocess::Op::CONTRAST_STRETCH:
-                mat = CTPreprocess::EnhanceContrastStretch(mat);
-                break;
-            case CTPreprocess::Op::HU_CONVERT: {
-                if (!need(2)) goto done;
-                mat = CTPreprocess::ConvertRawToHU(mat, (float) pParams[pIdx++],
-                                                   (float) pParams[pIdx++]);
-                break;
-            }
-            case CTPreprocess::Op::TAILOR: {
-                if (!need(4)) goto done;
-                int outX, outY;
-                double angle;
-                bool ok;
-                const int minArea = (int) pParams[pIdx++];
-                const bool sobel = pParams[pIdx++] > 0.5;
-                const int morph = (int) pParams[pIdx++];
-                const double otsu = pParams[pIdx++];
-                cv::Mat cropped = XrayProcessor::tailor(mat, minArea, sobel, morph,
-                                                        otsu, outX, outY, angle, ok);
-                if (ok && !cropped.empty()) mat = cropped;
-                break;
-            }
-            case CTPreprocess::Op::INVERT_LUT:
-                mat = CTPreprocess::EnhanceInvertLut(mat);
-                break;
-            case CTPreprocess::Op::FEATURE_SHARPEN: {
-                if (!need(2)) goto done;
-                mat = CTPreprocess::SharpenUSM(mat, pParams[pIdx++], pParams[pIdx++]);
-                break;
-            }
-            default:
-                LOGW("native_processMedicalCTCompareWindows: unknown op id=%d, skipped", opId);
-                break;
-        }
-    }
-done:
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     // 2) 共享的预处理结果已经拿到；现在按 method 列表逐个做 8-bit 映射
     for (int mi = 0; mi < nMethods; ++mi) {

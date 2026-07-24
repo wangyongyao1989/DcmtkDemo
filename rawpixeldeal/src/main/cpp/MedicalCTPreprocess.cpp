@@ -43,16 +43,28 @@ namespace CTPreprocess {
         int type = isUint16 ? CV_16UC1 : CV_16SC1;
         cv::Mat mat(rows, cols, type, rawBuf, step);
 
-        // 原地字节序反转：bigEndian 时把每个 16-bit 单元按字节翻转
-        // 不再 copyTo + 临时 Mat，省一次全图拷贝
+        // 字节序反转：bigEndian 时把每个 16-bit 单元按字节翻转
+        // P2-fix: 改为 clone 后再 swap，避免原地修改 JNI 缓冲区（pRaw 可能被
+        //         Kotlin 端引用，原地写会导致数据不一致）。额外的全图拷贝开销
+        //         仅在 bigEndian=true 时产生，对 little-endian 路径零影响。
         if (bigEndian) {
-            LOGD("LoadRawPixelBuffer: Swapping big-endian to little-endian in-place");
-            ushort *p = mat.ptr<ushort>();
-            const int total = mat.rows * mat.cols;
+            LOGD("LoadRawPixelBuffer: Swapping big-endian to little-endian (cloned)");
+            cv::Mat swapped;
+            mat.copyTo(swapped); // 独立副本，不修改原始 JNI 缓冲区
+            ushort *p = swapped.ptr<ushort>();
+            const int total = swapped.rows * swapped.cols;
             for (int i = 0; i < total; i++) {
                 const ushort val = p[i];
                 p[i] = static_cast<ushort>((val >> 8) | (val << 8));
             }
+            // 启发式校验：如果 16-bit 数读取出大量异常极值，提示可能需要大端转换
+            double minV, maxV;
+            cv::minMaxLoc(swapped, &minV, &maxV);
+            if (maxV > 30000 || minV < -30000) {
+                LOGD("LoadRawPixelBuffer: Detected extreme values [%.0f, %.0f]. Endianness might be wrong!",
+                     minV, maxV);
+            }
+            return swapped;
         } else {
             // 启发式校验：如果 16-bit 有符号数读取出大量异常极值，提示可能需要大端转换
             double minV, maxV;
@@ -108,8 +120,10 @@ namespace CTPreprocess {
 
     cv::Mat DenoiseFrequencyFFT(const cv::Mat &src, float radius) {
         LOGI("DenoiseFrequencyFFT: radius=%.2f", radius);
-        cv::Mat gray, floatMat;
+        cv::Mat floatMat;
         if (src.depth() == CV_16S || src.depth() == CV_16U)
+            src.convertTo(floatMat, CV_32FC1);
+        else if (src.depth() == CV_8U)
             src.convertTo(floatMat, CV_32FC1);
         else
             floatMat = src.clone();
@@ -123,6 +137,9 @@ namespace CTPreprocess {
         cv::Mat shiftMat = complex.clone();
         int cx = shiftMat.cols / 2;
         int cy = shiftMat.rows / 2;
+        // 确保 cx/cy 非零，避免 Rect 异常
+        cx = std::max(1, cx);
+        cy = std::max(1, cy);
         cv::Mat q1(shiftMat, cv::Rect(0, 0, cx, cy));
         cv::Mat q2(shiftMat, cv::Rect(cx, 0, cx, cy));
         cv::Mat q3(shiftMat, cv::Rect(0, cy, cx, cy));
@@ -137,14 +154,14 @@ namespace CTPreprocess {
 
         // 低通掩码 滤除高频噪声
         cv::Mat mask = cv::Mat::zeros(shiftMat.rows, shiftMat.cols, CV_8UC1);
-        cv::circle(mask, cv::Point(cx, cy), radius, cv::Scalar(255), -1);
+        cv::circle(mask, cv::Point(cx, cy), static_cast<int>(radius), cv::Scalar(255), -1);
         std::vector<cv::Mat> maskCh;
         maskCh.push_back(mask);
         maskCh.push_back(mask);
         cv::Mat mask2c;
         cv::merge(maskCh, mask2c);
 
-        // 修复：显式将掩码转换为 CV_32F 类型，确保与 shiftMat 类型一致
+        // 显式将掩码转换为 CV_32F 类型，确保与 shiftMat 类型一致
         cv::Mat maskF;
         mask2c.convertTo(maskF, CV_32F, 1.0 / 255.0);
         shiftMat = shiftMat.mul(maskF);
@@ -157,9 +174,12 @@ namespace CTPreprocess {
         q3.copyTo(q2);
         tmp.copyTo(q3);
 
-        cv::idft(shiftMat, shiftMat);
+        cv::idft(shiftMat, shiftMat, cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
         cv::split(shiftMat, planes);
-        cv::normalize(planes[0], planes[0], 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        // P0-fix: 保留 CV_32FC1 精度，不再强制归一化到 8-bit。
+        //   原实现 cv::normalize(..., CV_8UC1) 会永久截断浮点精度，
+        //   导致后续 HU_CONVERT / CLAHE 等算子拿到的是 256 级灰度而非 HU 域数据。
+        //   现在返回实部 CV_32FC1，由最终显示阶段统一做 8-bit 映射。
         return planes[0];
     }
 
@@ -197,17 +217,45 @@ namespace CTPreprocess {
     }
 
     cv::Mat EnhanceContrastStretch(const cv::Mat &src16) {
-        LOGI("EnhanceContrastStretch (Adaptive)");
+        LOGI("EnhanceContrastStretch (Percentile)");
         cv::Mat dst8u;
-        // 改进：使用 1%-99% 百分位拉伸替代全局 min/max，抑制异常极值干扰
+
+        // P2-fix: 使用真正的像素计数百分位 (1%-99%) 替代原来的值域截断近似。
+        //   原实现 low = minV + span*0.01 只是值域两端截断 1%，
+        //   对严重偏斜的 CT 直方图无效。现在按累积分布计算真实百分位。
         double minV, maxV;
         cv::minMaxLoc(src16, &minV, &maxV);
+        if (maxV <= minV) {
+            // 全图同一值，直接输出黑图
+            dst8u = cv::Mat::zeros(src16.size(), CV_8UC1);
+            return dst8u;
+        }
 
-        // 简单百分位近似：剔除两端各 1% 的像素（如果支持统计）
-        // 这里为了演示，采用温和截断
-        double span = maxV - minV;
-        double low = minV + span * 0.01;
-        double high = maxV - span * 0.01;
+        // 构建 256-bin 直方图（足够精度且性能好）
+        int nBins = 256;
+        int histSize[] = {nBins};
+        const float rangeF[] = {(float) minV, (float) (maxV + 1e-6)};
+        const float *ranges[] = {rangeF};
+        cv::Mat hist;
+        cv::calcHist(&src16, 1, 0, cv::Mat(), hist, 1, histSize, ranges);
+
+        // 累积分布找 1% 和 99% 百分位值
+        int totalPixels = src16.total();
+        int cumSum = 0;
+        double low = minV, high = maxV;
+        for (int i = 0; i < nBins; i++) {
+            cumSum += static_cast<int>(hist.at<float>(i));
+            double binVal = minV + (maxV - minV) * (i + 0.5) / nBins;
+            if (low == minV && cumSum >= static_cast<int>(totalPixels * 0.01)) {
+                low = binVal;
+            }
+            if (cumSum >= static_cast<int>(totalPixels * 0.99)) {
+                high = binVal;
+                break;
+            }
+        }
+        if (high <= low) { low = minV; high = maxV; }
+        LOGD("EnhanceContrastStretch: Percentile [%.2f, %.2f] from range [%.2f, %.2f]", low, high, minV, maxV);
 
         cv::Mat truncated;
         cv::threshold(src16, truncated, high, high, cv::THRESH_TRUNC);
@@ -315,14 +363,19 @@ namespace CTPreprocess {
             cropped = raw16.clone();
         }
 
-        // 3. 颜色反转 (Invert LUTs)
-        cv::Mat inverted = EnhanceInvertLut(cropped);
+        // P0-fix: 重排 Invert 和 HU_CONVERT 的顺序。
+        //   原逻辑: raw → crop → InvertLUT → HU_CONVERT → denoise
+        //   问题: EnhanceInvertLut 做的是 (min+max)-val，反转的是探测器原始计数值，
+        //         反转后再做 pixel*slope+intercept 得到的 HU 无物理意义。
+        //   修正: 先做 HU 校正，再在 HU 域做反转（如果确实需要反转的话）。
+        // 3. HU 校正（先转换为物理 HU 域）
+        cv::Mat huMat = ConvertRawToHU(cropped, slope, intercept);
 
-        // 4. HU 校正
-        cv::Mat huMat = ConvertRawToHU(inverted, slope, intercept);
+        // 4. 颜色反转 (在 HU 域做 Invert LUTs)
+        cv::Mat inverted = EnhanceInvertLut(huMat);
 
         // 5. 标准流水线去噪：双边滤波
-        cv::Mat denoiseMat = DenoiseBilateral(huMat);
+        cv::Mat denoiseMat = DenoiseBilateral(inverted);
 
         // 6. 调窗：method=-1 走"百分位自适应"，否则统一委托 pickWindowCenterWidth
         double minV = 0.0, maxV = 0.0;

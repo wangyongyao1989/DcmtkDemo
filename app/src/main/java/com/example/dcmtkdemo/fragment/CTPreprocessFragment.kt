@@ -237,6 +237,8 @@ class CTPreprocessFragment : Fragment() {
                 listOf(slope, intercept)
             )
         )
+        // P1-fix (问题3): 算子顺序校验与自动排序
+        val sortWarnings = validateAndSortSteps(steps)
         if (binding.cbGaussian.isChecked) steps.add(
             PreprocessStep(
                 Op.GAUSSIAN,
@@ -304,6 +306,11 @@ class CTPreprocessFragment : Fragment() {
             }
         } else -1
 
+        // P1-fix (问题3): 如果自动排序产生了警告，在 info 中提示
+        if (sortWarnings.isNotEmpty()) {
+            binding.tvInfo.text = "⚠ 顺序已自动调整: ${sortWarnings.joinToString("; ")}"
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 if (isWindowing) {
@@ -362,6 +369,47 @@ class CTPreprocessFragment : Fragment() {
                 btn.isEnabled = true
             }
         }
+    }
+
+    /**
+     * P1-fix (问题3): 算子顺序校验与自动排序。
+     *
+     * 规则：
+     * 1. HU_CONVERT 必须在 INVERT_LUT 之前 —— 反转 raw 像素值后再做 HU 校正会失去物理意义。
+     * 2. HU_CONVERT 应在 8-bit 专用算子 (GLOBAL_EQUALIZE / CLAHE) 之前 ——
+     *    虽然 C++ 层已做 HU 域精度保留，但从语义上 HU 校正应先于增强。
+     *
+     * @return 警告消息列表（空列表表示无需调整）
+     */
+    private fun validateAndSortSteps(steps: MutableList<PreprocessStep>): List<String> {
+        val warnings = mutableListOf<String>()
+
+        val huIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
+        val invertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
+
+        // 规则1: HU_CONVERT 必须在 INVERT_LUT 之前
+        if (huIdx >= 0 && invertIdx >= 0 && huIdx > invertIdx) {
+            val huStep = steps.removeAt(huIdx)
+            steps.add(invertIdx, huStep)
+            warnings.add("HU校正已移至Invert LUTs之前")
+        }
+
+        // 规则2: HU_CONVERT 应在 GLOBAL_EQUALIZE / CLAHE 之前
+        if (huIdx >= 0 || invertIdx >= 0) {
+            val newHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
+            if (newHuIdx >= 0) {
+                listOf(Op.GLOBAL_EQUALIZE, Op.CLAHE).forEach { enhOp ->
+                    val enhIdx = steps.indexOfFirst { it.op == enhOp }
+                    if (enhIdx >= 0 && enhIdx < newHuIdx) {
+                        val enhStep = steps.removeAt(enhIdx)
+                        steps.add(newHuIdx, enhStep)
+                        warnings.add("${enhOp.displayName}已移至HU校正之后")
+                    }
+                }
+            }
+        }
+
+        return warnings
     }
 
     private fun generateSummary(
