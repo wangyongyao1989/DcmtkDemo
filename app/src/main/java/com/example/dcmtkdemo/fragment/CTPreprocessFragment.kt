@@ -589,14 +589,55 @@ class CTPreprocessFragment : Fragment() {
         appendLine(if (isWin) "【调窗前后类比分析】" else "【预处理操作总结】")
         if (steps.isEmpty()) appendLine("- 基础映射：展示原始或最简处理后的图像。")
         steps.forEach { step ->
+            val p = step.params
             when (step.op) {
-                Op.TAILOR -> appendLine("- 图片裁剪：自动定位主体并旋转，去除无效背景。")
+                Op.TAILOR -> {
+                    val area = p.getOrNull(0)?.toInt() ?: 40000
+                    appendLine("- 图片裁剪：自动定位主体并旋转，去除无效背景 (MinArea: $area)。")
+                }
                 Op.INVERT_LUT -> appendLine("- Invert LUTs：色度反转，改变图像极性。")
-                Op.HU_CONVERT -> appendLine("- HU校正：还原物理密度值。")
-                Op.BILATERAL -> appendLine("- 双边去噪：保边平滑，提升信噪比。")
-                Op.CLAHE -> appendLine("- CLAHE：局部对比度增强。")
-                Op.FEATURE_SHARPEN -> appendLine("- 特征锐化：针对骨皮质和骨小梁的USM增强。")
-                else -> appendLine("- ${step.op.displayName}")
+                Op.HU_CONVERT -> {
+                    val s = p.getOrNull(0) ?: 1.0
+                    val i = p.getOrNull(1) ?: -1024.0
+                    appendLine("- HU校正：还原物理密度值 (Slope: $s, Intercept: $i)。")
+                }
+                Op.BILATERAL -> {
+                    val d = p.getOrNull(0)?.toInt() ?: 5
+                    val sc = p.getOrNull(1)?.toInt() ?: 50
+                    val ss = p.getOrNull(2)?.toInt() ?: 50
+                    appendLine("- 双边去噪：保边平滑，提升信噪比 (d: $d, Color: $sc, Space: $ss)。")
+                }
+                Op.CLAHE -> {
+                    val clip = p.getOrNull(0) ?: 2.0
+                    val gx = p.getOrNull(1)?.toInt() ?: 8
+                    val gy = p.getOrNull(2)?.toInt() ?: 8
+                    appendLine("- CLAHE：局部对比度增强 (Clip: $clip, Grid: ${gx}x${gy})。")
+                }
+                Op.FEATURE_SHARPEN -> {
+                    val sigma = p.getOrNull(0) ?: 1.5
+                    val strength = p.getOrNull(1) ?: 0.6
+                    appendLine("- 特征锐化：针对骨皮质和骨小梁的USM增强 (Sigma: $sigma, Strength: $strength)。")
+                }
+                Op.GAUSSIAN -> {
+                    val k = p.getOrNull(0)?.toInt() ?: 5
+                    appendLine("- 高斯滤波：平滑图像 (Kernel: $k)。")
+                }
+                Op.MEDIAN -> {
+                    val k = p.getOrNull(0)?.toInt() ?: 3
+                    appendLine("- 中值滤波：去除椒盐噪声 (Kernel: $k)。")
+                }
+                Op.FFT -> {
+                    val r = p.getOrNull(0)?.toInt() ?: 300
+                    appendLine("- 频域FFT：滤除周期性条纹 (Radius: $r)。")
+                }
+                Op.RESAMPLE_SIZE -> {
+                    val w = p.getOrNull(0)?.toInt() ?: 512
+                    val h = p.getOrNull(1)?.toInt() ?: 512
+                    appendLine("- 重采样：调整图像分辨率 (Size: ${w}x${h})。")
+                }
+                Op.GLOBAL_EQUALIZE -> appendLine("- 全局均衡化：直方图均衡增强。")
+                Op.CONTRAST_STRETCH -> appendLine("- 对比度拉伸：线性灰度拉伸。")
+                else -> appendLine("- ${step.op.displayName}${if (p.isNotEmpty()) " (参数: ${p.joinToString(", ")})" else ""}")
             }
         }
         if (isWin) appendLine("- 调窗算法 ($method)：左图为基础线性映射，右图为应用算法后的诊断增强效果。")
