@@ -1,0 +1,110 @@
+PGA 生成的 CT 原始像素数据缓冲区，还会生成 histogram.txt、pixel_array.txt、smoothed_data.txt 数据吗？
+结论先说
+常规 FPGA 输出 CT 原始探测器像素数据流（原始 Raw 像素缓冲区）本身不会自动生成 histogram.txt/pixel_array.txt/smoothed_data.txt 这三个文本文件。
+这三份 txt 文件不属于 FPGA 硬件直接输出的数据载体，属于后端软件（嵌入式 CPU / 上位机 PC）导出的调试日志文件。
+下面分开拆解每一份文件的来源、作用，区分「FPGA 硬件输出」和「软件生成」边界：
+1. pixel_array.txt
+内容：CT 探测器原始像素值数组（ADC 采样后的原始灰度 / 电荷数值）
+来源：
+FPGA 只会通过 DDR/AXI/FIFO 输出二进制像素缓冲区（uint16/uint32 原始数据流）；
+由 ARM / 上位机软件从共享内存缓冲区读出像素，格式化写入文本用于调试。
+FPGA 不做文本格式化，硬件没有文件系统，无法直接输出 txt。
+2. histogram.txt
+内容：像素灰度直方图统计：灰度值 - 计数值
+两种场景：
+1）FPGA 内部可以搭建直方图统计模块，实时统计像素分布，输出直方图 bin 数组（二进制数据）；
+2）但把直方图数组保存为 histogram.txt，依旧是软件把统计结果转文本导出。
+硬件只输出直方图统计数值，不生成文本文件。
+3. smoothed_data.txt
+内容：平滑滤波后的像素序列（通常是原始投影经过均值滤波、高斯平滑、一维滑动平均后的投影数据）
+流程：
+可选路径 A：FPGA 内置平滑滤波 IP → 输出平滑后的二进制像素缓存
+可选路径 B：ARM 软件对原始像素做平滑运算
+无论谁完成滤波，写入 smoothed_data.txt 一定是软件行为。
+完整数据流链路参考（你当前 CT FPGA 成像典型架构）
+plaintext
+CT探测器 → ADC → FPGA
+  ↓
+【FPGA硬件输出（二进制，唯一原生数据）】
+原始像素缓冲区（DDR共享内存）
+可选：FPGA实时直方图统计模块输出直方图bin缓存
+可选：FPGA片内平滑滤波模块输出平滑后像素缓存
+  ↓
+ARM Linux/上位机软件读取共享内存二进制缓冲区
+  ↓【软件额外操作】
+格式化输出文本调试文件：
+pixel_array.txt（原始投影）
+histogram.txt（灰度分布）
+smoothed_data.txt（平滑后投影）
+几个关键工程要点（适配你的 DICOM / 窗宽窗位 CT 项目）
+产品版本一般会删掉 txt 导出
+txt 仅开发调试用；正式成像流程只使用二进制缓冲区，文本 IO 速度极低，不能用于连续 CT 重建。
+如果你的板子现在一跑扫描就自动产生这三个 txt：
+代码位置一定在ARM 端应用程序 / Linux 用户态程序，不是 Verilog/VHDL 逻辑。
+容易混淆的边界：
+✅ FPGA 能产生：原始像素数据流、直方图统计值、平滑后的像素数据（全部二进制）
+❌ FPGA 不能：打开文件、换行、格式化数字、写入 txt 文本
+
+
+histogram.txt、pixel_array.txt、smoothed_data.txt 这三个文件能通过原始像素数据缓冲区统计生成吗？
+直接结论
+完全可以，仅依靠【原始像素数据缓冲区】这一份数据源，就能生成全部三个 txt 文件，不需要 FPGA 额外输出别的数据。
+三者是同一原始像素数组经过不同运算得到的派生数据：
+数据源：原始像素缓冲区 pixel_buf[]（一维 / 二维投影像素数组）
+1. pixel_array.txt
+最简单，直接导出原始缓冲区
+逻辑：遍历 pixel_buf，逐行把像素数值格式化写入文本。
+输入：原始像素缓冲区
+无额外计算。
+2. histogram.txt
+基于原始像素数组统计灰度直方图
+流程：
+初始化直方图 bins 数组清零；
+遍历所有原始像素 pixel_buf[i]；
+bin[pixel_value] += 1；
+最后遍历 bin，将「像素值，计数」写入 histogram.txt。
+重点：不需要 FPGA 硬件直方图模块！软件拿到原始缓存后纯 CPU 统计即可生成。
+3. smoothed_data.txt
+对原始像素序列做平滑滤波，输出平滑后的像素序列
+常见 CT 投影预处理：一维滑动平均、高斯平滑、中值滤波。
+输入依旧是原始 pixel 数组；
+输出滤波完成后的像素数组，保存为 smoothed_data.txt。
+数据流简图（单数据源闭环）
+plaintext
+原始像素缓冲区 pixel_buf
+    ├─原样输出 → pixel_array.txt
+    ├─统计像素频次 → histogram.txt
+    └─空间平滑滤波 → smoothed_data.txt
+重要工程区分（解决你容易混淆的点）
+两种实现路线
+路线 A（当前讨论）：FPGA 只输出原始像素缓存，ARM / 上位机软件统一计算直方图 + 平滑，导出三份 txt
+✅ 硬件最简，FPGA 逻辑最小；调试灵活；
+❌ 连续高速采集时软件 CPU 压力上升。
+路线 B：FPGA 内部集成直方图统计、实时平滑模块，把平滑后数据、直方图结果一并存入 DDR
+✅ 实时性强，卸载 ARM 运算；
+❌ 消耗 FPGA 逻辑资源，修改算法需要重综合 FPGA 工程。
+但不管路线 A 还是 B，生成 txt 文本一定是软件负责；硬件只产生二进制数值。
+实操潜在坑点（CT 投影场景）
+CT 投影是多通道、多 view 扇形 / 锥束数据，做平滑时注意：
+是沿通道方向一维平滑，不要跨不同 view 乱平滑；
+直方图注意像素有效范围（原始 ADC 一般 0~4095 / 0~65535），避免数组越界；
+txt IO 速度很慢，连续扫描模式严禁持续生成 txt，只适合单帧调试；正式成像直接使用二进制缓存做重建，抛弃文本文件。
+补充一个可落地伪代码框架（C/C++，ARM 端可用）
+c
+// 输入：原始像素缓冲区
+uint16_t *pixel_buf;
+int pixel_num;
+
+// 1. pixel_array.txt
+save_raw_array("pixel_array.txt", pixel_buf, pixel_num);
+
+// 2. histogram.txt
+uint32_t hist[65536] = {0};
+for(int i=0; i<pixel_num; i++) hist[pixel_buf[i]]++;
+save_histogram("histogram.txt", hist, 65536);
+
+// 3. smoothed_data.txt
+uint16_t *smooth_buf = malloc(pixel_num*2);
+moving_average_filter(pixel_buf, smooth_buf, pixel_num, kernel_size);
+save_raw_array("smoothed_data.txt", smooth_buf, pixel_num);
+free(smooth_buf);

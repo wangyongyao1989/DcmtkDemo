@@ -316,6 +316,7 @@ object XrayPipeline {
             WindowMethod.ADAPTIVE_HISTOGRAM -> adaptiveByMinI(hu, minI, maxI, config)
             WindowMethod.HISTOGRAM_TYPE -> Pair((huMax + huMin) / 2, range) // 占位
             WindowMethod.MIN_MAX -> Pair((huMax + huMin) / 2, range)        // (WINDOW_DICT_MIN_MAX)
+            WindowMethod.PEAK_AREA_AUTO -> Pair((huMax + huMin) / 2, range) // 占位
         }
         val safeW = max(1, w)
         return Pair(c, safeW)

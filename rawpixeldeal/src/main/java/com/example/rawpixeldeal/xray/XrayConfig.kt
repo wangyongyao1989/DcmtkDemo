@@ -24,6 +24,9 @@ enum class WindowMethod(val displayName: String) {
 
     /** 工程基线：min/max 线性窗 */
     MIN_MAX("6. Min-Max"),
+
+    /** 自定义波峰面积法 (基于 image_processing_jni.c) */
+    PEAK_AREA_AUTO("7. 波峰面积法 (Custom)"),
 }
 
 /**

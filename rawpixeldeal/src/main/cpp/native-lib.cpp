@@ -291,10 +291,10 @@ static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
     double minV = 0.0, maxV = 0.0;
     cv::minMaxLoc(mat, &minV, &maxV);
 
-    int nBins = 256;
+    int nBins = (windowMethod == 6) ? 500 : 256;
     std::vector<int> hist;
     const std::vector<int> *histPtr = nullptr;
-    if (windowMethod == 1 || windowMethod == 2 || windowMethod == 3) {
+    if (windowMethod == 1 || windowMethod == 2 || windowMethod == 3 || windowMethod == 6) {
         std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
         CtSeriesProcessor::aggregateSeriesHistogram(
                 slices, cv::Rect(0, 0, mat.cols, mat.rows),

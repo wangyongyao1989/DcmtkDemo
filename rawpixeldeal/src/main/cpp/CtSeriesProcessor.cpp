@@ -345,6 +345,84 @@ namespace CtSeriesProcessor {
                 wOut = aw.w;
                 return;
             }
+            case 6: { // PEAK_AREA_AUTO (Custom method from image_processing_jni.c)
+                if (hist == nullptr || hist->empty() || nBins <= 0) {
+                    cOut = (minV + maxV) * 0.5;
+                    wOut = std::max(1.0, span);
+                    return;
+                }
+                // 1) Gaussian Smoothing
+                std::vector<double> smooth;
+                double sigma = 20.0;
+                int radius = (int)round(4 * sigma);
+                int kSize = 2 * radius + 1;
+                std::vector<double> kernel(kSize);
+                double sumK = 0.0;
+                for (int i = 0; i < kSize; i++) {
+                    int x = i - radius;
+                    kernel[i] = exp(-0.5 * (x * x) / (sigma * sigma));
+                    sumK += kernel[i];
+                }
+                for (int i = 0; i < kSize; i++) kernel[i] /= sumK;
+
+                smooth.assign(nBins, 0.0);
+                for (int i = 0; i < nBins; i++) {
+                    double s = 0.0;
+                    for (int j = -radius; j <= radius; j++) {
+                        int idx = i + j;
+                        if (idx < 0) idx = -idx - 1;
+                        else if (idx >= nBins) idx = 2 * nBins - idx - 1;
+                        s += (*hist)[idx] * kernel[j + radius];
+                    }
+                    smooth[i] = s;
+                }
+
+                // 2) Find peak with max (height * width)
+                int bestPeakIdx = 0;
+                double maxProd = -1.0;
+                for (int i = 1; i < nBins - 1; i++) {
+                    if (smooth[i] > smooth[i - 1] && smooth[i] > smooth[i + 1]) {
+                        double th = smooth[i] * 0.5;
+                        int left = i, right = i;
+                        while (left > 0 && smooth[left] > th) left--;
+                        while (right < nBins - 1 && smooth[right] > th) right++;
+                        double prod = smooth[i] * (right - left + 1);
+                        if (prod > maxProd) { maxProd = prod; bestPeakIdx = i; }
+                    }
+                }
+
+                // 3) Find edges
+                double thE = smooth[bestPeakIdx] * 0.55;
+                int minIdx = 0, maxIdx = nBins - 1;
+                int leftStart = -1;
+                for (int i = bestPeakIdx - 1; i >= 0; i--) {
+                    if (smooth[i] < thE) { leftStart = i; break; }
+                }
+                if (leftStart != -1) {
+                    for (int i = leftStart - 1; i > 0; i--) {
+                        double slope = (smooth[i + 1] - smooth[i - 1]) / 2.0;
+                        if (slope < 10.0) { minIdx = i; break; }
+                    }
+                }
+                int rightStart = -1;
+                for (int i = bestPeakIdx + 1; i < nBins; i++) {
+                    if (smooth[i] < thE) { rightStart = i; break; }
+                }
+                if (rightStart != -1) {
+                    for (int i = rightStart + 1; i < nBins - 1; i++) {
+                        double slope = (smooth[i + 1] - smooth[i - 1]) / 2.0;
+                        if (slope > -10.0) { maxIdx = i; break; }
+                    }
+                }
+
+                // 4) Map back to HU
+                const double hBin = span / static_cast<double>(nBins);
+                double edgeMin = minV + minIdx * hBin;
+                double edgeMax = minV + (maxIdx + 1) * hBin;
+                cOut = (edgeMin + edgeMax) * 0.5;
+                wOut = edgeMax - edgeMin;
+                return;
+            }
             case 4: // HIST_TYPE：min/max 兜底
             default: {
                 cOut = (minV + maxV) * 0.5;

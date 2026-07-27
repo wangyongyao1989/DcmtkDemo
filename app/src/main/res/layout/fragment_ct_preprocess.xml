@@ -543,6 +543,14 @@
                 android:layout_columnWeight="1"
                 android:text="Min-Max"
                 android:textSize="10sp" />
+
+            <RadioButton
+                android:id="@+id/rb_win_peak"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Peak Area"
+                android:textSize="10sp" />
         </GridLayout>
 
         <Button
@@ -551,6 +559,14 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="调窗" />
+
+        <Button
+            android:id="@+id/btn_export_stats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:backgroundTint="#FF9800"
+            android:text="@string/btn_export_stats" />
 
         <!-- 6.1) 窗宽窗位动态调节 (Dynamic Windowing) -->
         <TextView

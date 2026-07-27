@@ -93,6 +93,11 @@ class CTPreprocessFragment : Fragment() {
             runPreprocessChain(isWindowing = true)
         }
 
+        // 7) Statistics Export
+        binding.btnExportStats.setOnClickListener {
+            runExportStatistics()
+        }
+
         setupAssetSpinner()
         setupWindowMethodRadioLogic()
         // P1-8: 8-bit 单选时禁用 HU/FFT 等不适用的算子，避免产生无意义或全黑结果
@@ -260,6 +265,38 @@ class CTPreprocessFragment : Fragment() {
         // 初始以 16-bit 为默认，无需操作；保持初始态即可
     }
 
+    /**
+     * 7) 统计输出逻辑：从当前已加载的原始像素缓冲区导出 txt 文件。
+     * 生成：pixel_array.txt, histogram.txt, smoothed_data.txt
+     */
+    private fun runExportStatistics() {
+        val raw = cachedRawBuffer
+        if (raw == null) {
+            binding.tvInfo.text = "请先点击 LOAD & DISPLAY 加载数据后再导出统计"
+            return
+        }
+
+        val w = cachedWidth
+        val h = cachedHeight
+        val bitDepth = cachedBitDepth
+        val isBigEndian = cachedBigEndian
+
+        binding.btnExportStats.isEnabled = false
+        binding.tvInfo.text = "正在导出统计数据..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                MedicalCTPreprocess.exportStatistics(
+                    requireContext(),
+                    raw, w, h, bitDepth, isBigEndian
+                )
+            }
+            if (_binding == null) return@launch
+            binding.tvInfo.text = status
+            binding.btnExportStats.isEnabled = true
+        }
+    }
+
     private fun setupAssetSpinner() {
         val ctx = context ?: return
         val assets = ctx.assets.list("") ?: emptyArray()
@@ -281,7 +318,8 @@ class CTPreprocessFragment : Fragment() {
             binding.rbWinBimodal,
             binding.rbWinAdaptive,
             binding.rbWinHistType,
-            binding.rbWinMinMax
+            binding.rbWinMinMax,
+            binding.rbWinPeak
         )
         radioButtons.forEach { rb ->
             rb.setOnClickListener {
@@ -462,6 +500,7 @@ class CTPreprocessFragment : Fragment() {
                 binding.rbWinAdaptive.isChecked -> 3
                 binding.rbWinHistType.isChecked -> 4
                 binding.rbWinMinMax.isChecked -> 5
+                binding.rbWinPeak.isChecked -> 6
                 else -> -1
             }
         } else -1
@@ -505,7 +544,11 @@ class CTPreprocessFragment : Fragment() {
                     binding.ivBefore.setImageBitmap(results[0].bitmap)
                     binding.ivAfter.setImageBitmap(results[1].bitmap)
                     val methodName =
-                        if (windowMethodIndex == -1) "None" else WindowMethod.values()[windowMethodIndex].displayName
+                        when (windowMethodIndex) {
+                            -1 -> "None"
+                            6 -> "Peak Area Auto (Custom)"
+                            else -> WindowMethod.values()[windowMethodIndex].displayName
+                        }
                     binding.tvInfo.text =
                         "Comparison Ready. Method: $methodName"
                     binding.tvSummary.text = generateSummary(steps, true, methodName)
@@ -640,7 +683,12 @@ class CTPreprocessFragment : Fragment() {
                 else -> appendLine("- ${step.op.displayName}${if (p.isNotEmpty()) " (参数: ${p.joinToString(", ")})" else ""}")
             }
         }
-        if (isWin) appendLine("- 调窗算法 ($method)：左图为基础线性映射，右图为应用算法后的诊断增强效果。")
+        if (isWin) {
+            appendLine("- 调窗算法 ($method)：左图为基础线性映射，右图为应用算法后的诊断增强效果。")
+            if (method.contains("Peak Area")) {
+                appendLine("  [算法详情] 基于直方图面积最大波峰识别，结合高斯平滑与二阶导数边缘检测，实现软组织/病灶自适应增强。")
+            }
+        }
     }
 
     private fun setupKeyboardDismiss() {

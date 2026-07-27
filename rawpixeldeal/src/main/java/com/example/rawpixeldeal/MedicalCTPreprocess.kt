@@ -447,4 +447,98 @@ object MedicalCTPreprocess {
             maxValD = outHuRange[1]
         )
     }
+
+    /**
+     * Requirement: Export statistics files (pixel_array.txt, histogram.txt, smoothed_data.txt)
+     * based on the raw buffer.
+     *
+     * @return Status message or error description.
+     */
+    fun exportStatistics(
+        context: Context,
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean
+    ): String {
+        val outputDir = context.getExternalFilesDir("statistics") ?: return "Failed to get output directory"
+        if (!outputDir.exists()) outputDir.mkdirs()
+
+        val pixels = try {
+            if (bitDepth == 16) {
+                val buf = ByteBuffer.wrap(rawBuffer)
+                    .order(if (bigEndian) ByteOrder.BIG_ENDIAN else ByteOrder.LITTLE_ENDIAN)
+                val shortBuf = buf.asShortBuffer()
+                IntArray(shortBuf.remaining()) { shortBuf.get().toInt() and 0xFFFF }
+            } else {
+                IntArray(rawBuffer.size) { rawBuffer[it].toInt() and 0xFF }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse raw buffer", e)
+            return "Parse failed: ${e.message}"
+        }
+
+        val pixelArrayFile = java.io.File(outputDir, "pixel_array.txt")
+        val histogramFile = java.io.File(outputDir, "histogram.txt")
+        val smoothedFile = java.io.File(outputDir, "smoothed_data.txt")
+
+        return try {
+            // 1. pixel_array.txt: Raw pixel values
+            pixelArrayFile.printWriter().use { out ->
+                for (y in 0 until height) {
+                    val start = y * width
+                    val end = minOf(start + width, pixels.size)
+                    for (i in start until end) {
+                        out.print(pixels[i])
+                        if (i < end - 1) out.print(" ")
+                    }
+                    out.println()
+                }
+            }
+
+            // 2. histogram.txt: Gray value - count
+            val maxVal = pixels.maxOrNull() ?: 0
+            val histogram = IntArray(maxVal + 1)
+            for (p in pixels) {
+                histogram[p]++
+            }
+            histogramFile.printWriter().use { out ->
+                out.println("Value: Count")
+                for (i in histogram.indices) {
+                    if (histogram[i] > 0) {
+                        out.println("$i: ${histogram[i]}")
+                    }
+                }
+            }
+
+            // 3. smoothed_data.txt: Simple 1D moving average (window=5)
+            smoothedFile.printWriter().use { out ->
+                val windowSize = 5
+                val halfWindow = windowSize / 2
+                for (y in 0 until height) {
+                    val start = y * width
+                    val end = minOf(start + width, pixels.size)
+                    for (i in start until end) {
+                        var sum = 0.0
+                        var count = 0
+                        for (j in (i - halfWindow)..(i + halfWindow)) {
+                            if (j >= start && j < end) {
+                                sum += pixels[j]
+                                count++
+                            }
+                        }
+                        out.print("%.2f".format(sum / count))
+                        if (i < end - 1) out.print(" ")
+                    }
+                    out.println()
+                }
+            }
+
+            "Statistics exported to:\n${outputDir.absolutePath}\nFiles: pixel_array.txt, histogram.txt, smoothed_data.txt"
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write statistics files", e)
+            "Export failed: ${e.message}"
+        }
+    }
 }
