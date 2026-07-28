@@ -553,7 +553,7 @@ class CTPreprocessFragment : Fragment() {
         if (binding.cbBilateral.isChecked) steps.add(
             PreprocessStep(
                 Op.BILATERAL,
-                listOf(binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0, 50.0, 50.0)
+                listOf(binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0, 75.0, 75.0) // 改进：提高sigmaColor/SigmaSpace增强保边效果
             )
         )
         if (binding.cbFft.isChecked) steps.add(
@@ -576,14 +576,14 @@ class CTPreprocessFragment : Fragment() {
         if (binding.cbClahe.isChecked) steps.add(
             PreprocessStep(
                 Op.CLAHE,
-                listOf(binding.etClaheClip.text.toString().toDoubleOrNull() ?: 2.0, 8.0, 8.0)
+                listOf(binding.etClaheClip.text.toString().toDoubleOrNull() ?: 3.0, 8.0, 8.0) // 改进：提高clip limit增强局部对比度
             )
         )
         if (binding.cbStretch.isChecked) steps.add(PreprocessStep(Op.CONTRAST_STRETCH))
         if (binding.cbSharpen.isChecked) steps.add(
             PreprocessStep(
                 Op.FEATURE_SHARPEN,
-                listOf(1.5, binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 0.6)
+                listOf(1.5, binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 0.8) // 改进：提高strength增强骨纹理细节
             )
         )
         if (binding.cbLog.isChecked) steps.add(PreprocessStep(Op.LOG_TRANSFORM))

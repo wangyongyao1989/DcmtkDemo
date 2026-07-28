@@ -345,16 +345,16 @@ namespace CtSeriesProcessor {
                 wOut = aw.w;
                 break;
             }
-            case 6: { // PEAK_AREA_AUTO (Custom method from image_processing_jni.c)
+            case 6: { // PEAK_AREA_AUTO (Custom method)
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
                     cOut = (minV + maxV) * 0.5;
                     wOut = std::max(1.0, span);
                     return;
                 }
-                // 1) Gaussian Smoothing
+                // 1) Gaussian Smoothing - 改进：降低sigma以保留骨小梁等微细纹理
                 std::vector<double> smooth;
-                double sigma = 20.0;
-                int radius = (int)round(4 * sigma);
+                double sigma = 3.0; // 从 8.0 降低到 3.0，减少过度平滑
+                int radius = (int)round(3 * sigma);
                 int kSize = 2 * radius + 1;
                 std::vector<double> kernel(kSize);
                 double sumK = 0.0;
@@ -378,7 +378,6 @@ namespace CtSeriesProcessor {
                 }
 
                 // 2) Find peak with max (height * width)
-                // 改进：背景抑制。识别出的最大波峰如果是背景（通常在直方图两端），则尝试取次大的组织波峰。
                 struct Peak { int idx; double prod; };
                 std::vector<Peak> peaks;
                 for (int i = 1; i < nBins - 1; i++) {
@@ -397,15 +396,17 @@ namespace CtSeriesProcessor {
                 int bestPeakIdx = 0;
                 if (!peaks.empty()) {
                     bestPeakIdx = peaks[0].idx;
-                    // 如果最大波峰在最左侧 10%（Log后的背景区），且有次大波峰，则切换
-                    if (bestPeakIdx < nBins * 0.1 && peaks.size() > 1) {
+                    // 改进：增强背景抑制，扩展抑制范围
+                    bool isLeftBackground = (bestPeakIdx < nBins * 0.20); // 从 0.15 扩展到 0.20
+                    bool isRightBackground = (bestPeakIdx > nBins * 0.80); // 从 0.85 扩展到 0.80
+                    if ((isLeftBackground || isRightBackground) && peaks.size() > 1) {
                         bestPeakIdx = peaks[1].idx;
-                        LOGW("pickWindowCenterWidth: Suppressing background peak at %d, using next peak at %d", peaks[0].idx, bestPeakIdx);
+                        LOGW("pickWindowCenterWidth: Background peak suppressed at %d, using next peak at %d", peaks[0].idx, bestPeakIdx);
                     }
                 }
 
-                // 3) Find edges
-                double thE = smooth[bestPeakIdx] * 0.55;
+                // 3) Find edges - 改进：提高阈值以获得更高对比度，减少虚化
+                double thE = smooth[bestPeakIdx] * 0.70; // 从 0.75 调整到 0.70，优化对比度
                 int minIdx = 0, maxIdx = nBins - 1;
                 int leftStart = -1;
                 for (int i = bestPeakIdx - 1; i >= 0; i--) {
@@ -433,10 +434,10 @@ namespace CtSeriesProcessor {
                 double edgeMin = minV + minIdx * hBin;
                 double edgeMax = minV + (maxIdx + 1) * hBin;
 
-                // 改进：确保最小窗宽，防止噪点导致对比度过硬
+                // 5) 临床窗宽保护 - 改进：降低最小窗宽以增强对比度
                 double wc = (edgeMin + edgeMax) * 0.5;
                 double ww = edgeMax - edgeMin;
-                if (ww < 400.0) ww = 400.0;
+                if (ww < 350.0) ww = 350.0; // 从 400.0 降低到 350.0，提高对比度
 
                 cOut = wc;
                 wOut = ww;

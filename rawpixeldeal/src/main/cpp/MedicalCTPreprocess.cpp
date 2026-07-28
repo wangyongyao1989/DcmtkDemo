@@ -210,6 +210,8 @@ namespace CTPreprocess {
     cv::Mat EnhanceCLAHE(const cv::Mat &src8u, double clipLimit, cv::Size tileSize) {
         LOGI("EnhanceCLAHE: clipLimit=%.2f, tileSize=%dx%d", clipLimit, tileSize.width,
              tileSize.height);
+        // 改进：默认clipLimit提高到3.0，增强局部对比度，减少虚化效果
+        if (clipLimit <= 0.0) clipLimit = 3.0;
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clipLimit, tileSize);
         cv::Mat dst;
         clahe->apply(src8u, dst);
