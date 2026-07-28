@@ -735,6 +735,64 @@ native_processMedicalCTCustomWindow(JNIEnv *env, jclass, jbyteArray rawBuf, jint
     return res;
 }
 
+/**
+ * 获取经过处理（如裁剪）后的 16-bit 原始像素。
+ * 为 writeDcmFile 提供大端序字节（根据 dcmtk/DicomFileIO.cpp 的读取原则）。
+ */
+static jbyteArray
+native_getProcessedRawPixels(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
+                             jint depth, jboolean big, jboolean isU16,
+                             jintArray ops, jdoubleArray params, jintArray info) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
+
+    // 1) 加载与处理
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
+
+    if (mat.empty()) {
+        env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+        env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+        env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+        return nullptr;
+    }
+
+    // 2) 统一转为 16-bit (如果 mat 是 float/HU)
+    cv::Mat mat16;
+    mat.convertTo(mat16, CV_16U);
+
+    // 3) 根据 DicomFileIO.cpp:490 的 writeDcmFileFull 原则：
+    // 它从 data 中按 [high, low] 组合 Uint16。因此我们需要提供大端序字节流。
+    int total = mat16.rows * mat16.cols;
+    jsize byteCount = static_cast<jsize>(total * 2);
+    jbyteArray res = env->NewByteArray(byteCount);
+    std::vector<uint8_t> bigEndianBuf(byteCount);
+
+    const ushort *ptr = mat16.ptr<ushort>();
+    for (int i = 0; i < total; ++i) {
+        ushort val = ptr[i];
+        bigEndianBuf[2 * i] = static_cast<uint8_t>(val >> 8);
+        bigEndianBuf[2 * i + 1] = static_cast<uint8_t>(val & 0xFF);
+    }
+    env->SetByteArrayRegion(res, 0, byteCount, reinterpret_cast<const jbyte *>(bigEndianBuf.data()));
+
+    // 4) 输出尺寸信息
+    if (info && env->GetArrayLength(info) >= 2) {
+        jint *pI = env->GetIntArrayElements(info, nullptr);
+        pI[0] = mat16.cols;
+        pI[1] = mat16.rows;
+        env->ReleaseIntArrayElements(info, pI, 0);
+    }
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+    return res;
+}
+
 // =============================================================================
 // JNI 注册
 // =============================================================================
@@ -764,6 +822,8 @@ static const JNINativeMethod kMethods[] = {
                 (void *) native_processMedicalCTCompareWindows},
         {"processMedicalCTCustomWindow",          "([BIIIZZ[I[DDD[I[D)[B",
                 (void *) native_processMedicalCTCustomWindow},
+        {"getProcessedRawPixels",                 "([BIIIZZ[I[D[I)[B",
+                (void *) native_getProcessedRawPixels},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {

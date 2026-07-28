@@ -16,6 +16,9 @@ import android.widget.ArrayAdapter
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.example.dcmtk.DicomManager
+import com.example.dcmtk.model.PixelDataNew
+import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.utils.LogUtil
 import com.example.dcmtkdemo.databinding.FragmentCtPreprocessBinding
 import com.example.rawpixeldeal.MedicalCTPreprocess
@@ -28,6 +31,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * CTPreprocessFragment - Optimized Version
@@ -91,6 +98,11 @@ class CTPreprocessFragment : Fragment() {
         // 6) Windowing
         binding.btnWindowing.setOnClickListener {
             runPreprocessChain(isWindowing = true)
+        }
+
+        // 写入 DCM 文件
+        binding.btnSaveDcm.setOnClickListener {
+            runSaveDcmFile()
         }
 
         // 7) Statistics Export
@@ -263,6 +275,89 @@ class CTPreprocessFragment : Fragment() {
         binding.rb8bit.setOnClickListener { onChanged() }
         binding.rb16bit.setOnClickListener { onChanged() }
         // 初始以 16-bit 为默认，无需操作；保持初始态即可
+    }
+
+    /**
+     * 将裁剪后的数据及调完窗之后的窗位窗宽写入dcm文件。
+     * 位置：data/data/com.example.dcmtkdemo/files
+     * 命名：按日期精确到分钟
+     */
+    private fun runSaveDcmFile() {
+        val raw = cachedRawBuffer
+        if (raw == null) {
+            binding.tvInfo.text = "请先加载数据并进行处理后再写入 DCM"
+            return
+        }
+
+        val w = cachedWidth
+        val h = cachedHeight
+        val bitDepth = cachedBitDepth
+        val isBigEndian = cachedBigEndian
+        val steps = cachedSteps
+
+        // 获取当前窗位窗宽
+        val center = mapCenter(binding.sbWindowCenter.progress).toInt()
+        val width = mapWidth(binding.sbWindowWidth.progress).toInt()
+
+        binding.btnSaveDcm.isEnabled = false
+        binding.tvInfo.text = "正在写入 DCM 文件..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    // 1) 获取处理（如裁剪）后的 16-bit 原始像素
+                    val (processedData, meta) = MedicalCTPreprocess.getProcessedRawPixels(
+                        raw, w, h, bitDepth, isBigEndian, true, steps
+                    )
+                    
+                    val outW = meta[0]
+                    val outH = meta[1]
+
+                    // 2) 构造文件名
+                    val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
+                    val fileName = "${sdf.format(Date())}.dcm"
+                    val dcmFile = File(requireContext().filesDir, fileName)
+                    val dcmPath = dcmFile.absolutePath
+
+                    // 3) 准备 DCM 元数据
+                    val record = ScanRecord(
+                        examineNo = System.currentTimeMillis(),
+                        patientName = "CT_TEST",
+                        patientAge = "030Y",
+                        patientSex = "男",
+                        toothPosition = "FULL_BODY"
+                    )
+
+                    // 4) 准备像素数据结构
+                    val pixelDataNew = PixelDataNew(
+                        rows = outH,
+                        columns = outW,
+                        data = processedData,
+                        largestImagePixelValue = 4095,
+                        win_center = center,
+                        win_width = width,
+                        exposure_leve = 1000,
+                        standardDeviation = 0.0
+                    )
+
+                    // 5) 调用 dcmtk 模块写入
+                    val success = DicomManager.writeDcmFile(record, pixelDataNew, dcmPath)
+                    if (success) dcmPath else null
+                }
+
+                if (_binding == null) return@launch
+                if (result != null) {
+                    binding.tvInfo.text = "DCM 写入成功: $result"
+                } else {
+                    binding.tvInfo.text = "DCM 写入失败"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Save DCM failed", e)
+                if (_binding != null) binding.tvInfo.text = "写入 DCM 错误: ${e.message}"
+            } finally {
+                binding.btnSaveDcm.isEnabled = true
+            }
+        }
     }
 
     /**

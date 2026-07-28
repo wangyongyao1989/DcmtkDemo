@@ -450,6 +450,26 @@ object MedicalCTPreprocess {
     }
 
     /**
+     * 获取处理后的 16-bit 原始像素数据（大端序字节流），主要用于写 DCM 文件。
+     * 包含裁剪、HU 转换等 dispatchOps 中的所有操作。
+     */
+    fun getProcessedRawPixels(
+        rawBuffer: ByteArray,
+        width: Int, height: Int, bitDepth: Int,
+        bigEndian: Boolean, isUint16: Boolean,
+        steps: List<PreprocessStep>
+    ): Pair<ByteArray, IntArray> {
+        val opIds = steps.map { it.op.id }.toIntArray()
+        val params = steps.flatMap { it.params }.toDoubleArray()
+        val outMeta = IntArray(4)
+        val data = RawPixelDealJni.getProcessedRawPixels(
+            rawBuffer, width, height, bitDepth, bigEndian, isUint16,
+            opIds, params, outMeta
+        ) ?: throw Exception("Failed to get processed raw pixels")
+        return Pair(data, intArrayOf(outMeta[0], outMeta[1]))
+    }
+
+    /**
      * Requirement: Export statistics files (pixel_array.txt, histogram.txt, smoothed_data.txt)
      * based on the raw buffer.
      *
