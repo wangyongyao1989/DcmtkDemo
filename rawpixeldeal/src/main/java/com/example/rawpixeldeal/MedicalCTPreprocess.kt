@@ -27,7 +27,8 @@ object MedicalCTPreprocess {
         HU_CONVERT(10, "HU校正"),
         TAILOR(11, "图片裁剪"),
         INVERT_LUT(12, "Invert LUTs"),
-        FEATURE_SHARPEN(13, "特征锐化")
+        FEATURE_SHARPEN(13, "特征锐化"),
+        LOG_TRANSFORM(14, "Log变换")
     }
 
     data class PreprocessStep(
@@ -462,9 +463,6 @@ object MedicalCTPreprocess {
         bitDepth: Int,
         bigEndian: Boolean
     ): String {
-        val outputDir = context.getExternalFilesDir("statistics") ?: return "Failed to get output directory"
-        if (!outputDir.exists()) outputDir.mkdirs()
-
         val pixels = try {
             if (bitDepth == 16) {
                 val buf = ByteBuffer.wrap(rawBuffer)
@@ -479,66 +477,72 @@ object MedicalCTPreprocess {
             return "Parse failed: ${e.message}"
         }
 
-        val pixelArrayFile = java.io.File(outputDir, "pixel_array.txt")
-        val histogramFile = java.io.File(outputDir, "histogram.txt")
-        val smoothedFile = java.io.File(outputDir, "smoothed_data.txt")
+        // 改进：同时写入内部存储和外部私有存储，确保无论用户通过何种方式（Device Explorer 或 USB）都能查找到
+        val internalDir = context.filesDir
+        val externalDir = context.getExternalFilesDir(null)
 
-        return try {
-            // 1. pixel_array.txt: Raw pixel values
-            pixelArrayFile.printWriter().use { out ->
-                for (y in 0 until height) {
-                    val start = y * width
-                    val end = minOf(start + width, pixels.size)
-                    for (i in start until end) {
-                        out.print(pixels[i])
-                        if (i < end - 1) out.print(" ")
-                    }
-                    out.println()
-                }
-            }
+        val dirs = mutableListOf<java.io.File>()
+        dirs.add(internalDir)
+        externalDir?.let { dirs.add(it) }
 
-            // 2. histogram.txt: Gray value - count
-            val maxVal = pixels.maxOrNull() ?: 0
-            val histogram = IntArray(maxVal + 1)
-            for (p in pixels) {
-                histogram[p]++
-            }
-            histogramFile.printWriter().use { out ->
-                out.println("Value: Count")
-                for (i in histogram.indices) {
-                    if (histogram[i] > 0) {
-                        out.println("$i: ${histogram[i]}")
-                    }
-                }
-            }
+        try {
+            for (dir in dirs) {
+                if (!dir.exists()) dir.mkdirs()
+                val pixelArrayFile = java.io.File(dir, "pixel_array.txt")
+                val histogramFile = java.io.File(dir, "histogram.txt")
+                val smoothedFile = java.io.File(dir, "smoothed_data.txt")
 
-            // 3. smoothed_data.txt: Simple 1D moving average (window=5)
-            smoothedFile.printWriter().use { out ->
-                val windowSize = 5
-                val halfWindow = windowSize / 2
-                for (y in 0 until height) {
-                    val start = y * width
-                    val end = minOf(start + width, pixels.size)
-                    for (i in start until end) {
-                        var sum = 0.0
-                        var count = 0
-                        for (j in (i - halfWindow)..(i + halfWindow)) {
-                            if (j >= start && j < end) {
-                                sum += pixels[j]
-                                count++
-                            }
+                // 1. pixel_array.txt
+                pixelArrayFile.printWriter().use { out ->
+                    for (y in 0 until height) {
+                        val start = y * width
+                        val end = minOf(start + width, pixels.size)
+                        for (i in start until end) {
+                            out.print(pixels[i])
+                            if (i < end - 1) out.print(" ")
                         }
-                        out.print("%.2f".format(sum / count))
-                        if (i < end - 1) out.print(" ")
+                        out.println()
                     }
-                    out.println()
+                }
+
+                // 2. histogram.txt
+                val maxVal = pixels.maxOrNull() ?: 0
+                val histogram = IntArray(maxVal + 1)
+                for (p in pixels) histogram[p]++
+                histogramFile.printWriter().use { out ->
+                    out.println("Value: Count")
+                    for (i in histogram.indices) {
+                        if (histogram[i] > 0) out.println("$i: ${histogram[i]}")
+                    }
+                }
+
+                // 3. smoothed_data.txt
+                smoothedFile.printWriter().use { out ->
+                    val windowSize = 5
+                    val halfWindow = windowSize / 2
+                    for (y in 0 until height) {
+                        val start = y * width
+                        val end = minOf(start + width, pixels.size)
+                        for (i in start until end) {
+                            var sum = 0.0
+                            var count = 0
+                            for (j in (i - halfWindow)..(i + halfWindow)) {
+                                if (j >= start && j < end) {
+                                    sum += pixels[j]
+                                    count++
+                                }
+                            }
+                            out.print("%.2f".format(sum / count))
+                            if (i < end - 1) out.print(" ")
+                        }
+                        out.println()
+                    }
                 }
             }
-
-            "Statistics exported to:\n${outputDir.absolutePath}\nFiles: pixel_array.txt, histogram.txt, smoothed_data.txt"
+            return "Statistics exported successfully.\nInternal: ${internalDir.absolutePath}\nExternal: ${externalDir?.absolutePath ?: "N/A"}"
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write statistics files", e)
-            "Export failed: ${e.message}"
+            return "Export failed: ${e.message}"
         }
     }
 }

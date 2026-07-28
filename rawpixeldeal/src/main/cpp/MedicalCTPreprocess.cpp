@@ -254,8 +254,12 @@ namespace CTPreprocess {
                 break;
             }
         }
-        if (high <= low) { low = minV; high = maxV; }
-        LOGD("EnhanceContrastStretch: Percentile [%.2f, %.2f] from range [%.2f, %.2f]", low, high, minV, maxV);
+        if (high <= low) {
+            low = minV;
+            high = maxV;
+        }
+        LOGD("EnhanceContrastStretch: Percentile [%.2f, %.2f] from range [%.2f, %.2f]", low, high,
+             minV, maxV);
 
         cv::Mat truncated;
         cv::threshold(src16, truncated, high, high, cv::THRESH_TRUNC);
@@ -265,20 +269,20 @@ namespace CTPreprocess {
         return dst8u;
     }
 
-    cv::Mat EnhanceInvertLut(const cv::Mat &src16) {
-        LOGI("EnhanceInvertLut: type=%d depth=%d", src16.type(), src16.depth());
+    cv::Mat EnhanceInvertLut(const cv::Mat &src) {
+        LOGI("EnhanceInvertLut: type=%d depth=%d", src.type(), src.depth());
         cv::Mat dst;
-        if (src16.depth() == CV_16U || src16.depth() == CV_16S) {
-            // 改进：针对医学图像，使用动态范围反转 (min + max) - val
+        if (src.depth() == CV_16U || src.depth() == CV_16S || src.depth() == CV_32F) {
+            // 改进：针对医学图像（含 HU 浮点域），使用动态范围反转 (min + max) - val
             // 这样反转后的值依然落在原始数据的有效量程内，避免 HU 校正后溢出导致全灰
             double mn, mx;
-            cv::minMaxLoc(src16, &mn, &mx);
-            LOGD("EnhanceInvertLut: Range [%.0f, %.0f] -> Inverting around %.0f", mn, mx, mn + mx);
-            dst = cv::Scalar::all(mn + mx) - src16;
-        } else if (src16.depth() == CV_8U) {
-            dst = cv::Scalar::all(255) - src16;
+            cv::minMaxLoc(src, &mn, &mx);
+            LOGD("EnhanceInvertLut: Range [%.1f, %.1f] -> Inverting around %.1f", mn, mx, mn + mx);
+            dst = cv::Scalar::all(mn + mx) - src;
+        } else if (src.depth() == CV_8U) {
+            dst = cv::Scalar::all(255) - src;
         } else {
-            dst = src16.clone();
+            dst = src.clone();
         }
         return dst;
     }
@@ -291,6 +295,48 @@ namespace CTPreprocess {
         cv::addWeighted(src, 1.0, blurred, -1.0, 0, sharp);
         // dst = src + strength * sharp
         cv::addWeighted(src, 1.0, sharp, strength, 0, dst);
+        return dst;
+    }
+
+    cv::Mat LogTransform(const cv::Mat &src) {
+        LOGI("LogTransform: type=%d depth=%d", src.type(), src.depth());
+        cv::Mat f32;
+        src.convertTo(f32, CV_32F);
+
+        double minV, maxV;
+        cv::minMaxLoc(f32, &minV, &maxV);
+
+        // 改进点：使用 99.5% 分位数计算 I0，避免热点像素导致 I0 过大
+        float I0 = static_cast<float>(maxV);
+        if (f32.total() > 1000) {
+            int histSize = 256;
+            float range[] = { (float)minV, (float)maxV + 1 };
+            const float* histRange = { range };
+            cv::Mat hist;
+            cv::calcHist(&f32, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+            float threshold = f32.total() * 0.995f;
+            float sum = 0;
+            for (int i = histSize - 1; i >= 0; i--) {
+                sum += hist.at<float>(i);
+                if (sum >= (f32.total() - threshold)) {
+                    I0 = minV + (maxV - minV) * i / histSize;
+                    break;
+                }
+            }
+        }
+        if (I0 <= 1.0f) I0 = 65535.0f;
+
+        // Y = 1000 * ln(I0 / (X + 1))
+        // 缩放 1000 倍是为了将 [0, 11] 的对数域映射到 [0, 11000]，
+        // 这样在后续 HU 校正 (-1024) 后，依然拥有几千个单位的动态范围。
+        cv::Mat dst = f32.clone();
+        for (int i = 0; i < dst.rows; i++) {
+            float *p = dst.ptr<float>(i);
+            for (int j = 0; j < dst.cols; j++) {
+                float val = std::max(0.1f, p[j] + 1.0f);
+                p[j] = 1000.0f * std::log(I0 / val);
+            }
+        }
         return dst;
     }
 
@@ -411,7 +457,8 @@ namespace CTPreprocess {
                                                             minV, maxV, nBins, 1, hist);
                 histPtr = &hist;
             }
-            CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
+            CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c,
+                                                     w);
         }
 
         if (w < 1.0) w = 1.0;

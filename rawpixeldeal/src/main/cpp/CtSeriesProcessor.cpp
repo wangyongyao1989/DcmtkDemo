@@ -263,12 +263,12 @@ namespace CtSeriesProcessor {
             case 0: { // DEFAULT
                 cOut = 127.5;
                 wOut = 255.0;
-                return;
+                break;
             }
             case 5: { // MIN_MAX
                 cOut = (minV + maxV) * 0.5;
                 wOut = std::max(1.0, span);
-                return;
+                break;
             }
             case 1: { // CUMULATIVE_72
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
@@ -288,7 +288,7 @@ namespace CtSeriesProcessor {
                 const double hBin = span / static_cast<double>(nBins);
                 cOut = minV + (targetBin + 0.5) * hBin;
                 wOut = 508.0; // 临床经验值
-                return;
+                break;
             }
             case 2: { // BIMODAL
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
@@ -330,7 +330,7 @@ namespace CtSeriesProcessor {
                     cOut = (minV + maxV) * 0.5;
                     wOut = std::max(1.0, span);
                 }
-                return;
+                break;
             }
             case 3: { // ADAPTIVE
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
@@ -343,7 +343,7 @@ namespace CtSeriesProcessor {
                 computeAdaptiveWindow(*hist, nBins, 0.0015, 0.0015, aw);
                 cOut = minV + aw.c;
                 wOut = aw.w;
-                return;
+                break;
             }
             case 6: { // PEAK_AREA_AUTO (Custom method from image_processing_jni.c)
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
@@ -378,16 +378,29 @@ namespace CtSeriesProcessor {
                 }
 
                 // 2) Find peak with max (height * width)
-                int bestPeakIdx = 0;
-                double maxProd = -1.0;
+                // 改进：背景抑制。识别出的最大波峰如果是背景（通常在直方图两端），则尝试取次大的组织波峰。
+                struct Peak { int idx; double prod; };
+                std::vector<Peak> peaks;
                 for (int i = 1; i < nBins - 1; i++) {
                     if (smooth[i] > smooth[i - 1] && smooth[i] > smooth[i + 1]) {
                         double th = smooth[i] * 0.5;
                         int left = i, right = i;
                         while (left > 0 && smooth[left] > th) left--;
                         while (right < nBins - 1 && smooth[right] > th) right++;
-                        double prod = smooth[i] * (right - left + 1);
-                        if (prod > maxProd) { maxProd = prod; bestPeakIdx = i; }
+                        peaks.push_back({i, smooth[i] * (right - left + 1)});
+                    }
+                }
+                std::sort(peaks.begin(), peaks.end(), [](const Peak& a, const Peak& b){
+                    return a.prod > b.prod;
+                });
+
+                int bestPeakIdx = 0;
+                if (!peaks.empty()) {
+                    bestPeakIdx = peaks[0].idx;
+                    // 如果最大波峰在最左侧 10%（Log后的背景区），且有次大波峰，则切换
+                    if (bestPeakIdx < nBins * 0.1 && peaks.size() > 1) {
+                        bestPeakIdx = peaks[1].idx;
+                        LOGW("pickWindowCenterWidth: Suppressing background peak at %d, using next peak at %d", peaks[0].idx, bestPeakIdx);
                     }
                 }
 
@@ -419,17 +432,24 @@ namespace CtSeriesProcessor {
                 const double hBin = span / static_cast<double>(nBins);
                 double edgeMin = minV + minIdx * hBin;
                 double edgeMax = minV + (maxIdx + 1) * hBin;
-                cOut = (edgeMin + edgeMax) * 0.5;
-                wOut = edgeMax - edgeMin;
-                return;
+
+                // 改进：确保最小窗宽，防止噪点导致对比度过硬
+                double wc = (edgeMin + edgeMax) * 0.5;
+                double ww = edgeMax - edgeMin;
+                if (ww < 400.0) ww = 400.0;
+
+                cOut = wc;
+                wOut = ww;
+                break;
             }
             case 4: // HIST_TYPE：min/max 兜底
             default: {
                 cOut = (minV + maxV) * 0.5;
                 wOut = std::max(1.0, span);
-                return;
+                break;
             }
         }
+        LOGI("pickWindowCenterWidth: method=%d -> C=%.1f, W=%.1f", method, cOut, wOut);
     }
 
     cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,

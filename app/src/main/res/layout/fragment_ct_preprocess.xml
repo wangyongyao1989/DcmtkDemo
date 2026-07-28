@@ -414,6 +414,14 @@
                     android:text="0.6"
                     android:textSize="11sp" />
             </LinearLayout>
+
+            <CheckBox
+                android:id="@+id/cb_log"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:text="Log变换"
+                android:textSize="12sp" />
         </GridLayout>
 
         <Button

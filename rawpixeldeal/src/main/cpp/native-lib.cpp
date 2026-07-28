@@ -295,9 +295,17 @@ static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
     std::vector<int> hist;
     const std::vector<int> *histPtr = nullptr;
     if (windowMethod == 1 || windowMethod == 2 || windowMethod == 3 || windowMethod == 6) {
+        // 改进建议：调窗统计应排除空气背景干扰。
+        // 如果当前 Mat 是 HU 域 (float)，先自动识别主体 ROI。
+        cv::Rect roi(0, 0, mat.cols, mat.rows);
+        if (mat.depth() == CV_32F) {
+            roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
+            LOGD("windowTo8u: Auto ROI for stats: [%d, %d, %dx%d]", roi.x, roi.y, roi.width, roi.height);
+        }
+
         std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
         CtSeriesProcessor::aggregateSeriesHistogram(
-                slices, cv::Rect(0, 0, mat.cols, mat.rows),
+                slices, roi,
                 minV, maxV, nBins, 1, hist);
         histPtr = &hist;
     }
@@ -455,6 +463,9 @@ static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
                 mat = CTPreprocess::SharpenUSM(mat, sigma, strength);
                 break;
             }
+            case CTPreprocess::Op::LOG_TRANSFORM:
+                mat = CTPreprocess::LogTransform(mat);
+                break;
             default:
                 LOGW("dispatchOps: unknown op id=%d, skipped", opId);
                 break;
@@ -690,6 +701,7 @@ native_processMedicalCTCustomWindow(JNIEnv *env, jclass, jbyteArray rawBuf, jint
     double c = windowCenter;
     double winW = windowWidth;
     if (winW < 1.0) winW = 1.0;
+    LOGI("native_processMedicalCTCustomWindow: C=%.1f, W=%.1f", c, winW);
 
     cv::Mat out8u;
     if (mat.depth() != CV_8U) {

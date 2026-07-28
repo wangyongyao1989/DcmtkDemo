@@ -383,9 +383,20 @@ class CTPreprocessFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                // 1) 读取数据并更新缓存
+                val bytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+                cachedRawBuffer = bytes
+                cachedWidth = w
+                cachedHeight = h
+                cachedBitDepth = 16 // Standard pipeline assumes 16-bit
+                cachedBigEndian = isBigEndian
+                cachedSteps = emptyList() // Not using Step API here
+
                 val result = withContext(Dispatchers.IO) {
                     MedicalCTPreprocess.processFullPipeline(
-                        context = ctx, assetName = assetName,
+                        rawBuffer = bytes,
                         width = w, height = h, tarW = tw, tarH = th,
                         slope = slope, intercept = intercept, bigEndian = isBigEndian
                     )
@@ -485,6 +496,7 @@ class CTPreprocessFragment : Fragment() {
                 listOf(1.5, binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 0.6)
             )
         )
+        if (binding.cbLog.isChecked) steps.add(PreprocessStep(Op.LOG_TRANSFORM))
 
         val btn = if (isWindowing) binding.btnWindowing else binding.btnRun
         btn.isEnabled = false
@@ -587,8 +599,9 @@ class CTPreprocessFragment : Fragment() {
      * P1-fix (问题3): 算子顺序校验与自动排序。
      *
      * 规则：
-     * 1. HU_CONVERT 必须在 INVERT_LUT 之前 —— 反转 raw 像素值后再做 HU 校正会失去物理意义。
-     * 2. HU_CONVERT 应在 8-bit 专用算子 (GLOBAL_EQUALIZE / CLAHE) 之前 ——
+     * 1. LOG_TRANSFORM 必须在 HU_CONVERT 之前 —— Log 必须作用于正强度数据，HU 域含负数会导致 NaN。
+     * 2. HU_CONVERT 必须在 INVERT_LUT 之前 —— 反转 raw 像素值后再做 HU 校正会失去物理意义。
+     * 3. HU_CONVERT 应在 8-bit 专用算子 (GLOBAL_EQUALIZE / CLAHE) 之前 ——
      *    虽然 C++ 层已做 HU 域精度保留，但从语义上 HU 校正应先于增强。
      *
      * @return 警告消息列表（空列表表示无需调整）
@@ -596,27 +609,36 @@ class CTPreprocessFragment : Fragment() {
     private fun validateAndSortSteps(steps: MutableList<PreprocessStep>): List<String> {
         val warnings = mutableListOf<String>()
 
+        val logIdx = steps.indexOfFirst { it.op == Op.LOG_TRANSFORM }
         val huIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
         val invertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
 
-        // 规则1: HU_CONVERT 必须在 INVERT_LUT 之前
-        if (huIdx >= 0 && invertIdx >= 0 && huIdx > invertIdx) {
-            val huStep = steps.removeAt(huIdx)
-            steps.add(invertIdx, huStep)
+        // 规则1: LOG_TRANSFORM 必须在 HU_CONVERT 之前
+        if (logIdx >= 0 && huIdx >= 0 && logIdx > huIdx) {
+            val logStep = steps.removeAt(logIdx)
+            val currentHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
+            steps.add(currentHuIdx, logStep)
+            warnings.add("Log变换已移至HU校正之前")
+        }
+
+        // 规则2: HU_CONVERT 必须在 INVERT_LUT 之前
+        val newHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
+        val newInvertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
+        if (newHuIdx >= 0 && newInvertIdx >= 0 && newHuIdx > newInvertIdx) {
+            val huStep = steps.removeAt(newHuIdx)
+            steps.add(newInvertIdx, huStep)
             warnings.add("HU校正已移至Invert LUTs之前")
         }
 
-        // 规则2: HU_CONVERT 应在 GLOBAL_EQUALIZE / CLAHE 之前
-        if (huIdx >= 0 || invertIdx >= 0) {
-            val newHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
-            if (newHuIdx >= 0) {
-                listOf(Op.GLOBAL_EQUALIZE, Op.CLAHE).forEach { enhOp ->
-                    val enhIdx = steps.indexOfFirst { it.op == enhOp }
-                    if (enhIdx >= 0 && enhIdx < newHuIdx) {
-                        val enhStep = steps.removeAt(enhIdx)
-                        steps.add(newHuIdx, enhStep)
-                        warnings.add("${enhOp.displayName}已移至HU校正之后")
-                    }
+        // 规则3: HU_CONVERT 应在 GLOBAL_EQUALIZE / CLAHE 之前
+        val finalHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
+        if (finalHuIdx >= 0) {
+            listOf(Op.GLOBAL_EQUALIZE, Op.CLAHE).forEach { enhOp ->
+                val enhIdx = steps.indexOfFirst { it.op == enhOp }
+                if (enhIdx >= 0 && enhIdx < finalHuIdx) {
+                    val enhStep = steps.removeAt(enhIdx)
+                    steps.add(finalHuIdx + 1, enhStep)
+                    warnings.add("${enhOp.displayName}已移至HU校正之后")
                 }
             }
         }

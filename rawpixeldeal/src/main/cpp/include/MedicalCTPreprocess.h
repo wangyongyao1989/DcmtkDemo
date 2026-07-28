@@ -28,6 +28,7 @@ namespace CTPreprocess {
         TAILOR         = 11,
         INVERT_LUT     = 12,
         FEATURE_SHARPEN= 13,
+        LOG_TRANSFORM  = 14,
     };
 
     // ===================== 一、Raw裸像素缓冲区载入（硬件void*内存，无DICOM） =====================
@@ -105,6 +106,9 @@ namespace CTPreprocess {
      * @return 锐化后的 Mat
      */
     cv::Mat SharpenUSM(const cv::Mat &src, double sigma = 1.5, double strength = 0.6);
+
+    // 6. 对数变换（抑制高动态范围，针对 X 光探测器）
+    cv::Mat LogTransform(const cv::Mat &src);
 
     // ===================== 完整预处理流水线（对应原文标准流程） =====================
     /**
