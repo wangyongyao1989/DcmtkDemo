@@ -34,6 +34,26 @@ extern "C" int getlogin_r(char *buf, size_t bufsize) {
     return 0;
 }
 
+/**
+ * A safe version of NewStringUTF that doesn't crash on invalid UTF-8 sequences.
+ * It uses Java's String(byte[], "UTF-8") constructor which replaces invalid bytes.
+ */
+static jstring SafeNewStringUTF(JNIEnv *env, const char *text) {
+    if (!text) return nullptr;
+    jsize len = (jsize) strlen(text);
+    jbyteArray bytes = env->NewByteArray(len);
+    env->SetByteArrayRegion(bytes, 0, len, (const jbyte *) text);
+    jstring encoding = env->NewStringUTF("UTF-8");
+    jclass strClass = env->FindClass("java/lang/String");
+    jmethodID ctor = env->GetMethodID(strClass, "<init>", "([BLjava/lang/String;)V");
+    jstring result = (jstring) env->NewObject(strClass, ctor, bytes, encoding);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(bytes);
+    env->DeleteLocalRef(encoding);
+    env->DeleteLocalRef(strClass);
+    return result;
+}
+
 // =============================================================================
 // JNI bridge: each native_* function only marshals JNI types <-> C++ types and
 // delegates to PacsClient / DicomFileIO. All JNIEnv usage stays here so the
@@ -81,8 +101,8 @@ static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz,
 
     std::map<std::string, std::string> info = DicomFileIO::loadFileInfo(path.c_str());
     for (const auto &kv: info) {
-        jstring key = env->NewStringUTF(kv.first.c_str());
-        jstring val = env->NewStringUTF(kv.second.c_str());
+        jstring key = SafeNewStringUTF(env, kv.first.c_str());
+        jstring val = SafeNewStringUTF(env, kv.second.c_str());
         env->CallObjectMethod(hashMap, putMethod, key, val);
         env->DeleteLocalRef(key);
         env->DeleteLocalRef(val);
@@ -226,7 +246,7 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
                                                           env->FindClass("java/lang/String"),
                                                           env->NewStringUTF(""));
     for (size_t i = 0; i < results.size(); ++i) {
-        env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
+        env->SetObjectArrayElement(ret, i, SafeNewStringUTF(env, results[i].c_str()));
     }
     return ret;
 }
@@ -249,7 +269,7 @@ static jobjectArray native_cFindByAccession(JNIEnv *env, jclass clazz, jstring h
                                                           env->FindClass("java/lang/String"),
                                                           env->NewStringUTF(""));
     for (size_t i = 0; i < results.size(); ++i) {
-        env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
+        env->SetObjectArrayElement(ret, i, SafeNewStringUTF(env, results[i].c_str()));
     }
     return ret;
 }
@@ -292,8 +312,8 @@ static jobjectArray native_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jin
                         OFString valueStr;
                         element->getOFStringArray(valueStr);
 
-                        jstring key = env->NewStringUTF(tagStr);
-                        jstring val = env->NewStringUTF(valueStr.c_str());
+                        jstring key = SafeNewStringUTF(env, tagStr);
+                        jstring val = SafeNewStringUTF(env, valueStr.c_str());
                         env->CallObjectMethod(hashMap, putMethod, key, val);
                         env->DeleteLocalRef(key);
                         env->DeleteLocalRef(val);
@@ -328,7 +348,7 @@ static jobjectArray native_cFindMWLByTemplate(JNIEnv *env, jclass clazz, jstring
                                                           env->FindClass("java/lang/String"),
                                                           env->NewStringUTF(""));
     for (size_t i = 0; i < results.size(); ++i) {
-        env->SetObjectArrayElement(ret, i, env->NewStringUTF(results[i].c_str()));
+        env->SetObjectArrayElement(ret, i, SafeNewStringUTF(env, results[i].c_str()));
     }
     return ret;
 }
@@ -391,8 +411,8 @@ static jobject buildStringMap(JNIEnv *env, const std::map<std::string, std::stri
     jmethodID putMethod = env->GetMethodID(mapClass, "put",
                                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
     for (const auto &kv: m) {
-        jstring key = env->NewStringUTF(kv.first.c_str());
-        jstring val = env->NewStringUTF(kv.second.c_str());
+        jstring key = SafeNewStringUTF(env, kv.first.c_str());
+        jstring val = SafeNewStringUTF(env, kv.second.c_str());
         env->CallObjectMethod(hashMap, putMethod, key, val);
         env->DeleteLocalRef(key);
         env->DeleteLocalRef(val);

@@ -46,6 +46,9 @@ std::map<std::string, std::string> DicomFileIO::loadFileInfo(const std::string &
     LOGD("native_loadDicomFileInfo: Dataset retrieved, loading all data into memory...");
     dataset->loadAllDataIntoMemory();
 
+    // Fix: Convert to UTF-8 to avoid JNI NewStringUTF crash with non-UTF8 characters
+    dataset->convertToUTF8();
+
     int elementCount = 0;
     DcmStack stack;
     while (dataset->nextObject(stack, OFTrue).good()) {
@@ -297,6 +300,9 @@ std::map<std::string, std::string> DicomFileIO::loadFileInfoNamed(const std::str
     DcmDataset *ds = ff.getDataset();
     ds->loadAllDataIntoMemory();
 
+    // Fix: Convert to UTF-8
+    ds->convertToUTF8();
+
     result["ExposureIndex"] = getStr(ds, DCM_ExposureIndex);
     result["PatientName"] = getStr(ds, DCM_PatientName);
     result["PatientBirthDate"] = getStr(ds, DCM_PatientBirthDate);
@@ -339,6 +345,8 @@ std::map<std::string, std::string> DicomFileIO::readWindowSettings(const std::st
         return result;
     }
     DcmDataset *ds = ff.getDataset();
+    // Fix: Convert to UTF-8
+    ds->convertToUTF8();
 
     Uint16 smallest = 0, largest = 4095;
     ds->findAndGetUint16(DCM_SmallestImagePixelValue, smallest);
@@ -526,11 +534,18 @@ bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordI
     ds->putAndInsertUint16(DCM_Rows, (Uint16) pixelData.rows);
     ds->putAndInsertUint16(DCM_Columns, (Uint16) pixelData.columns);
     ds->putAndInsertUint16(DCM_SamplesPerPixel, 1);
-    ds->putAndInsertString(DCM_PhotometricInterpretation, "MONOCHROME1");
+    // 修复：CT 标准通常使用 MONOCHROME2 (0为黑)
+    ds->putAndInsertString(DCM_PhotometricInterpretation, "MONOCHROME2");
     ds->putAndInsertUint16(DCM_BitsAllocated, 16);
     ds->putAndInsertUint16(DCM_BitsStored, 16);
     ds->putAndInsertUint16(DCM_HighBit, 15);
     ds->putAndInsertUint16(DCM_PixelRepresentation, 0);
+
+    // 修复：写入 Rescale 标签，使 Pixel Data 的原始值能正确映射回 HU 值
+    // HU = PixelValue * RescaleSlope + RescaleIntercept
+    ds->putAndInsertString(DCM_RescaleSlope, "1.0");
+    ds->putAndInsertString(DCM_RescaleIntercept, "-1024.0");
+    ds->putAndInsertString(DCM_RescaleType, "HU");
 
     {
         char ps[64];

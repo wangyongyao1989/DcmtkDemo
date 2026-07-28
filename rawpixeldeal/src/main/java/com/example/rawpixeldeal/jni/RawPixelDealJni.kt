@@ -387,6 +387,9 @@ object RawPixelDealJni {
     /**
      * 获取经过算子链处理（如裁剪）后的 16-bit 原始像素数据。
      * 用于写入 DICOM 文件。
+     *
+     * @param windowMethod 如果传入 >=0，则计算对应的调窗参数回传
+     * @param outInfo out [outW, outH, maxVal, winCenter*10, winWidth*10] (扩大10倍保留一位小数)
      */
     external fun getProcessedRawPixels(
         rawBuffer: ByteArray,
@@ -397,6 +400,7 @@ object RawPixelDealJni {
         isUint16: Boolean,
         ops: IntArray,
         params: DoubleArray,
+        windowMethod: Int,
         outInfo: IntArray
     ): ByteArray?
 }

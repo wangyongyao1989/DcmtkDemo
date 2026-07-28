@@ -295,23 +295,18 @@ class CTPreprocessFragment : Fragment() {
         val isBigEndian = cachedBigEndian
         val steps = cachedSteps
 
-        // 获取当前窗位窗宽
-        val center = mapCenter(binding.sbWindowCenter.progress).toInt()
-        val width = mapWidth(binding.sbWindowWidth.progress).toInt()
-
         binding.btnSaveDcm.isEnabled = false
         binding.tvInfo.text = "正在写入 DCM 文件..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    // 1) 获取处理（如裁剪）后的 16-bit 原始像素
-                    val (processedData, meta) = MedicalCTPreprocess.getProcessedRawPixels(
-                        raw, w, h, bitDepth, isBigEndian, true, steps
+                    // 1) 获取处理（如裁剪）后的 16-bit 原始像素，并强制使用 Peak Area 算法获取调窗参数
+                    // P3-fix: windowMethod = 6 (Peak Area Auto)
+                    val processed = MedicalCTPreprocess.getProcessedRawPixels(
+                        raw, w, h, bitDepth, isBigEndian, true, steps,
+                        windowMethod = 6
                     )
-                    
-                    val outW = meta[0]
-                    val outH = meta[1]
 
                     // 2) 构造文件名
                     val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
@@ -328,14 +323,14 @@ class CTPreprocessFragment : Fragment() {
                         toothPosition = "FULL_BODY"
                     )
 
-                    // 4) 准备像素数据结构
+                    // 4) 准备像素数据结构 - 使用 Peak Area 自动计算的数值
                     val pixelDataNew = PixelDataNew(
-                        rows = outH,
-                        columns = outW,
-                        data = processedData,
-                        largestImagePixelValue = 4095,
-                        win_center = center,
-                        win_width = width,
+                        rows = processed.height,
+                        columns = processed.width,
+                        data = processed.data,
+                        largestImagePixelValue = processed.maxVal,
+                        win_center = processed.windowCenter.toInt(),
+                        win_width = processed.windowWidth.toInt(),
                         exposure_leve = 1000,
                         standardDeviation = 0.0
                     )

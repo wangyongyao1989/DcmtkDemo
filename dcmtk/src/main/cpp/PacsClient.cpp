@@ -438,6 +438,7 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
+                            ds->convertToUTF8();
                             OFString name, id, acc, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
@@ -511,6 +512,7 @@ std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, i
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
+                            ds->convertToUTF8();
                             OFString name, id, acc, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
@@ -676,6 +678,7 @@ std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
     for (auto it = responses.begin(); it != responses.end(); ++it) {
         DcmDataset *ds = (*it)->m_dataset;
         if (ds) {
+            ds->convertToUTF8();
             // Log key fields from each response for troubleshooting
             OFString name, id, acc, studyUID, refPhys;
             ds->findAndGetOFString(DCM_PatientName, name);

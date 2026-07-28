@@ -450,23 +450,69 @@ object MedicalCTPreprocess {
     }
 
     /**
+     * P3-fix: 处理后的 Raw 像素及自动计算的窗宽窗位结果包
+     */
+    data class ProcessedRawResult(
+        val data: ByteArray,
+        val width: Int,
+        val height: Int,
+        val maxVal: Int,
+        val windowCenter: Double,
+        val windowWidth: Double
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as ProcessedRawResult
+            if (!data.contentEquals(other.data)) return false
+            if (width != other.width) return false
+            if (height != other.height) return false
+            if (maxVal != other.maxVal) return false
+            if (windowCenter != other.windowCenter) return false
+            return windowWidth == other.windowWidth
+        }
+
+        override fun hashCode(): Int {
+            var result = data.contentHashCode()
+            result = 31 * result + width
+            result = 31 * result + height
+            result = 31 * result + maxVal
+            result = 31 * result + windowCenter.hashCode()
+            result = 31 * result + windowWidth.hashCode()
+            return result
+        }
+    }
+
+    /**
      * 获取处理后的 16-bit 原始像素数据（大端序字节流），主要用于写 DCM 文件。
      * 包含裁剪、HU 转换等 dispatchOps 中的所有操作。
+     *
+     * @param windowMethod 如果 >=0，则同步计算该算法下的 WindowCenter/Width
      */
     fun getProcessedRawPixels(
         rawBuffer: ByteArray,
         width: Int, height: Int, bitDepth: Int,
         bigEndian: Boolean, isUint16: Boolean,
-        steps: List<PreprocessStep>
-    ): Pair<ByteArray, IntArray> {
+        steps: List<PreprocessStep>,
+        windowMethod: Int = -1
+    ): ProcessedRawResult {
         val opIds = steps.map { it.op.id }.toIntArray()
         val params = steps.flatMap { it.params }.toDoubleArray()
-        val outMeta = IntArray(4)
+        // outMeta: [outW, outH, maxVal, winCenter*10, winWidth*10]
+        val outMeta = IntArray(5)
         val data = RawPixelDealJni.getProcessedRawPixels(
             rawBuffer, width, height, bitDepth, bigEndian, isUint16,
-            opIds, params, outMeta
+            opIds, params, windowMethod, outMeta
         ) ?: throw Exception("Failed to get processed raw pixels")
-        return Pair(data, intArrayOf(outMeta[0], outMeta[1]))
+
+        return ProcessedRawResult(
+            data = data,
+            width = outMeta[0],
+            height = outMeta[1],
+            maxVal = outMeta[2],
+            windowCenter = outMeta[3] / 10.0,
+            windowWidth = outMeta[4] / 10.0
+        )
     }
 
     /**
