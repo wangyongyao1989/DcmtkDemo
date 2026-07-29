@@ -159,6 +159,66 @@
             android:enabled="false"
             android:text="写入DICOM (.dcm) + 展示" />
 
+        <!-- 4) Post Processing Tests -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="4) Post Processing (Native ImageProcessor)"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Contrast:" />
+                <SeekBar android:id="@+id/sb_contrast" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="50" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Brightness:" />
+                <SeekBar android:id="@+id/sb_brightness" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="50" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Sharpen:" />
+                <SeekBar android:id="@+id/sb_post_sharpen" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="0" />
+            </LinearLayout>
+
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="3">
+                <CheckBox android:id="@+id/cb_post_invert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invert" />
+                <CheckBox android:id="@+id/cb_post_false_color" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FalseColor" />
+                <CheckBox android:id="@+id/cb_post_relief" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Relief" />
+            </GridLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <Button android:id="@+id/btn_test_post_process" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Test ImageProcessor" />
+                <Button android:id="@+id/btn_test_rotation" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Rotate 90°" />
+                <Button android:id="@+id/btn_test_fine_grained" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Fine-grained Test" />
+            </LinearLayout>
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tv_info"
             android:layout_width="match_parent"

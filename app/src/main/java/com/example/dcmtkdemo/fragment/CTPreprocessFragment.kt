@@ -1,12 +1,15 @@
 package com.example.dcmtkdemo.fragment
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.dcmtkdemo.databinding.FragmentCtPreprocessBinding
@@ -63,7 +66,100 @@ class CTPreprocessFragment : Fragment() {
             runSaveDcmFile()
         }
 
+        binding.btnTestPostProcess.setOnClickListener {
+            runPostProcessTest()
+        }
+
+        binding.btnTestRotation.setOnClickListener {
+            runRotationTest()
+        }
+
+        binding.btnTestFineGrained.setOnClickListener {
+            runFineGrainedTest()
+        }
+
         setupAssetSpinner()
+    }
+
+    /**
+     * 测试后处理接口 (processImage)
+     */
+    private fun runPostProcessTest() {
+        val currentBitmap = (binding.ivAfter.drawable as? BitmapDrawable)?.bitmap ?: run {
+            Toast.makeText(context, "请先执行预处理以获取图像", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val contrast = binding.sbContrast.progress.toDouble() // 0-100
+        val brightness = binding.sbBrightness.progress.toDouble() // 0-100
+        val sharpen = binding.sbPostSharpen.progress.toDouble() // 0-100
+        val invert = binding.cbPostInvert.isChecked
+        val falseColor = binding.cbPostFalseColor.isChecked
+        val relief = binding.cbPostRelief.isChecked
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                MedicalCTPreprocess.processImage(
+                    currentBitmap, contrast, brightness, sharpen,
+                    invert, falseColor, relief, 0.0, 100.0
+                )
+            }
+            if (result != null) {
+                binding.ivAfter.setImageBitmap(result)
+                binding.tvInfo.text = "后处理完成: C=$contrast, B=$brightness, S=$sharpen"
+            }
+        }
+    }
+
+    /**
+     * 测试图像旋转
+     */
+    private fun runRotationTest() {
+        val currentBitmap = (binding.ivAfter.drawable as? BitmapDrawable)?.bitmap ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                MedicalCTPreprocess.applyRotation(currentBitmap, 90.0)
+            }
+            if (result != null) {
+                binding.ivAfter.setImageBitmap(result)
+                binding.tvInfo.text = "旋转 90° 完成"
+            }
+        }
+    }
+
+    /**
+     * 测试细粒度接口链式调用
+     */
+    private fun runFineGrainedTest() {
+        val currentBitmap = (binding.ivAfter.drawable as? BitmapDrawable)?.bitmap ?: return
+        val w = currentBitmap.width
+        val h = currentBitmap.height
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                // 1) 转灰度并获取 Native 地址
+                val addr = MedicalCTPreprocess.convertToGrayScale(currentBitmap)
+                if (addr == 0L) return@withContext null
+
+                // 2) 链式处理
+                MedicalCTPreprocess.appBrightnessContrast(addr, 50.0, 60.0, 0.0, 100.0)
+                MedicalCTPreprocess.applySharpen(addr, 30.0, 0.0, 100.0)
+                MedicalCTPreprocess.applyFalseColor(addr, true)
+                MedicalCTPreprocess.applyRotationMat(addr, 90.0)
+
+                // 3) 转回 Bitmap (如果是旋转 90 度，长宽需要交换)
+                val newW = if (90.0 % 180.0 != 0.0) h else w
+                val newH = if (90.0 % 180.0 != 0.0) w else h
+                val bmp = MedicalCTPreprocess.convertMatToBitmap(addr, newW, newH)
+                // 注意：在实际生产中，如果是 new 出来的 Mat 需要有对应的 release 机制，
+                // 这里简单演示 JNI 侧 new 出来的对象。
+                bmp
+            }
+            if (result != null) {
+                binding.ivAfter.setImageBitmap(result)
+                binding.tvInfo.text = "细粒度链式处理完成 (Gray -> BC -> Sharpen -> FalseColor)"
+            }
+        }
     }
 
     /**

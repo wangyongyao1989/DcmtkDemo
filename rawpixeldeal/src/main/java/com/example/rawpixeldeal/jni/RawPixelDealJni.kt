@@ -1,6 +1,7 @@
 package com.example.rawpixeldeal.jni
 
 import android.util.Log
+import android.graphics.Bitmap
 
 /**
  * rawpixeldeal 模块的 JNI 入口 - Simplified Version
@@ -56,4 +57,54 @@ object RawPixelDealJni {
         windowMethod: Int,
         outInfo: IntArray
     ): ByteArray?
+
+    /**
+     * 图像后处理：对比度、亮度、锐化、反色、伪彩、浮雕。
+     */
+    @JvmStatic
+    external fun processImage(
+        bitmap: Bitmap,
+        contrast: Double,
+        brightness: Double,
+        sharpenDegree: Double,
+        invert: Boolean,
+        falseColor: Boolean,
+        relief: Boolean,
+        min: Double,
+        max: Double
+    ): Bitmap?
+
+    /**
+     * 图像旋转。
+     */
+    @JvmStatic
+    external fun applyRotation(bitmap: Bitmap, angle: Double): Bitmap?
+
+    // 细粒度接口 (基于 Mat 地址)
+    @JvmStatic
+    external fun convertToGrayScale(bitmap: Bitmap): Long
+
+    @JvmStatic
+    external fun appBrightnessContrast(
+        matAddr: Long,
+        contrast: Double,
+        brightness: Double,
+        min: Double,
+        max: Double
+    )
+
+    @JvmStatic
+    external fun applySharpen(matAddr: Long, sharpen: Double, min: Double, max: Double)
+
+    @JvmStatic
+    external fun applyInvertedColor(matAddr: Long, invert: Boolean)
+
+    @JvmStatic
+    external fun applyFalseColor(matAddr: Long, falseColor: Boolean)
+
+    @JvmStatic
+    external fun applyRotationMat(matAddr: Long, angle: Double)
+
+    @JvmStatic
+    external fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap?
 }

@@ -251,4 +251,53 @@ object MedicalCTPreprocess {
             windowWidth = outInfo[4] / 10.0
         )
     }
+
+    // =========================================================================
+    // ImageProcessor 后处理接口
+    // =========================================================================
+
+    /**
+     * 一键图像后处理（包含亮度、对比度、锐化、反色、伪彩、浮雕）。
+     */
+    fun processImage(
+        bitmap: Bitmap,
+        contrast: Double,
+        brightness: Double,
+        sharpenDegree: Double,
+        invert: Boolean,
+        falseColor: Boolean,
+        relief: Boolean,
+        min: Double = 0.0,
+        max: Double = 100.0
+    ): Bitmap? = RawPixelDealJni.processImage(
+        bitmap, contrast, brightness, sharpenDegree, invert, falseColor, relief, min, max
+    )
+
+    /**
+     * 图像旋转。
+     */
+    fun applyRotation(bitmap: Bitmap, angle: Double): Bitmap? = 
+        RawPixelDealJni.applyRotation(bitmap, angle)
+
+    // 细粒度接口封装
+
+    fun convertToGrayScale(bitmap: Bitmap): Long = RawPixelDealJni.convertToGrayScale(bitmap)
+
+    fun appBrightnessContrast(matAddr: Long, contrast: Double, brightness: Double, min: Double = 0.0, max: Double = 100.0) =
+        RawPixelDealJni.appBrightnessContrast(matAddr, contrast, brightness, min, max)
+
+    fun applySharpen(matAddr: Long, sharpen: Double, min: Double = 0.0, max: Double = 100.0) =
+        RawPixelDealJni.applySharpen(matAddr, sharpen, min, max)
+
+    fun applyInvertedColor(matAddr: Long, invert: Boolean) =
+        RawPixelDealJni.applyInvertedColor(matAddr, invert)
+
+    fun applyFalseColor(matAddr: Long, falseColor: Boolean) =
+        RawPixelDealJni.applyFalseColor(matAddr, falseColor)
+
+    fun applyRotationMat(matAddr: Long, angle: Double) =
+        RawPixelDealJni.applyRotationMat(matAddr, angle)
+
+    fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap? =
+        RawPixelDealJni.convertMatToBitmap(matAddr, width, height)
 }
