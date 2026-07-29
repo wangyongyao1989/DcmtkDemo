@@ -17,6 +17,13 @@ object MedicalCTPreprocess {
     private const val TAG = "MedicalCTPreprocess"
 
     /**
+     * 内部缓存最后一次执行成功的预处理步骤。
+     * 供 getProcessedRawPixels 导出时使用，实现参数闭环。
+     */
+    @Volatile
+    private var lastAppliedSteps: List<PreprocessStep> = emptyList()
+
+    /**
      * 预处理算子枚举
      * 每个算子对应 Native 层 dispatchOps 中的一个逻辑分支。
      */
@@ -153,6 +160,9 @@ object MedicalCTPreprocess {
             outHuRange = outHuRange
         )
 
+        // 成功执行后，缓存步骤
+        lastAppliedSteps = steps.toList()
+
         val outW = outInfo[0]
         val outH = outInfo[1]
         val sharedMinD = outHuRange[0]
@@ -189,9 +199,9 @@ object MedicalCTPreprocess {
         bitDepth: Int,
         bigEndian: Boolean,
         isUint16: Boolean,
-        steps: List<PreprocessStep>,
         windowMethod: Int = 6
     ): ProcessedRawResult {
+        val steps = lastAppliedSteps
         val opIds = steps.map { it.op.id }.toIntArray()
         val params = steps.flatMap { it.params }.toDoubleArray()
         val outInfo = IntArray(5)

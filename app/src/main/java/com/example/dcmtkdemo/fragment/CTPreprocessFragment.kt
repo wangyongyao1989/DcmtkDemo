@@ -39,7 +39,6 @@ class CTPreprocessFragment : Fragment() {
     private var cachedHeight: Int = 0
     private var cachedBitDepth: Int = 16
     private var cachedBigEndian: Boolean = true
-    private var cachedSteps: List<PreprocessStep> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -134,7 +133,6 @@ class CTPreprocessFragment : Fragment() {
                 cachedHeight = h
                 cachedBitDepth = bitDepth
                 cachedBigEndian = isBigEndian
-                cachedSteps = steps.toList()
 
                 val results = withContext(Dispatchers.IO) {
                     MedicalCTPreprocess.processCompareWindows(
@@ -180,7 +178,7 @@ class CTPreprocessFragment : Fragment() {
                 val result = withContext(Dispatchers.IO) {
                     // 1) 获取处理（如裁剪）后的 16-bit 原始像素（大端），并强制使用 Peak Area 算法获取调窗参数
                     val processed = MedicalCTPreprocess.getProcessedRawPixels(
-                        raw, cachedWidth, cachedHeight, cachedBitDepth, cachedBigEndian, true, cachedSteps,
+                        raw, cachedWidth, cachedHeight, cachedBitDepth, cachedBigEndian, true,
                         windowMethod = 6
                     )
 
