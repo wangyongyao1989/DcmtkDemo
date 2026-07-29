@@ -27,6 +27,9 @@ static cv::Mat normalizeTo8u(const cv::Mat &mat) {
     return out8u;
 }
 
+/**
+ * 调窗映射逻辑：将高动态范围的原始数据(HU)线性映射到 8-bit 可视化空间。
+ */
 static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
     double minV = 0.0, maxV = 0.0;
     cv::minMaxLoc(mat, &minV, &maxV);
@@ -35,21 +38,29 @@ static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
     std::vector<int> hist;
     const std::vector<int> *histPtr = nullptr;
 
+    // 为了让直方图统计更准确，先进行自动人体 ROI 裁剪
     cv::Rect roi(0, 0, mat.cols, mat.rows);
     if (mat.depth() == CV_32F) {
         roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
     }
 
+    // 统计 ROI 区域内的直方图
     std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
     CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, minV, maxV, nBins, 1, hist);
     histPtr = &hist;
 
+    // 调用核心算法计算窗宽窗位
     double c = 127.5, w = 255.0;
     CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
     if (w < 1.0) w = 1.0;
+
+    // 执行最终的线性映射转换
     return CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
 }
 
+/**
+ * 算子分发中心：根据 Kotlin 传来的操作 ID 列表，依次执行对应的 OpenCV 图像处理。
+ */
 static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
                            const jdouble *pParams, jsize paramsCount) {
     int pIdx = 0;

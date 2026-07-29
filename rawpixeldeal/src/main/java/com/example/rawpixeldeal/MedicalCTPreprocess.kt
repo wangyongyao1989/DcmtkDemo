@@ -7,10 +7,19 @@ import java.nio.ByteOrder
 
 /**
  * 医学图像预处理门面 - Optimized Version
+ * 
+ * 职责：
+ * 1. 提供 Kotlin 友好接口，封装复杂的 JNI 调用。
+ * 2. 定义预处理算子 (Op) 和流水线步骤 (PreprocessStep)。
+ * 3. 统一管理处理结果的包装 (PreprocessResult/ProcessedRawResult)。
  */
 object MedicalCTPreprocess {
     private const val TAG = "MedicalCTPreprocess"
 
+    /**
+     * 预处理算子枚举
+     * 每个算子对应 Native 层 dispatchOps 中的一个逻辑分支。
+     */
     enum class Op(val id: Int, val displayName: String) {
         BILATERAL(3, "双边滤波"),
         CLAHE(8, "CLAHE增强"),
@@ -20,11 +29,17 @@ object MedicalCTPreprocess {
         FEATURE_SHARPEN(13, "特征锐化")
     }
 
+    /**
+     * 预处理步骤：包含算子类型及对应的控制参数。
+     */
     data class PreprocessStep(
         val op: Op,
         val params: List<Double> = emptyList()
     )
 
+    /**
+     * 可视化处理结果：包含缩放后的 Bitmap 以及原始 HU 范围。
+     */
     data class PreprocessResult(
         val bitmap: Bitmap,
         val outWidth: Int,
@@ -36,7 +51,8 @@ object MedicalCTPreprocess {
     )
 
     /**
-     * getProcessedRawPixels 的返回结果包装
+     * 原始像素处理结果：包含处理后的 16-bit 字节数组及自动计算的调窗参数。
+     * 主要用于写入 DICOM 文件。
      */
     data class ProcessedRawResult(
         val data: ByteArray,
@@ -48,7 +64,11 @@ object MedicalCTPreprocess {
     )
 
     /**
-     * 调窗对比：用于 "最优调节" 流水线。
+     * 调窗对比接口：
+     * 用于在同一份预处理数据上，快速对比不同调窗算法的效果。
+     * 重负载操作（如双边滤波、裁剪）仅执行一次，提高响应速度。
+     * 
+     * @param windowMethods 需要对比的方法列表，-1 代表线性映射，6 为 Peak Area Auto。
      */
     fun processCompareWindows(
         rawBuffer: ByteArray,
@@ -110,7 +130,9 @@ object MedicalCTPreprocess {
     }
 
     /**
-     * 获取经过算子链处理后的 16-bit 原始像素（大端），用于写 DCM
+     * 导出专用接口：
+     * 获取经过算子链处理（如裁剪、校正）后的 16-bit 原始像素（大端序）。
+     * 返回结果中包含自动计算出的最佳窗位窗宽。
      */
     fun getProcessedRawPixels(
         rawBuffer: ByteArray,
@@ -136,6 +158,7 @@ object MedicalCTPreprocess {
             width = outInfo[0],
             height = outInfo[1],
             maxVal = outInfo[2],
+            // 内部回传时为了保留精度乘了10，此处还原
             windowCenter = outInfo[3] / 10.0,
             windowWidth = outInfo[4] / 10.0
         )
