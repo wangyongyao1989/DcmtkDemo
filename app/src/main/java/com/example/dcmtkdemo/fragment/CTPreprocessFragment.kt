@@ -53,7 +53,11 @@ class CTPreprocessFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         binding.btnOptimalAdjustment.setOnClickListener {
-            runOptimalAdjustment()
+            runPipeline(useDefaultParams = true)
+        }
+
+        binding.btnCustomAdjustment.setOnClickListener {
+            runPipeline(useDefaultParams = false)
         }
 
         binding.btnWriteDcm.setOnClickListener {
@@ -64,59 +68,59 @@ class CTPreprocessFragment : Fragment() {
     }
 
     /**
-     * 根据 UI 勾选动态执行预处理流水线
+     * 核心预处理流程逻辑
+     * @param useDefaultParams 是否使用 MedicalCTPreprocess 中的默认参数
      */
     @SuppressLint("SetTextI18n")
-    private fun runOptimalAdjustment() {
+    private fun runPipeline(useDefaultParams: Boolean) {
         val ctx = context ?: return
         val assetName = binding.spinnerAsset.selectedItem?.toString() ?: return
         val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
         val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
         val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
         val isBigEndian = binding.rbBigEndian.isChecked
-        val slope = binding.etSlope.text.toString().toDoubleOrNull() ?: 1.0
-        val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
 
-        val steps = mutableListOf<PreprocessStep>()
-        
-        // 1. HU 校正
-        if (binding.cbHu.isChecked) {
-            steps.add(PreprocessStep(Op.HU_CONVERT, listOf(slope, intercept)))
-        }
-        
-        // 2. 双边去噪
-        if (binding.cbBilateral.isChecked) {
-            val d = binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0
-            steps.add(PreprocessStep(Op.BILATERAL, listOf(d, 75.0, 75.0)))
-        }
-        
-        // 3. CLAHE 增强
-        if (binding.cbClahe.isChecked) {
-            val clip = binding.etClaheClip.text.toString().toDoubleOrNull() ?: 3.0
-            steps.add(PreprocessStep(Op.CLAHE, listOf(clip, 8.0, 8.0)))
-        }
-        
-        // 4. 图片裁剪
-        if (binding.cbTailor.isChecked) {
-            steps.add(PreprocessStep(Op.TAILOR, listOf(40000.0, 1.0, 25.0, 10.0)))
-        }
-        
-        // 5. 特征锐化
-        if (binding.cbSharpen.isChecked) {
-            val strength = binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 6.0
-            steps.add(PreprocessStep(Op.FEATURE_SHARPEN, listOf(1.5, strength)))
-        }
-        
-        // 6. Invert LUTs
-        if (binding.cbInvert.isChecked) {
-            steps.add(PreprocessStep(Op.INVERT_LUT))
-        }
+        // 收集勾选的算子
+        val selectedOps = mutableListOf<Op>()
+        if (binding.cbHu.isChecked) selectedOps.add(Op.HU_CONVERT)
+        if (binding.cbTailor.isChecked) selectedOps.add(Op.TAILOR)
+        if (binding.cbInvert.isChecked) selectedOps.add(Op.INVERT_LUT)
+        if (binding.cbBilateral.isChecked) selectedOps.add(Op.BILATERAL)
+        if (binding.cbClahe.isChecked) selectedOps.add(Op.CLAHE)
+        if (binding.cbSharpen.isChecked) selectedOps.add(Op.FEATURE_SHARPEN)
 
-        validateAndSortSteps(steps)
+        val steps = if (useDefaultParams) {
+            // 使用模块提供的默认步骤生成逻辑
+            selectedOps.map { MedicalCTPreprocess.generateStepWithDefaultParams(it) }.toMutableList().also {
+                MedicalCTPreprocess.validateAndSortSteps(it)
+            }
+        } else {
+            // 使用 UI 当前输入的自定义参数
+            val slope = binding.etSlope.text.toString().toDoubleOrNull() ?: 1.0
+            val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
+            val dBilateral = binding.etBilateralD.text.toString().toDoubleOrNull() ?: 5.0
+            val clipClahe = binding.etClaheClip.text.toString().toDoubleOrNull() ?: 3.0
+            val strengthSharpen = binding.etSharpenStrength.text.toString().toDoubleOrNull() ?: 6.0
+
+            val customSteps = mutableListOf<PreprocessStep>()
+            selectedOps.forEach { op ->
+                when (op) {
+                    Op.HU_CONVERT -> customSteps.add(PreprocessStep(op, listOf(slope, intercept)))
+                    Op.BILATERAL -> customSteps.add(PreprocessStep(op, listOf(dBilateral, 75.0, 75.0)))
+                    Op.CLAHE -> customSteps.add(PreprocessStep(op, listOf(clipClahe, 8.0, 8.0)))
+                    Op.TAILOR -> customSteps.add(PreprocessStep(op, listOf(40000.0, 1.0, 25.0, 10.0)))
+                    Op.FEATURE_SHARPEN -> customSteps.add(PreprocessStep(op, listOf(1.5, strengthSharpen)))
+                    Op.INVERT_LUT -> customSteps.add(PreprocessStep(op))
+                }
+            }
+            MedicalCTPreprocess.validateAndSortSteps(customSteps)
+            customSteps
+        }
 
         binding.btnOptimalAdjustment.isEnabled = false
+        binding.btnCustomAdjustment.isEnabled = false
         binding.btnWriteDcm.isEnabled = false
-        binding.tvInfo.text = "正在执行预处理流水线..."
+        binding.tvInfo.text = if (useDefaultParams) "正在执行最优调节..." else "正在执行自定义流水线..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -124,7 +128,7 @@ class CTPreprocessFragment : Fragment() {
                     ctx.assets.open(assetName).use { it.readBytes() }
                 }
 
-                // 缓存参数，供写 DCM 使用
+                // 缓存参数，供后续 runSaveDcmFile 使用 (确保写入的是最后一次执行的结果)
                 cachedRawBuffer = bytes
                 cachedWidth = w
                 cachedHeight = h
@@ -148,7 +152,7 @@ class CTPreprocessFragment : Fragment() {
                 
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
-                binding.tvInfo.text = "处理完成. 算法: Peak Area Auto"
+                binding.tvInfo.text = "处理完成. 模式: ${if (useDefaultParams) "最优调节" else "自定义"}"
                 binding.tvSummary.text = generateSummary(steps, true, "Peak Area Auto")
                 binding.btnWriteDcm.isEnabled = true
             } catch (e: Exception) {
@@ -156,6 +160,7 @@ class CTPreprocessFragment : Fragment() {
                 binding.tvInfo.text = "Error: ${e.message}"
             } finally {
                 binding.btnOptimalAdjustment.isEnabled = true
+                binding.btnCustomAdjustment.isEnabled = true
             }
         }
     }
@@ -236,17 +241,6 @@ class CTPreprocessFragment : Fragment() {
             val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, fileList)
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             binding.spinnerAsset.adapter = adapter
-        }
-    }
-
-    private fun validateAndSortSteps(steps: MutableList<PreprocessStep>) {
-        val huIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
-        val invertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
-
-        if (huIdx >= 0 && invertIdx >= 0 && huIdx > invertIdx) {
-            val huStep = steps.removeAt(huIdx)
-            val newInvertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
-            steps.add(newInvertIdx, huStep)
         }
     }
 

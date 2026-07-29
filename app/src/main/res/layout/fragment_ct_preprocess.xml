@@ -145,6 +145,13 @@
             android:text="执行最优调节" />
 
         <Button
+            android:id="@+id/btn_custom_adjustment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="执行以上预处理后调窗" />
+
+        <Button
             android:id="@+id/btn_write_dcm"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
