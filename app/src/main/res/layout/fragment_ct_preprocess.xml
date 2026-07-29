@@ -458,6 +458,14 @@
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:text="图片裁剪后标准流程" />
+
+            <Button
+                android:id="@+id/btn_optimal_adjustment"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="最优的调节" />
         </LinearLayout>
 
         <!-- 5) 色度反转 (Chromatic Inversion) -->

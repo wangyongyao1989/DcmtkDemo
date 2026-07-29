@@ -89,6 +89,9 @@ class CTPreprocessFragment : Fragment() {
         binding.btnTailorPipeline.setOnClickListener {
             runTailorPipeline()
         }
+        binding.btnOptimalAdjustment.setOnClickListener {
+            runOptimalAdjustment()
+        }
 
         // 5) Chromatic Inversion
         binding.btnInvertLut.setOnClickListener {
@@ -451,6 +454,94 @@ class CTPreprocessFragment : Fragment() {
         binding.cbClahe.isChecked = true
         binding.cbInvert.isChecked = false
         runPreprocessChain(isWindowing = false)
+    }
+
+    /**
+     * 执行“最优的调节”一键流水线 (Requirement 1 & 2)
+     * 流程：HU校正 -> 双边去噪(5) -> CLAHE增强(3) -> 图片裁剪 -> 特征锐化(6) -> Invert LUTs
+     * 算法：Peak Area (6)
+     */
+    @SuppressLint("SetTextI18n")
+    private fun runOptimalAdjustment() {
+        // 1) 同步 UI 状态（实现一键式勾选与参数填充）
+        binding.cbHu.isChecked = true
+        binding.cbBilateral.isChecked = true
+        binding.etBilateralD.setText("5")
+        binding.cbClahe.isChecked = true
+        binding.etClaheClip.setText("3.0")
+        binding.cbTailor.isChecked = true
+        binding.cbSharpen.isChecked = true
+        binding.etSharpenStrength.setText("6.0")
+        binding.cbInvert.isChecked = true
+        
+        // 选中 Peak Area 调窗算法
+        binding.rbWinPeak.performClick()
+
+        val ctx = context ?: return
+        val assetName = binding.spinnerAsset.selectedItem?.toString() ?: return
+        val w = binding.etWidth.text.toString().toIntOrNull() ?: 1112
+        val h = binding.etHeight.text.toString().toIntOrNull() ?: 1740
+        val bitDepth = if (binding.rb16bit.isChecked) 16 else 8
+        val isBigEndian = binding.rbBigEndian.isChecked
+        val slope = binding.etSlope.text.toString().toDoubleOrNull() ?: 1.0
+        val intercept = binding.etIntercept.text.toString().toDoubleOrNull() ?: -1024.0
+
+        val steps = mutableListOf<PreprocessStep>()
+        // 1. HU 校正
+        steps.add(PreprocessStep(Op.HU_CONVERT, listOf(slope, intercept)))
+        // 2. 双边去噪 (d=5)
+        steps.add(PreprocessStep(Op.BILATERAL, listOf(5.0, 75.0, 75.0)))
+        // 3. CLAHE 增强 (clip=3)
+        steps.add(PreprocessStep(Op.CLAHE, listOf(3.0, 8.0, 8.0)))
+        // 4. 图片裁剪
+        steps.add(PreprocessStep(Op.TAILOR, listOf(40000.0, 1.0, 25.0, 10.0)))
+        // 5. 特征锐化 (strength=6)
+        steps.add(PreprocessStep(Op.FEATURE_SHARPEN, listOf(1.5, 6.0)))
+        // 6. Invert LUTs
+        steps.add(PreprocessStep(Op.INVERT_LUT))
+
+        // 自动排序校验
+        validateAndSortSteps(steps)
+
+        binding.btnOptimalAdjustment.isEnabled = false
+        binding.tvInfo.text = "执行最优调节流水线 (Peak Area)..."
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    ctx.assets.open(assetName).use { it.readBytes() }
+                }
+                cachedRawBuffer = bytes
+                cachedWidth = w
+                cachedHeight = h
+                cachedBitDepth = bitDepth
+                cachedBigEndian = isBigEndian
+                cachedSteps = steps.toList()
+
+                val results = withContext(Dispatchers.IO) {
+                    MedicalCTPreprocess.processCompareWindows(
+                        rawBuffer = bytes,
+                        width = w,
+                        height = h,
+                        bitDepth = bitDepth,
+                        bigEndian = isBigEndian,
+                        isUint16 = true,
+                        steps = steps,
+                        windowMethods = listOf(-1, 6) // -1: None (min-max), 6: Peak Area
+                    )
+                }
+                if (_binding == null) return@launch
+                binding.ivBefore.setImageBitmap(results[0].bitmap)
+                binding.ivAfter.setImageBitmap(results[1].bitmap)
+                binding.tvInfo.text = "最优调节完成. 算法: Peak Area Auto"
+                binding.tvSummary.text = generateSummary(steps, true, "Peak Area Auto")
+            } catch (e: Exception) {
+                Log.e(TAG, "Optimal adjustment failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                binding.btnOptimalAdjustment.isEnabled = true
+            }
+        }
     }
 
     /**
