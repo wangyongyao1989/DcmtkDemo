@@ -1,6 +1,7 @@
 package com.example.rawpixeldeal
 
 import android.graphics.Bitmap
+import com.example.rawpixeldeal.MedicalCTPreprocess.Op
 import com.example.rawpixeldeal.jni.RawPixelDealJni
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -22,6 +23,8 @@ object MedicalCTPreprocess {
      */
     @Volatile
     private var lastAppliedSteps: List<PreprocessStep> = emptyList()
+
+    fun getLastAppliedSteps(): List<PreprocessStep> = lastAppliedSteps
 
     /**
      * 预处理算子枚举
@@ -90,6 +93,33 @@ object MedicalCTPreprocess {
         val steps = ops.map { generateStepWithDefaultParams(it) }.toMutableList()
         validateAndSortSteps(steps)
         return processCompareWindows(rawBuffer, width, height, bitDepth, bigEndian, isUint16, steps, windowMethods)
+    }
+
+    /**
+     * 自动执行全套最优预处理流水线
+     * 包含：HU校正、智能裁剪、双边滤波、CLAHE增强、特征锐化。
+     * 内部使用默认参数，并生成对比调窗结果（线性 vs Peak Area Auto）。
+     */
+    fun runOptimalPipeline(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean = true,
+        isUint16: Boolean = true
+    ): List<PreprocessResult> {
+        val ops = listOf(
+            Op.HU_CONVERT,
+            Op.TAILOR,
+            Op.BILATERAL,
+            Op.CLAHE,
+            Op.FEATURE_SHARPEN,
+            Op.INVERT_LUT
+        )
+        // 使用默认调窗方法 [-1, 6]
+        return processWithDefaultOptions(
+            rawBuffer, width, height, bitDepth, bigEndian, isUint16, ops
+        )
     }
 
     /**
