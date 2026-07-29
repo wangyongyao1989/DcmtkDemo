@@ -38,4 +38,22 @@ object RawPixelDealJni {
         outInfo: IntArray,
         outHuRange: DoubleArray?
     )
+
+    /**
+     * 获取经过算子链处理（如裁剪）后的 16-bit 原始像素数据。
+     * 用于写入 DICOM 文件。
+     */
+    @JvmStatic
+    external fun getProcessedRawPixels(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean,
+        isUint16: Boolean,
+        ops: IntArray,
+        params: DoubleArray,
+        windowMethod: Int,
+        outInfo: IntArray
+    ): ByteArray?
 }

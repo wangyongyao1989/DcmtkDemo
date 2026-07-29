@@ -20,6 +20,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * CTPreprocessFragment - Optimized Version
@@ -30,7 +33,13 @@ class CTPreprocessFragment : Fragment() {
     private var _binding: FragmentCtPreprocessBinding? = null
     private val binding get() = _binding!!
 
-    private var lastResult: MedicalCTPreprocess.PreprocessResult? = null
+    // 缓存当前处理参数，用于写入 DCM 时重新提取像素
+    private var cachedRawBuffer: ByteArray? = null
+    private var cachedWidth: Int = 0
+    private var cachedHeight: Int = 0
+    private var cachedBitDepth: Int = 16
+    private var cachedBigEndian: Boolean = true
+    private var cachedSteps: List<PreprocessStep> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -115,6 +124,14 @@ class CTPreprocessFragment : Fragment() {
                     ctx.assets.open(assetName).use { it.readBytes() }
                 }
 
+                // 缓存参数，供写 DCM 使用
+                cachedRawBuffer = bytes
+                cachedWidth = w
+                cachedHeight = h
+                cachedBitDepth = bitDepth
+                cachedBigEndian = isBigEndian
+                cachedSteps = steps.toList()
+
                 val results = withContext(Dispatchers.IO) {
                     MedicalCTPreprocess.processCompareWindows(
                         rawBuffer = bytes,
@@ -128,8 +145,6 @@ class CTPreprocessFragment : Fragment() {
                     )
                 }
                 if (_binding == null) return@launch
-                
-                lastResult = results[1] // 保存 Peak Area 结果用于写 DCM
                 
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
@@ -149,19 +164,30 @@ class CTPreprocessFragment : Fragment() {
      * 将处理后的数据保存为 DICOM 文件
      */
     private fun runSaveDcmFile() {
-        val result = lastResult ?: return
+        val raw = cachedRawBuffer ?: return
         val ctx = context ?: return
         
         binding.btnWriteDcm.isEnabled = false
         binding.tvInfo.text = "正在写入 DICOM 文件..."
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val success = withContext(Dispatchers.IO) {
-                try {
-                    val outDir = File(ctx.getExternalFilesDir(null), "dcm_out")
-                    if (!outDir.exists()) outDir.mkdirs()
-                    val outFile = File(outDir, "processed_${System.currentTimeMillis()}.dcm")
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    // 1) 获取处理（如裁剪）后的 16-bit 原始像素（大端），并强制使用 Peak Area 算法获取调窗参数
+                    val processed = MedicalCTPreprocess.getProcessedRawPixels(
+                        raw, cachedWidth, cachedHeight, cachedBitDepth, cachedBigEndian, true, cachedSteps,
+                        windowMethod = 6
+                    )
 
+                    // 2) 构造文件名
+                    val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
+                    val fileName = "processed_${sdf.format(Date())}.dcm"
+                    val outDir = File(ctx.filesDir, "dcm_out")
+                    if (!outDir.exists()) outDir.mkdirs()
+                    val dcmFile = File(outDir, fileName)
+                    val dcmPath = dcmFile.absolutePath
+
+                    // 3) 准备 DCM 元数据
                     val record = ScanRecord(
                         examineNo = System.currentTimeMillis(),
                         patientName = "CT_PREPROCESS_TEST",
@@ -170,30 +196,35 @@ class CTPreprocessFragment : Fragment() {
                         toothPosition = "FULL_BODY"
                     )
 
-                    // 注意：DCMTK writeDcmFile 需要原始像素数据。
-                    // 这里简化逻辑：如果是演示性质，通常需要将处理后的 HU 数据回填。
-                    // 实际项目中，PixelDataNew 的 data 应该与 result 关联。
-                    val px = PixelDataNew(
-                        rows = result.outHeight,
-                        columns = result.outWidth,
-                        data = null, // 这里暂时传 null 或需要重新提取像素
-                        largestImagePixelValue = result.maxVal,
-                        win_center = (result.minVal + result.maxVal) / 2,
-                        win_width = result.maxVal - result.minVal,
-                        exposure_leve = 0,
+                    // 4) 准备像素数据结构
+                    val pixelDataNew = PixelDataNew(
+                        rows = processed.height,
+                        columns = processed.width,
+                        data = processed.data,
+                        largestImagePixelValue = processed.maxVal,
+                        win_center = processed.windowCenter.toInt(),
+                        win_width = processed.windowWidth.toInt(),
+                        exposure_leve = 1000,
                         standardDeviation = 0.0
                     )
 
-                    DcmtkJni.writeDcmFile(record, px, outFile.absolutePath)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Save DCM failed", e)
-                    false
+                    // 5) 调用 dcmtk 模块写入
+                    val ok = DcmtkJni.writeDcmFile(record, pixelDataNew, dcmPath)
+                    if (ok) dcmPath else null
                 }
-            }
 
-            if (_binding == null) return@launch
-            binding.tvInfo.text = if (success) "DICOM 写入成功" else "DICOM 写入失败"
-            binding.btnWriteDcm.isEnabled = true
+                if (_binding == null) return@launch
+                if (result != null) {
+                    binding.tvInfo.text = "DICOM 写入成功: $result"
+                } else {
+                    binding.tvInfo.text = "DICOM 写入失败"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Save DCM failed", e)
+                binding.tvInfo.text = "Error: ${e.message}"
+            } finally {
+                binding.btnWriteDcm.isEnabled = true
+            }
         }
     }
 
@@ -212,10 +243,9 @@ class CTPreprocessFragment : Fragment() {
         val huIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
         val invertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
 
-        val newHuIdx = steps.indexOfFirst { it.op == Op.HU_CONVERT }
-        val newInvertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
-        if (newHuIdx >= 0 && newInvertIdx >= 0 && newHuIdx > newInvertIdx) {
-            val huStep = steps.removeAt(newHuIdx)
+        if (huIdx >= 0 && invertIdx >= 0 && huIdx > invertIdx) {
+            val huStep = steps.removeAt(huIdx)
+            val newInvertIdx = steps.indexOfFirst { it.op == Op.INVERT_LUT }
             steps.add(newInvertIdx, huStep)
         }
     }
@@ -227,7 +257,6 @@ class CTPreprocessFragment : Fragment() {
     ): String = buildString {
         appendLine(if (isWin) "【调窗前后类比分析】" else "【预处理操作总结】")
         steps.forEach { step ->
-            val p = step.params
             when (step.op) {
                 Op.TAILOR -> appendLine("- 图片裁剪：自动定位主体并旋转，去除无效背景。")
                 Op.INVERT_LUT -> appendLine("- Invert LUTs：色度反转，改变图像极性。")

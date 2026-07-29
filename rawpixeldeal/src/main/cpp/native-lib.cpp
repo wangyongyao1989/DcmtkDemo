@@ -175,12 +175,109 @@ native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, ji
     env->ReleaseIntArrayElements(windowMethods, pMethods, JNI_ABORT);
 }
 
+/**
+ * 获取经过处理（如裁剪）后的 16-bit 原始像素。
+ * 为 writeDcmFile 提供大端序字节（根据 dcmtk/DicomFileIO.cpp 的读取原则）。
+ */
+static jbyteArray
+native_getProcessedRawPixels(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
+                             jint depth, jboolean big, jboolean isU16,
+                             jintArray ops, jdoubleArray params, jint windowMethod, jintArray info) {
+    jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
+    jint *pOps = env->GetIntArrayElements(ops, nullptr);
+    jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
+    jsize opsCount = env->GetArrayLength(ops);
+    const jsize paramsCount = env->GetArrayLength(params);
+
+    // 1) 加载与处理
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
+
+    if (mat.empty()) {
+        env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+        env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+        env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+        return nullptr;
+    }
+
+    // 2) 统一转为 16-bit (如果 mat 是 float/HU)
+    cv::Mat mat16;
+    if (mat.depth() == CV_32F) {
+        // 修复：HU 域数据含有负值 (-1024)，直接 convertTo CV_16U 会截断负值。
+        // 我们通过 +1024 将其平移到无符号区间 [0, 4000+]。
+        // 配合 DCMTK 写入的 RescaleIntercept = -1024，查看器可以还原回原始 HU。
+        cv::Mat shifted;
+        cv::add(mat, cv::Scalar(1024.0), shifted);
+        shifted.convertTo(mat16, CV_16U);
+    } else {
+        mat.convertTo(mat16, CV_16U);
+    }
+
+    // 3) 根据 DicomFileIO.cpp 的 writeDcmFileFull 原则：需要提供大端序字节流。
+    int total = mat16.rows * mat16.cols;
+    jsize byteCount = static_cast<jsize>(total * 2);
+    jbyteArray res = env->NewByteArray(byteCount);
+    std::vector<uint8_t> bigEndianBuf(byteCount);
+
+    const ushort *ptr = mat16.ptr<ushort>();
+    for (int i = 0; i < total; ++i) {
+        ushort val = ptr[i];
+        bigEndianBuf[2 * i] = static_cast<uint8_t>(val >> 8);
+        bigEndianBuf[2 * i + 1] = static_cast<uint8_t>(val & 0xFF);
+    }
+    env->SetByteArrayRegion(res, 0, byteCount, reinterpret_cast<const jbyte *>(bigEndianBuf.data()));
+
+    // 4) 输出扩展信息：[outW, outH, maxVal, winCenter*10, winWidth*10]
+    if (info && env->GetArrayLength(info) >= 5) {
+        jint *pI = env->GetIntArrayElements(info, nullptr);
+        pI[0] = mat16.cols;
+        pI[1] = mat16.rows;
+
+        double mn, mx;
+        cv::minMaxLoc(mat16, &mn, &mx);
+        pI[2] = (int) mx; // largestImagePixelValue
+
+        double c = 0, winW = 0;
+        if (windowMethod >= 0) {
+            double hMin, hMax;
+            cv::minMaxLoc(mat, &hMin, &hMax);
+            int nBins = (windowMethod == 6) ? 500 : 256;
+            std::vector<int> hist;
+            const std::vector<int> *histPtr = nullptr;
+
+            cv::Rect roi(0, 0, mat.cols, mat.rows);
+            if (mat.depth() == CV_32F) {
+                roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
+            }
+            std::vector<cv::Mat> slices = {mat};
+            CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, hMin, hMax, nBins, 1, hist);
+            histPtr = &hist;
+
+            CtSeriesProcessor::pickWindowCenterWidth(windowMethod, hMin, hMax, histPtr, nBins, c, winW);
+        } else {
+            // fallback if no method
+            c = (mn + mx) * 0.5 - 1024.0;
+            winW = (mx - mn);
+        }
+        pI[3] = (int)(c * 10);
+        pI[4] = (int)(winW * 10);
+
+        env->ReleaseIntArrayElements(info, pI, 0);
+    }
+
+    env->ReleaseByteArrayElements(rawBuf, pRaw, JNI_ABORT);
+    env->ReleaseIntArrayElements(ops, pOps, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(params, pParams, JNI_ABORT);
+    return res;
+}
+
 // =============================================================================
 // JNI 注册
 // =============================================================================
 static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDealJni";
 static const JNINativeMethod kMethods[] = {
         {"processMedicalCTCompareWindows", "([BIIIZZ[I[D[I[[B[I[D)V", (void *) native_processMedicalCTCompareWindows},
+        {"getProcessedRawPixels",          "([BIIIZZ[I[DI[I)[B",     (void *) native_getProcessedRawPixels},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {

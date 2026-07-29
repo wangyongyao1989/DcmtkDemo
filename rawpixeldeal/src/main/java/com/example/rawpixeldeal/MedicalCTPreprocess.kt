@@ -6,8 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * 医学图像预处理门面 - Simplified Version
- * Only keeps operations and logic used by Optimal Adjustment.
+ * 医学图像预处理门面 - Optimized Version
  */
 object MedicalCTPreprocess {
     private const val TAG = "MedicalCTPreprocess"
@@ -34,6 +33,18 @@ object MedicalCTPreprocess {
         val maxVal: Int,
         val minValD: Double = minVal.toDouble(),
         val maxValD: Double = maxVal.toDouble()
+    )
+
+    /**
+     * getProcessedRawPixels 的返回结果包装
+     */
+    data class ProcessedRawResult(
+        val data: ByteArray,
+        val width: Int,
+        val height: Int,
+        val maxVal: Int,
+        val windowCenter: Double,
+        val windowWidth: Double
     )
 
     /**
@@ -96,5 +107,37 @@ object MedicalCTPreprocess {
                 maxValD = sharedMaxD
             )
         }
+    }
+
+    /**
+     * 获取经过算子链处理后的 16-bit 原始像素（大端），用于写 DCM
+     */
+    fun getProcessedRawPixels(
+        rawBuffer: ByteArray,
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        bigEndian: Boolean,
+        isUint16: Boolean,
+        steps: List<PreprocessStep>,
+        windowMethod: Int = 6
+    ): ProcessedRawResult {
+        val opIds = steps.map { it.op.id }.toIntArray()
+        val params = steps.flatMap { it.params }.toDoubleArray()
+        val outInfo = IntArray(5)
+
+        val processedData = RawPixelDealJni.getProcessedRawPixels(
+            rawBuffer, width, height, bitDepth, bigEndian, isUint16,
+            opIds, params, windowMethod, outInfo
+        ) ?: throw IllegalStateException("native getProcessedRawPixels returned null")
+
+        return ProcessedRawResult(
+            data = processedData,
+            width = outInfo[0],
+            height = outInfo[1],
+            maxVal = outInfo[2],
+            windowCenter = outInfo[3] / 10.0,
+            windowWidth = outInfo[4] / 10.0
+        )
     }
 }
