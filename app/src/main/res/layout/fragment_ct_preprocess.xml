@@ -114,23 +114,23 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:columnCount="2">
-            <CheckBox android:id="@+id/cb_hu" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HU校正" android:enabled="false" />
-            <CheckBox android:id="@+id/cb_tailor" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="图片裁剪" android:enabled="false" />
-            <CheckBox android:id="@+id/cb_invert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invert LUTs" android:enabled="false" />
+            <CheckBox android:id="@+id/cb_hu" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HU校正" android:checked="true" />
+            <CheckBox android:id="@+id/cb_tailor" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="图片裁剪" android:checked="true" />
+            <CheckBox android:id="@+id/cb_invert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invert LUTs" android:checked="true" />
 
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-                <CheckBox android:id="@+id/cb_bilateral" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="双边去噪" android:enabled="false" />
-                <EditText android:id="@+id/et_bilateral_d" android:layout_width="30dp" android:layout_height="wrap_content" android:text="5" android:textSize="11sp" android:enabled="false" />
+                <CheckBox android:id="@+id/cb_bilateral" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="双边去噪" android:checked="true" />
+                <EditText android:id="@+id/et_bilateral_d" android:layout_width="30dp" android:layout_height="wrap_content" android:text="5" android:textSize="11sp" />
             </LinearLayout>
 
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-                <CheckBox android:id="@+id/cb_clahe" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CLAHE" android:enabled="false" />
-                <EditText android:id="@+id/et_clahe_clip" android:layout_width="30dp" android:layout_height="wrap_content" android:text="3.0" android:textSize="11sp" android:enabled="false" />
+                <CheckBox android:id="@+id/cb_clahe" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CLAHE" android:checked="true" />
+                <EditText android:id="@+id/et_clahe_clip" android:layout_width="30dp" android:layout_height="wrap_content" android:text="3.0" android:textSize="11sp" />
             </LinearLayout>
 
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-                <CheckBox android:id="@+id/cb_sharpen" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="特征锐化" android:enabled="false" />
-                <EditText android:id="@+id/et_sharpen_strength" android:layout_width="30dp" android:layout_height="wrap_content" android:text="6.0" android:textSize="11sp" android:enabled="false" />
+                <CheckBox android:id="@+id/cb_sharpen" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="特征锐化" android:checked="true" />
+                <EditText android:id="@+id/et_sharpen_strength" android:layout_width="30dp" android:layout_height="wrap_content" android:text="6.0" android:textSize="11sp" />
             </LinearLayout>
 
             <!-- Hidden radio for method mapping in code -->
@@ -143,6 +143,14 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="执行最优调节" />
+
+        <Button
+            android:id="@+id/btn_write_dcm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:enabled="false"
+            android:text="写入DICOM (.dcm) + 展示" />
 
         <TextView
             android:id="@+id/tv_info"
