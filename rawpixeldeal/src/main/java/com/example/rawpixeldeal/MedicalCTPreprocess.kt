@@ -92,7 +92,16 @@ object MedicalCTPreprocess {
     ): List<PreprocessResult> {
         val steps = ops.map { generateStepWithDefaultParams(it) }.toMutableList()
         validateAndSortSteps(steps)
-        return processCompareWindows(rawBuffer, width, height, bitDepth, bigEndian, isUint16, steps, windowMethods)
+        return processCompareWindows(
+            rawBuffer,
+            width,
+            height,
+            bitDepth,
+            bigEndian,
+            isUint16,
+            steps,
+            windowMethods
+        )
     }
 
     /**
@@ -197,7 +206,7 @@ object MedicalCTPreprocess {
         val outH = outInfo[1]
         val sharedMinD = outHuRange[0]
         val sharedMaxD = outHuRange[1]
-        
+
         return outDisplays.mapIndexed { i, rgba ->
             if (rgba == null) {
                 throw IllegalStateException("native processMedicalCTCompareWindows returned null at idx=$i")
@@ -276,28 +285,36 @@ object MedicalCTPreprocess {
     /**
      * 图像旋转。
      */
-    fun applyRotation(bitmap: Bitmap, angle: Double): Bitmap? = 
+    fun applyRotation(bitmap: Bitmap, angle: Double): Bitmap? =
         RawPixelDealJni.applyRotation(bitmap, angle)
 
     // 细粒度接口封装
 
     fun convertToGrayScale(bitmap: Bitmap): Long = RawPixelDealJni.convertToGrayScale(bitmap)
 
-    fun appBrightnessContrast(matAddr: Long, contrast: Double, brightness: Double, min: Double = 0.0, max: Double = 100.0) =
+    fun appBrightnessContrast(
+        matAddr: Long,
+        contrast: Double,
+        brightness: Double,
+        min: Double = 0.0,
+        max: Double = 100.0
+    ): Long =
         RawPixelDealJni.appBrightnessContrast(matAddr, contrast, brightness, min, max)
 
-    fun applySharpen(matAddr: Long, sharpen: Double, min: Double = 0.0, max: Double = 100.0) =
+    fun applySharpen(matAddr: Long, sharpen: Double, min: Double = 0.0, max: Double = 100.0): Long =
         RawPixelDealJni.applySharpen(matAddr, sharpen, min, max)
 
-    fun applyInvertedColor(matAddr: Long, invert: Boolean) =
+    fun applyInvertedColor(matAddr: Long, invert: Boolean): Long =
         RawPixelDealJni.applyInvertedColor(matAddr, invert)
 
-    fun applyFalseColor(matAddr: Long, falseColor: Boolean) =
+    fun applyFalseColor(matAddr: Long, falseColor: Boolean): Long =
         RawPixelDealJni.applyFalseColor(matAddr, falseColor)
 
-    fun applyRotationMat(matAddr: Long, angle: Double) =
+    fun applyRotationMat(matAddr: Long, angle: Double): Long =
         RawPixelDealJni.applyRotationMat(matAddr, angle)
 
     fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap? =
         RawPixelDealJni.convertMatToBitmap(matAddr, width, height)
+
+    fun releaseMat(matAddr: Long) = RawPixelDealJni.releaseMat(matAddr)
 }

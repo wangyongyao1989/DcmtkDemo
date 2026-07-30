@@ -138,21 +138,25 @@ class CTPreprocessFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 // 1) 转灰度并获取 Native 地址
-                val addr = MedicalCTPreprocess.convertToGrayScale(currentBitmap)
-                if (addr == 0L) return@withContext null
+                val addr0 = MedicalCTPreprocess.convertToGrayScale(currentBitmap)
+                if (addr0 == 0L) return@withContext null
 
-                // 2) 链式处理
-                MedicalCTPreprocess.appBrightnessContrast(addr, 50.0, 60.0, 0.0, 100.0)
-                MedicalCTPreprocess.applySharpen(addr, 30.0, 0.0, 100.0)
-                MedicalCTPreprocess.applyFalseColor(addr, true)
-                MedicalCTPreprocess.applyRotationMat(addr, 90.0)
+                // 2) 链式处理 (每个方法返回一个新的 Mat 地址)
+                val addr1 = MedicalCTPreprocess.appBrightnessContrast(addr0, 50.0, 60.0, 0.0, 100.0)
+                val addr2 = MedicalCTPreprocess.applySharpen(addr1, 30.0, 0.0, 100.0)
+                val addr3 = MedicalCTPreprocess.applyFalseColor(addr2, true)
+                val addr4 = MedicalCTPreprocess.applyRotationMat(addr3, 90.0)
 
-                // 3) 转回 Bitmap (如果是旋转 90 度，长宽需要交换)
+                // 3) 转回 Bitmap
                 val newW = if (90.0 % 180.0 != 0.0) h else w
                 val newH = if (90.0 % 180.0 != 0.0) w else h
-                val bmp = MedicalCTPreprocess.convertMatToBitmap(addr, newW, newH)
-                // 注意：在实际生产中，如果是 new 出来的 Mat 需要有对应的 release 机制，
-                // 这里简单演示 JNI 侧 new 出来的对象。
+                val bmp = MedicalCTPreprocess.convertMatToBitmap(addr4, newW, newH)
+
+                // 4) 释放 Native 内存，防止泄漏
+                listOf(addr0, addr1, addr2, addr3, addr4).forEach {
+                    if (it != 0L) MedicalCTPreprocess.releaseMat(it)
+                }
+
                 bmp
             }
             if (result != null) {
@@ -207,7 +211,11 @@ class CTPreprocessFragment : Fragment() {
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
                 binding.tvInfo.text = "处理完成. 模式: 最优调节 (Auto)"
-                binding.tvSummary.text = generateSummary(MedicalCTPreprocess.getLastAppliedSteps(), true, "Peak Area Auto")
+                binding.tvSummary.text = generateSummary(
+                    MedicalCTPreprocess.getLastAppliedSteps(),
+                    true,
+                    "Peak Area Auto"
+                )
                 binding.btnWriteDcm.isEnabled = true
             } catch (e: Exception) {
                 Log.e(TAG, "Optimal pipeline failed", e)
@@ -291,7 +299,7 @@ class CTPreprocessFragment : Fragment() {
                     )
                 }
                 if (_binding == null) return@launch
-                
+
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
                 binding.tvInfo.text = "处理完成. 模式: 自定义"
@@ -313,7 +321,7 @@ class CTPreprocessFragment : Fragment() {
     private fun runSaveDcmFile() {
         val raw = cachedRawBuffer ?: return
         val ctx = context ?: return
-        
+
         binding.btnWriteDcm.isEnabled = false
         binding.tvInfo.text = "正在写入 DICOM 文件..."
 

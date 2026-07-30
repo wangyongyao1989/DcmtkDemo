@@ -91,20 +91,23 @@ object RawPixelDealJni {
         brightness: Double,
         min: Double,
         max: Double
-    )
+    ): Long
 
     @JvmStatic
-    external fun applySharpen(matAddr: Long, sharpen: Double, min: Double, max: Double)
+    external fun applySharpen(matAddr: Long, sharpen: Double, min: Double, max: Double): Long
 
     @JvmStatic
-    external fun applyInvertedColor(matAddr: Long, invert: Boolean)
+    external fun applyInvertedColor(matAddr: Long, invert: Boolean): Long
 
     @JvmStatic
-    external fun applyFalseColor(matAddr: Long, falseColor: Boolean)
+    external fun applyFalseColor(matAddr: Long, falseColor: Boolean): Long
 
     @JvmStatic
-    external fun applyRotationMat(matAddr: Long, angle: Double)
+    external fun applyRotationMat(matAddr: Long, angle: Double): Long
 
     @JvmStatic
     external fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap?
+
+    @JvmStatic
+    external fun releaseMat(matAddr: Long)
 }

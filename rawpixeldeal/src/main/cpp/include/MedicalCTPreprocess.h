@@ -43,9 +43,9 @@ namespace CTPreprocess {
 
         static cv::Mat applySharpen(const cv::Mat &src, double sharpen, double min, double max);
 
-        static void applyInvertedColor(cv::Mat &mat, bool invert);
+        static cv::Mat applyInvertedColor(const cv::Mat &mat, bool invert);
 
-        static void applyFalseColor(cv::Mat &mat, bool falseColor);
+        static cv::Mat applyFalseColor(const cv::Mat &mat, bool falseColor);
 
         static cv::Mat applyEmbossingEffect(const cv::Mat &src, bool embossed);
 

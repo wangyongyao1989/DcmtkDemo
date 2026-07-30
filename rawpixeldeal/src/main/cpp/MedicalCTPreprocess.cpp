@@ -151,18 +151,22 @@ namespace CTPreprocess {
         return src.clone();
     }
 
-    void ImageProcessor::applyInvertedColor(cv::Mat& mat, bool invert) {
+    cv::Mat ImageProcessor::applyInvertedColor(const cv::Mat& mat, bool invert) {
+        cv::Mat dst = mat.clone();
         if (invert) {
-            cv::bitwise_not(mat, mat);
+            cv::bitwise_not(dst, dst);
         }
+        return dst;
     }
 
-    void ImageProcessor::applyFalseColor(cv::Mat& mat, bool falseColor) {
+    cv::Mat ImageProcessor::applyFalseColor(const cv::Mat& mat, bool falseColor) {
+        cv::Mat dst = mat.clone();
         if (falseColor) {
-            if (mat.channels() == 1) {
-                cv::applyColorMap(mat, mat, cv::COLORMAP_JET);
+            if (dst.channels() == 1) {
+                cv::applyColorMap(dst, dst, cv::COLORMAP_JET);
             }
         }
+        return dst;
     }
 
     cv::Mat ImageProcessor::applyEmbossingEffect(const cv::Mat& src, bool embossed) {
@@ -210,11 +214,10 @@ namespace CTPreprocess {
         cv::Mat bcResult = appBrightnessContrast(gray, contrast, brightness, min, max);
         cv::Mat sharpenResult = applySharpen(bcResult, sharpenDegree, min, max);
 
-        cv::Mat current = sharpenResult;
-        applyInvertedColor(current, invert);
-        applyFalseColor(current, falseColor);
+        cv::Mat invertResult = applyInvertedColor(sharpenResult, invert);
+        cv::Mat falseColorResult = applyFalseColor(invertResult, falseColor);
 
-        cv::Mat finalResult = applyEmbossingEffect(current, relief);
+        cv::Mat finalResult = applyEmbossingEffect(falseColorResult, relief);
 
         return finalResult;
     }

@@ -404,6 +404,14 @@ native_applyRotation(JNIEnv *env, jclass, jobject bitmap, jdouble angle) {
     return newBitmap;
 }
 
+static void
+native_releaseMat(JNIEnv *env, jclass, jlong matAddr) {
+    cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
+    if (mat) {
+        delete mat;
+    }
+}
+
 static jlong
 native_convertToGrayScale(JNIEnv *env, jclass, jobject bitmap) {
     if (bitmap == nullptr) return 0;
@@ -429,46 +437,51 @@ native_convertToGrayScale(JNIEnv *env, jclass, jobject bitmap) {
     return reinterpret_cast<jlong>(resMat);
 }
 
-static void
+static jlong
 native_appBrightnessContrast(JNIEnv *env, jclass, jlong matAddr, jdouble contrast,
                              jdouble brightness, jdouble min, jdouble max) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (mat) {
-        *mat = CTPreprocess::ImageProcessor::appBrightnessContrast(*mat, contrast, brightness, min,
-                                                                   max);
-    }
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::appBrightnessContrast(*mat, contrast, brightness,
+                                                                         min, max);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
 }
 
-static void
+static jlong
 native_applySharpen(JNIEnv *env, jclass, jlong matAddr, jdouble sharpen, jdouble min, jdouble max) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (mat) {
-        *mat = CTPreprocess::ImageProcessor::applySharpen(*mat, sharpen, min, max);
-    }
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::applySharpen(*mat, sharpen, min, max);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
 }
 
-static void
+static jlong
 native_applyInvertedColor(JNIEnv *env, jclass, jlong matAddr, jboolean invert) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (mat) {
-        CTPreprocess::ImageProcessor::applyInvertedColor(*mat, invert);
-    }
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::applyInvertedColor(*mat, invert);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
 }
 
-static void
+static jlong
 native_applyFalseColor(JNIEnv *env, jclass, jlong matAddr, jboolean falseColor) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (mat) {
-        CTPreprocess::ImageProcessor::applyFalseColor(*mat, falseColor);
-    }
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::applyFalseColor(*mat, falseColor);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
 }
 
-static void
+static jlong
 native_applyRotationMat(JNIEnv *env, jclass, jlong matAddr, jdouble angle) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (mat) {
-        *mat = CTPreprocess::ImageProcessor::applyRotation(*mat, angle);
-    }
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::applyRotation(*mat, angle);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
 }
 
 static jobject
@@ -504,6 +517,7 @@ native_convertMatToBitmap(JNIEnv *env, jclass, jlong matAddr, jint width, jint h
     return newBitmap;
 }
 
+
 // =============================================================================
 // JNI 注册
 // =============================================================================
@@ -521,12 +535,13 @@ static const JNINativeMethod kMethods[] = {
         {"applyRotation",
                                   "(Landroid/graphics/Bitmap;D)Landroid/graphics/Bitmap;", (void *) native_applyRotation},
         {"convertToGrayScale",    "(Landroid/graphics/Bitmap;)J",                          (void *) native_convertToGrayScale},
-        {"appBrightnessContrast", "(JDDDD)V",                                              (void *) native_appBrightnessContrast},
-        {"applySharpen",          "(JDDD)V",                                               (void *) native_applySharpen},
-        {"applyInvertedColor",    "(JZ)V",                                                 (void *) native_applyInvertedColor},
-        {"applyFalseColor",       "(JZ)V",                                                 (void *) native_applyFalseColor},
-        {"applyRotationMat",      "(JD)V",                                                 (void *) native_applyRotationMat},
+        {"appBrightnessContrast", "(JDDDD)J",                                              (void *) native_appBrightnessContrast},
+        {"applySharpen",          "(JDDD)J",                                               (void *) native_applySharpen},
+        {"applyInvertedColor",    "(JZ)J",                                                 (void *) native_applyInvertedColor},
+        {"applyFalseColor",       "(JZ)J",                                                 (void *) native_applyFalseColor},
+        {"applyRotationMat",      "(JD)J",                                                 (void *) native_applyRotationMat},
         {"convertMatToBitmap",    "(JII)Landroid/graphics/Bitmap;",                        (void *) native_convertMatToBitmap},
+        {"releaseMat",            "(J)V",                                                  (void *) native_releaseMat},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
