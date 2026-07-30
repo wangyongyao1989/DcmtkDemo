@@ -106,6 +106,9 @@ object RawPixelDealJni {
     external fun applyRotationMat(matAddr: Long, angle: Double): Long
 
     @JvmStatic
+    external fun applyEmbossingEffect(matAddr: Long, embossed: Boolean): Long
+
+    @JvmStatic
     external fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap?
 
     @JvmStatic

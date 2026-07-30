@@ -478,8 +478,17 @@ native_applyFalseColor(JNIEnv *env, jclass, jlong matAddr, jboolean falseColor) 
 static jlong
 native_applyRotationMat(JNIEnv *env, jclass, jlong matAddr, jdouble angle) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
-    if (!mat) return 0;
+    if (!mat || mat->empty()) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applyRotation(*mat, angle);
+    cv::Mat *resMat = new cv::Mat(result);
+    return reinterpret_cast<jlong>(resMat);
+}
+
+static jlong
+native_applyEmbossingEffect(JNIEnv *env, jclass, jlong matAddr, jboolean embossed) {
+    cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
+    if (!mat) return 0;
+    cv::Mat result = CTPreprocess::ImageProcessor::applyEmbossingEffect(*mat, embossed);
     cv::Mat *resMat = new cv::Mat(result);
     return reinterpret_cast<jlong>(resMat);
 }
@@ -540,6 +549,7 @@ static const JNINativeMethod kMethods[] = {
         {"applyInvertedColor",    "(JZ)J",                                                 (void *) native_applyInvertedColor},
         {"applyFalseColor",       "(JZ)J",                                                 (void *) native_applyFalseColor},
         {"applyRotationMat",      "(JD)J",                                                 (void *) native_applyRotationMat},
+        {"applyEmbossingEffect",  "(JZ)J",                                                 (void *) native_applyEmbossingEffect},
         {"convertMatToBitmap",    "(JII)Landroid/graphics/Bitmap;",                        (void *) native_convertMatToBitmap},
         {"releaseMat",            "(J)V",                                                  (void *) native_releaseMat},
 };

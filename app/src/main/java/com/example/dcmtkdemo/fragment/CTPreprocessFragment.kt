@@ -139,13 +139,26 @@ class CTPreprocessFragment : Fragment() {
      */
     private fun runRotationTest() {
         val currentBitmap = (binding.ivAfter.drawable as? BitmapDrawable)?.bitmap ?: return
+        val w = currentBitmap.width
+        val h = currentBitmap.height
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                MedicalCTPreprocess.applyRotation(currentBitmap, 90.0)
+                var matAddr = MedicalCTPreprocess.convertToGrayScale(currentBitmap)
+                try {
+                    val rotatedAddr = MedicalCTPreprocess.applyRotation(matAddr, 90.0)
+                    // 注意：旋转后宽高可能互换，但 native 内部逻辑会处理，此处转回 Bitmap 需指定新 Mat 的属性
+                    // 这里为了简单，我们先获取 Mat 再转。但由于 applyRotation 返回新 Mat 地址，
+                    // 我们直接使用 convertMatToBitmap。
+                    MedicalCTPreprocess.convertMatToBitmap(rotatedAddr, h, w).also {
+                        MedicalCTPreprocess.releaseMat(rotatedAddr)
+                    }
+                } finally {
+                    MedicalCTPreprocess.releaseMat(matAddr)
+                }
             }
             if (result != null) {
                 binding.ivAfter.setImageBitmap(result)
-                binding.tvInfo.text = "旋转 90° 完成"
+                binding.tvInfo.text = "旋转 90° 完成 (Native Mat)"
             }
         }
     }
@@ -168,7 +181,7 @@ class CTPreprocessFragment : Fragment() {
                 val addr1 = MedicalCTPreprocess.appBrightnessContrast(addr0, 50.0, 60.0, 0.0, 100.0)
                 val addr2 = MedicalCTPreprocess.applySharpen(addr1, 30.0, 0.0, 100.0)
                 val addr3 = MedicalCTPreprocess.applyFalseColor(addr2, true)
-                val addr4 = MedicalCTPreprocess.applyRotationMat(addr3, 90.0)
+                val addr4 = MedicalCTPreprocess.applyRotation(addr3, 90.0)
 
                 // 3) 转回 Bitmap
                 val newW = if (90.0 % 180.0 != 0.0) h else w

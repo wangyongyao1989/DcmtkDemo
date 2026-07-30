@@ -283,10 +283,10 @@ object MedicalCTPreprocess {
     )
 
     /**
-     * 图像旋转。
+     * 图像旋转 (Mat 模式)。
      */
-    fun applyRotation(bitmap: Bitmap, angle: Double): Bitmap? =
-        RawPixelDealJni.applyRotation(bitmap, angle)
+    fun applyRotation(matAddr: Long, angle: Double): Long =
+        RawPixelDealJni.applyRotationMat(matAddr, angle)
 
     // 细粒度接口封装
 
@@ -310,8 +310,9 @@ object MedicalCTPreprocess {
     fun applyFalseColor(matAddr: Long, falseColor: Boolean): Long =
         RawPixelDealJni.applyFalseColor(matAddr, falseColor)
 
-    fun applyRotationMat(matAddr: Long, angle: Double): Long =
-        RawPixelDealJni.applyRotationMat(matAddr, angle)
+
+    fun applyEmbossingEffect(matAddr: Long, embossed: Boolean): Long =
+        RawPixelDealJni.applyEmbossingEffect(matAddr, embossed)
 
     fun convertMatToBitmap(matAddr: Long, width: Int, height: Int): Bitmap? =
         RawPixelDealJni.convertMatToBitmap(matAddr, width, height)
