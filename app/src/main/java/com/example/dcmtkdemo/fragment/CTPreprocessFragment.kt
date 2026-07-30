@@ -43,6 +43,9 @@ class CTPreprocessFragment : Fragment() {
     private var cachedBitDepth: Int = 16
     private var cachedBigEndian: Boolean = true
 
+    // 缓存预处理后的 Bitmap，用于后处理
+    private var preprocessedBitmap: Bitmap? = null
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -66,10 +69,6 @@ class CTPreprocessFragment : Fragment() {
             runSaveDcmFile()
         }
 
-        binding.btnTestPostProcess.setOnClickListener {
-            runPostProcessTest()
-        }
-
         binding.btnTestRotation.setOnClickListener {
             runRotationTest()
         }
@@ -78,21 +77,45 @@ class CTPreprocessFragment : Fragment() {
             runFineGrainedTest()
         }
 
+        setupPostProcessListeners()
         setupAssetSpinner()
+    }
+
+    private fun setupPostProcessListeners() {
+        val listener = object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) runPostProcessTest()
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        }
+        binding.sbContrast.setOnSeekBarChangeListener(listener)
+        binding.sbBrightness.setOnSeekBarChangeListener(listener)
+        binding.sbPostSharpen.setOnSeekBarChangeListener(listener)
+
+        val checkListener = android.widget.CompoundButton.OnCheckedChangeListener { _, _ ->
+            runPostProcessTest()
+        }
+        binding.cbEnableContrast.setOnCheckedChangeListener(checkListener)
+        binding.cbEnableBrightness.setOnCheckedChangeListener(checkListener)
+        binding.cbEnableSharpen.setOnCheckedChangeListener(checkListener)
+        binding.cbPostInvert.setOnCheckedChangeListener(checkListener)
+        binding.cbPostFalseColor.setOnCheckedChangeListener(checkListener)
+        binding.cbPostRelief.setOnCheckedChangeListener(checkListener)
     }
 
     /**
      * 测试后处理接口 (processImage)
      */
     private fun runPostProcessTest() {
-        val currentBitmap = (binding.ivAfter.drawable as? BitmapDrawable)?.bitmap ?: run {
+        val baseBitmap = preprocessedBitmap ?: run {
             Toast.makeText(context, "请先执行预处理以获取图像", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val contrast = binding.sbContrast.progress.toDouble() // 0-100
-        val brightness = binding.sbBrightness.progress.toDouble() // 0-100
-        val sharpen = binding.sbPostSharpen.progress.toDouble() // 0-100
+        val contrast = if (binding.cbEnableContrast.isChecked) binding.sbContrast.progress.toDouble() else 50.0
+        val brightness = if (binding.cbEnableBrightness.isChecked) binding.sbBrightness.progress.toDouble() else 50.0
+        val sharpen = if (binding.cbEnableSharpen.isChecked) binding.sbPostSharpen.progress.toDouble() else 0.0
         val invert = binding.cbPostInvert.isChecked
         val falseColor = binding.cbPostFalseColor.isChecked
         val relief = binding.cbPostRelief.isChecked
@@ -100,13 +123,13 @@ class CTPreprocessFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 MedicalCTPreprocess.processImage(
-                    currentBitmap, contrast, brightness, sharpen,
+                    baseBitmap, contrast, brightness, sharpen,
                     invert, falseColor, relief, 0.0, 100.0
                 )
             }
-            if (result != null) {
+            if (result != null && _binding != null) {
                 binding.ivAfter.setImageBitmap(result)
-                binding.tvInfo.text = "后处理完成: C=$contrast, B=$brightness, S=$sharpen"
+                binding.tvInfo.text = "后处理实时更新: C=$contrast, B=$brightness, S=$sharpen"
             }
         }
     }
@@ -210,6 +233,7 @@ class CTPreprocessFragment : Fragment() {
 
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
+                preprocessedBitmap = results[1].bitmap
                 binding.tvInfo.text = "处理完成. 模式: 最优调节 (Auto)"
                 binding.tvSummary.text = generateSummary(
                     MedicalCTPreprocess.getLastAppliedSteps(),
@@ -302,6 +326,7 @@ class CTPreprocessFragment : Fragment() {
 
                 binding.ivBefore.setImageBitmap(results[0].bitmap)
                 binding.ivAfter.setImageBitmap(results[1].bitmap)
+                preprocessedBitmap = results[1].bitmap
                 binding.tvInfo.text = "处理完成. 模式: 自定义"
                 binding.tvSummary.text = generateSummary(steps, true, "Peak Area Auto")
                 binding.btnWriteDcm.isEnabled = true
