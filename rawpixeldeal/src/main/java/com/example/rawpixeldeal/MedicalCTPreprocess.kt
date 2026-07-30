@@ -1,7 +1,6 @@
 package com.example.rawpixeldeal
 
 import android.graphics.Bitmap
-import com.example.rawpixeldeal.MedicalCTPreprocess.Op
 import com.example.rawpixeldeal.jni.RawPixelDealJni
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

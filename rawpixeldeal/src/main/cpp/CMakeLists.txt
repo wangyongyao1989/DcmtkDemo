@@ -21,6 +21,7 @@ set(OPENCV_LINK_LIBS android log z m jnigraphics)
 add_library(${CMAKE_PROJECT_NAME} SHARED
         native-lib.cpp
         MedicalCTPreprocess.cpp
+        ImageProcessor.cpp
         JniHelper.cpp
         CtSeriesProcessor.cpp
 )
