@@ -386,7 +386,6 @@ class CTPreprocessFragment : Fragment() {
                         patientName = "CT_PREPROCESS_TEST",
                         patientAge = "030Y",
                         patientSex = "M",
-                        toothPosition = "FULL_BODY"
                     )
 
                     // 4) 准备像素数据结构

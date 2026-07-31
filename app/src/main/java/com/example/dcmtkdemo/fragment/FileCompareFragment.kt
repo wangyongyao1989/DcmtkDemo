@@ -202,7 +202,6 @@ class FileCompareFragment : Fragment() {
                     patientName = "测试^患者",
                     patientAge = "030Y",
                     patientSex = "男",
-                    toothPosition = "Tooth11"
                 )
                 val dcmFile = File(dir, "compare_synth.dcm")
                 val method = WindowCalcMethod.values()[

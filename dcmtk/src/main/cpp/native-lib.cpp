@@ -491,7 +491,7 @@ struct ScanRecordFields {
     std::string patientName;
     std::string patientAge;
     std::string patientSex;
-    std::string toothPosition;
+    int toothPosition;
 };
 
 static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
@@ -501,7 +501,7 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     jfieldID fName = env->GetFieldID(cls, "patientName", "Ljava/lang/String;");
     jfieldID fAge = env->GetFieldID(cls, "patientAge", "Ljava/lang/String;");
     jfieldID fSex = env->GetFieldID(cls, "patientSex", "Ljava/lang/String;");
-    jfieldID fTooth = env->GetFieldID(cls, "toothPosition", "Ljava/lang/String;");
+    jfieldID fTooth = env->GetFieldID(cls, "toothPosition", "I");
     if (!fExamine || !fName || !fAge || !fSex || !fTooth) {
         if (cls) env->DeleteLocalRef(cls);
         LOGE("readScanRecord: field id missing");
@@ -523,7 +523,7 @@ static bool readScanRecord(JNIEnv *env, jobject record, ScanRecordFields &out) {
     out.patientName = readStr(fName);
     out.patientAge = readStr(fAge);
     out.patientSex = readStr(fSex);
-    out.toothPosition = readStr(fTooth);
+    out.toothPosition = env->GetIntField(record, fTooth);
     env->DeleteLocalRef(cls);
     return true;
 }
@@ -575,7 +575,7 @@ static jboolean native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
     info.patientName = rec.patientName;
     info.patientAge = rec.patientAge;
     info.patientSex = rec.patientSex;
-    info.toothPosition = rec.toothPosition;
+    info.toothPosition = std::to_string(rec.toothPosition);
 
     DicomFileIO::PixelDataInfo px;
     if (!readPixelData(env, pixel_data, px)) {
