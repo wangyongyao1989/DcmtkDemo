@@ -1,98 +1,92 @@
-# DcmtkDemo - Android DICOM 医疗影像处理方案
+# DcmtkDemo - Android DICOM 医疗影像全流程解决方案 / Android DICOM Medical Imaging Solution
 
-`DcmtkDemo` 是一个基于 Android 平台，集成 **DCMTK (DICOM Toolkit)** 开源库的示例项目。项目展示了如何通过 NDK 技术在 Android 应用中实现 DICOM 协议的网络通信（PACS）及影像文件处理。
+`DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理示例项目。它集成了强大的 **DCMTK (DICOM Toolkit)** 和 **OpenCV**，实现了从 PACS 网络通信、DICOM 文件解析到高性能底层像素预处理的全链路功能。
 
-## 1. 项目架构概览
+`DcmtkDemo` is a comprehensive medical imaging solution for Android. By integrating **DCMTK** and **OpenCV**, it provides a full-stack workflow including PACS communication, DICOM parsing, and high-performance low-level pixel preprocessing.
 
-项目采用 **分层解耦** 的设计思路，确保 UI 层与底层复杂的 C++ 业务逻辑分离：
+---
 
-*   **App Module (`:app`)**: 表现层。负责 UI 展示（Fragment/Adapter）、权限管理及文件系统交互。
-*   **Dcmtk Module (`:dcmtk`)**: 核心库模块。
-    *   **Java/Kotlin API**: 提供 `DcmtkJni` 接口供上层调用。
-    *   **JNI Bridge (`native-lib.cpp`)**: 负责 Java 对象与 C++ 类型的封送（Marshaling）。
-    *   **Native Business Layer**: `PacsClient`（网络）与 `DicomFileIO`（IO/转换），完全脱离 JNI 环境，纯 C++ 编写。
-    *   **DCMTK 静态库**: 编译后的核心库支持。
+## 1. 项目功能概览 (Project Features)
 
-## 2. 核心功能模块
-
-### A. PACS 网络服务 (DICOM Network)
-通过 `PacsClient` 类实现，支持标准的 DICOM 服务类：
+### A. PACS 网络服务 (PACS Network Services)
+依托 `dcmtk` 模块，支持标准 DICOM 通信协议：
 *   **C-ECHO**: 测试与远程 PACS 服务器的连通性。
-*   **C-FIND**: 提供多维查询（按病人姓名、接入号 Accession Number 或 MWL 工作列表）。
-*   **C-STORE**: 支持单文件及多文件（Multi-Store）异步上传，具备进度回调。
+*   **C-FIND**: 支持按姓名、接入号或工作列表（MWL）进行多维查询。
+*   **C-STORE**: 支持单/多文件异步上传，具备实时进度回调。
 *   **C-GET / C-MOVE**: 影像调阅与下载。
 
-### B. 影像文件处理 (DICOM File IO)
-通过 `DicomFileIO` 类实现，屏蔽了底层数据字典的复杂操作：
-*   **元数据解析**: 将 DICOM 标签（Tags）解析并映射为 Java 的 `HashMap<String, String>`。
-*   **DICOM 写入**: 支持将原始数据（Raw Data）封装并保存为标准 DICOM 格式。
-*   **影像转换**: 实现 `dcmToJpg` 功能，将 DICOM 序列帧转换为 Android 可直接展示的压缩格式。
+Leveraging the `dcmtk` module, it supports standard DICOM protocols: C-ECHO (connectivity test), C-FIND (multi-dimensional query), C-STORE (async upload with progress), and C-GET/C-MOVE (image retrieval).
 
-### C. 数据字典初始化
-DCMTK 需要加载私有或标准的 `dicom.dic` 字典才能正确识别标签。本项目通过 `native_initDcmtk` 接口实现运行时动态加载。
+### B. 影像文件处理 (DICOM File I/O)
+*   **元数据解析**: 将 DICOM 标签（Tags）解析为易用的 Map 结构。
+*   **DICOM 写入**: 支持将处理后的原始像素数据封装并保存为标准 `.dcm` 文件。
+*   **格式转换**: 提供高性能的 `dcmToJpg` 序列帧预览生成。
 
-## 3. 技术实现要点
+Supports metadata parsing (tags to Map), DICOM writing (saving processed raw pixels to `.dcm`), and high-performance frame conversion (DICOM to JPEG).
 
-### JNI 桥接设计
-*   **动态注册**: 在 `JNI_OnLoad` 中使用 `RegisterNatives` 进行方法绑定，提升运行效率并增加代码安全性。
-*   **自动资源管理**: 利用辅助类（如 `JniString`）管理 `GetStringUTFChars` 的生命周期，防止内存泄漏。
-*   **异步回调**: 通过自定义的 `ProgressCallback` 接口，将底层网络传输进度实时推送到 Java 端的 UI。
+### C. 高性能像素预处理 (Advanced Image Processing)
+依托 `rawpixeldeal` 模块，针对 CT/X-Ray 原始数据进行 C++ 级优化：
+*   **物理校正**: Log 变换（针对 Raw 数据）与 HU 值（亨氏单位）标准化校正。
+*   **智能调窗 (Smart Windowing)**: 自研 `Peak Area Auto` 算法，自动识别人体组织波峰并计算最优窗宽窗位。
+*   **增强与去噪**: 集成双边滤波（保边去噪）、CLAHE（局部对比度增强）及 USM 锐化。
+*   **几何变换**: 支持高性能 Native 旋转、裁剪及色度反转（Invert LUTs）。
 
-### 线程模型
-*   原生层操作通常为同步阻塞式（如网络请求），建议在 Java 层通过协程或线程池封装 `DcmtkJni` 的调用，避免 UI 卡顿。
+Powered by the `rawpixeldeal` module, it offers C++ level optimizations for CT/X-Ray raw data: Log/HU correction, Smart Windowing (Peak Area Auto), denoising/enhancement (Bilateral, CLAHE, USM), and geometric transforms (rotation, cropping, inversion).
 
-## 4. 快速接入指南
+---
 
-### 环境要求
+## 2. 模块架构 (Module Architecture)
+
+*   **`:app`**: 业务表现层。包含 Fragment UI、权限管理及基于协程的异步调用逻辑。
+*   **`:dcmtk`**: 核心协议模块。通过 JNI 封装了 DCMTK 静态库，处理网络与文件 IO。
+*   **`:rawpixeldeal`**: 算法增强模块。基于 OpenCV 4.x 构建，负责毫秒级的底层图像算子。
+
+*   **`:app`**: UI layer with Fragment-based interfaces and Coroutine-based async logic.
+*   **`:dcmtk`**: Core protocol module. Wraps DCMTK static libs via JNI for network and IO.
+*   **`:rawpixeldeal`**: Algorithm module. Built on OpenCV 4.x for millisecond-level image operators.
+
+---
+
+## 3. 使用指南 (Usage Guide)
+
+### 环境要求 (Requirements)
 *   Android SDK / NDK (r21+)
 *   CMake 3.10+
-*   DCMTK 已编译的静态库 (libdcmdata, liboflog, libofstd, 等)
+*   已编译的 DCMTK 静态库 (libdcmdata, liboflog 等)
 
-### 初始化
-在应用启动或使用 DICOM 功能前，必须先拷贝数据字典到私有目录并初始化：
+### 初始化 (Initialization)
+在使用任何 DICOM 功能前，需初始化数据字典：
+Before using DICOM features, initialize the data dictionary:
+
 ```java
+// 获取字典路径并加载
 String dictPath = FileUtil.getDictPath(context);
 DcmtkJni.initDcmtk(dictPath);
 ```
 
-### 示例：查询 PACS 影像
-```java
-String[] results = DcmtkJni.cFind(host, port, localAet, remoteAet, "PatientName^*");
-```
+### 影像预处理流程 (Preprocessing Workflow)
+1.  **加载数据**: 从 Assets 或文件系统读取 Raw/DICOM 数据。
+2.  **配置流水线**: 在 `CT Preprocess` 界面选择算子（如：裁剪 -> Log 变换 -> HU 校正 -> 去噪）。
+3.  **智能调窗**: 点击 `RUN WINDOWING` 应用自适应算法，获取最佳视觉效果。
+4.  **保存**: 处理满意后，点击“写入 DICOM”持久化处理结果。
 
-## 5. 模块文件说明
-*   `native-lib.cpp`: JNI 入口，负责数据类型转换。
-*   `PacsClient.h/cpp`: 封装 C-STORE/C-FIND 等网络逻辑。
-*   `DicomFileIO.h/cpp`: 封装文件读写与转换逻辑。
-*   `FileUtil.java`: 辅助处理 Android 系统路径与文件拷贝。
+1. **Load**: Read Raw/DICOM data. 2. **Pipeline**: Select operators (Crop -> Log -> HU -> Denoise). 3. **Windowing**: Run adaptive algorithms for best visualization. 4. **Save**: Export as a standard `.dcm` file.
 
-## 6. 医学图像预处理模块 (rawpixeldeal)
+---
 
-`rawpixeldeal` 模块专门用于处理 CT/X-Ray 等医学影像的原始像素数据，提供高性能的 Native 图像增强与调窗算法。
+## 4. 技术亮点与优化 (Technical Highlights)
 
-### A. 核心功能
-*   **预处理流水线**: 集成了 HU 校正、自动裁剪、双边去噪、CLAHE 增强及特征锐化 (USM)。
-*   **智能调窗 (Smart Windowing)**: 支持 Peak Area Auto 等多种高级调窗算法，实现高动态范围像素到 8-bit 可视化空间的映射。
-*   **图像后处理 (Native ImageProcessor)**: 
-    *   **实时调节**: 对比度、亮度、锐化程度的精细化调整。
-    *   **视觉增强**: 反色 (Invert)、伪彩 (False Color)、浮雕 (Relief) 效果。
-    *   **几何变换**: 高性能图像旋转。
+*   **链式 Native 调用**: 引入 Native 地址（Mat Address）传递机制，极大地减少了 JNI 通信开销和内存拷贝频率。
+*   **针对探测器数据的专项优化**: 针对 `FT46` 等探测器产生的 Raw 数据，优化了高斯平滑（sigma 8.0->3.0）与边缘检测参数，有效解决了图像虚化和骨骼细节丢失问题。
+*   **内存安全**: 利用 C++ 辅助类管理 JNI 资源生命周期，防止在大数据量影像处理时出现内存泄漏。
 
-### B. 细粒度控制 (Fine-Grained API)
-支持基于 Native 地址 (Mat Address) 的链式调用，极大减少了 JNI 通信开销和内存拷贝频率。开发者可以手动控制处理流：
-1.  `convertToGrayScale(Bitmap) -> MatAddr`
-2.  `applyXXX(MatAddr, params...)`
-3.  `convertMatToBitmap(MatAddr) -> Bitmap`
+*   **Chained Native Calls**: Uses Mat Address passing to minimize JNI overhead and memory copying.
+*   **Detector-Specific Optimization**: Optimized for Raw data (e.g., FT46) to fix blurring and detail loss by tuning Gaussian sigma and edge detection.
+*   **Memory Safety**: Managed JNI resource lifecycles via C++ helpers to prevent leaks during large-scale image processing.
 
-### C. 操作指南
-1.  **执行预处理**: 在 `CT Preprocess` 界面选择 Asset 源，点击“执行最优调节”或自定义流水线。
-2.  **后处理测试**: 
-    *   拖动 **Contrast/Brightness/Sharpen** 滑块调整参数。
-    *   勾选 **Invert/FalseColor/Relief** 开启特效。
-    *   点击 **Test ImageProcessor** 应用所有后处理设置。
-    *   点击 **Rotate 90°** 测试图像旋转。
-    *   点击 **Fine-grained Test** 体验 Native 层链式处理流程。
-3.  **持久化**: 处理满意后点击“写入DICOM”，系统将提取处理后的 16-bit 像素数据并生成标准 `.dcm` 文件。
+---
 
-## 7. 总结
-本项目通过将复杂的 DICOM 协议和图像算法下沉到 Native (C++/OpenCV) 层，在 Android 移动端实现了接近桌面级的医学影像处理能力。`dcmtk` 模块解决了通信与格式兼容性问题，而 `rawpixeldeal` 模块则通过高性能算子保障了临床诊断所需的图像质量。
+## 5. 总结 (Summary)
+本项目通过将复杂的 DICOM 协议和重度图像算法下沉到 Native 层，在 Android 移动端实现了接近桌面级的医学影像处理能力，是开发移动医生站、影像阅片 APP 的理想参考方案。
+
+By pushing complex protocols and heavy algorithms to the Native layer, this project achieves desktop-grade medical imaging capabilities on Android, serving as an ideal reference for mobile RIS/PACS or diagnostic apps.
