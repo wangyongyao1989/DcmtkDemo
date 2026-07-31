@@ -142,13 +142,20 @@ static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
 // JNI 方法实现
 // =============================================================================
 
-static void
-native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
-                                      jint depth, jboolean big, jboolean isU16,
-                                      jintArray ops, jdoubleArray params,
-                                      jintArray windowMethods,
-                                      jobjectArray outDisplays, jintArray outInfo,
-                                      jdoubleArray outHuRange) {
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows(JNIEnv *env,
+                                                                                 jclass,
+                                                                                 jbyteArray rawBuf,
+                                                                                 jint w, jint h,
+                                                                                 jint depth,
+                                                                                 jboolean big,
+                                                                                 jboolean isU16,
+                                                                                 jintArray ops,
+                                                                                 jdoubleArray params,
+                                                                                 jintArray windowMethods,
+                                                                                 jobjectArray outDisplays,
+                                                                                 jintArray outInfo,
+                                                                                 jdoubleArray outHuRange) {
     if (outDisplays == nullptr || windowMethods == nullptr) return;
     jsize nMethods = env->GetArrayLength(windowMethods);
     if (nMethods <= 0) return;
@@ -193,11 +200,16 @@ native_processMedicalCTCompareWindows(JNIEnv *env, jclass, jbyteArray rawBuf, ji
  * 获取经过处理（如裁剪）后的 16-bit 原始像素。
  * 为 writeDcmFile 提供大端序字节（根据 dcmtk/DicomFileIO.cpp 的读取原则）。
  */
-static jbyteArray
-native_getProcessedRawPixels(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jint h,
-                             jint depth, jboolean big, jboolean isU16,
-                             jintArray ops, jdoubleArray params, jint windowMethod,
-                             jintArray info) {
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *env, jclass,
+                                                                        jbyteArray rawBuf, jint w,
+                                                                        jint h,
+                                                                        jint depth, jboolean big,
+                                                                        jboolean isU16,
+                                                                        jintArray ops,
+                                                                        jdoubleArray params,
+                                                                        jint windowMethod,
+                                                                        jintArray info) {
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
@@ -288,11 +300,13 @@ native_getProcessedRawPixels(JNIEnv *env, jclass, jbyteArray rawBuf, jint w, jin
     return res;
 }
 
-static jobject
-native_processImage(JNIEnv *env, jclass, jobject bitmap,
-                    jdouble contrast, jdouble brightness, jdouble sharpen,
-                    jboolean invert, jboolean falseColor, jboolean relief,
-                    jdouble min, jdouble max) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jclass, jobject bitmap,
+                                                               jdouble contrast, jdouble brightness,
+                                                               jdouble sharpen,
+                                                               jboolean invert, jboolean falseColor,
+                                                               jboolean relief,
+                                                               jdouble min, jdouble max) {
     if (bitmap == nullptr) return nullptr;
 
     AndroidBitmapInfo info;
@@ -350,8 +364,9 @@ native_processImage(JNIEnv *env, jclass, jobject bitmap,
     return newBitmap;
 }
 
-static jobject
-native_applyRotation(JNIEnv *env, jclass, jobject bitmap, jdouble angle) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jclass, jobject bitmap,
+                                                                jdouble angle) {
     if (bitmap == nullptr) return nullptr;
 
     AndroidBitmapInfo info;
@@ -404,16 +419,17 @@ native_applyRotation(JNIEnv *env, jclass, jobject bitmap, jdouble angle) {
     return newBitmap;
 }
 
-static void
-native_releaseMat(JNIEnv *env, jclass, jlong matAddr) {
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_releaseMat(JNIEnv *env, jclass, jlong matAddr) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (mat) {
         delete mat;
     }
 }
 
-static jlong
-native_convertToGrayScale(JNIEnv *env, jclass, jobject bitmap) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertToGrayScale(JNIEnv *env, jclass,
+                                                                     jobject bitmap) {
     if (bitmap == nullptr) return 0;
     AndroidBitmapInfo info;
     void *pixels;
@@ -437,9 +453,12 @@ native_convertToGrayScale(JNIEnv *env, jclass, jobject bitmap) {
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_appBrightnessContrast(JNIEnv *env, jclass, jlong matAddr, jdouble contrast,
-                             jdouble brightness, jdouble min, jdouble max) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_appBrightnessContrast(JNIEnv *env, jclass,
+                                                                        jlong matAddr,
+                                                                        jdouble contrast,
+                                                                        jdouble brightness,
+                                                                        jdouble min, jdouble max) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::appBrightnessContrast(*mat, contrast, brightness,
@@ -448,8 +467,10 @@ native_appBrightnessContrast(JNIEnv *env, jclass, jlong matAddr, jdouble contras
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_applySharpen(JNIEnv *env, jclass, jlong matAddr, jdouble sharpen, jdouble min, jdouble max) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applySharpen(JNIEnv *env, jclass, jlong matAddr,
+                                                               jdouble sharpen, jdouble min,
+                                                               jdouble max) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applySharpen(*mat, sharpen, min, max);
@@ -457,8 +478,10 @@ native_applySharpen(JNIEnv *env, jclass, jlong matAddr, jdouble sharpen, jdouble
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_applyInvertedColor(JNIEnv *env, jclass, jlong matAddr, jboolean invert) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyInvertedColor(JNIEnv *env, jclass,
+                                                                     jlong matAddr,
+                                                                     jboolean invert) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applyInvertedColor(*mat, invert);
@@ -466,8 +489,10 @@ native_applyInvertedColor(JNIEnv *env, jclass, jlong matAddr, jboolean invert) {
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_applyFalseColor(JNIEnv *env, jclass, jlong matAddr, jboolean falseColor) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyFalseColor(JNIEnv *env, jclass,
+                                                                  jlong matAddr,
+                                                                  jboolean falseColor) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applyFalseColor(*mat, falseColor);
@@ -475,8 +500,9 @@ native_applyFalseColor(JNIEnv *env, jclass, jlong matAddr, jboolean falseColor) 
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_applyRotationMat(JNIEnv *env, jclass, jlong matAddr, jdouble angle) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotationMat(JNIEnv *env, jclass,
+                                                                   jlong matAddr, jdouble angle) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat || mat->empty()) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applyRotation(*mat, angle);
@@ -484,8 +510,10 @@ native_applyRotationMat(JNIEnv *env, jclass, jlong matAddr, jdouble angle) {
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jlong
-native_applyEmbossingEffect(JNIEnv *env, jclass, jlong matAddr, jboolean embossed) {
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyEmbossingEffect(JNIEnv *env, jclass,
+                                                                       jlong matAddr,
+                                                                       jboolean embossed) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat) return 0;
     cv::Mat result = CTPreprocess::ImageProcessor::applyEmbossingEffect(*mat, embossed);
@@ -493,8 +521,10 @@ native_applyEmbossingEffect(JNIEnv *env, jclass, jlong matAddr, jboolean embosse
     return reinterpret_cast<jlong>(resMat);
 }
 
-static jobject
-native_convertMatToBitmap(JNIEnv *env, jclass, jlong matAddr, jint width, jint height) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertMatToBitmap(JNIEnv *env, jclass,
+                                                                     jlong matAddr, jint width,
+                                                                     jint height) {
     cv::Mat *mat = reinterpret_cast<cv::Mat *>(matAddr);
     if (!mat || mat->empty()) return nullptr;
 
@@ -534,24 +564,34 @@ static const char *const kClassName = "com/example/rawpixeldeal/jni/RawPixelDeal
 static const JNINativeMethod kMethods[] = {
         {"processMedicalCTCompareWindows",
                                   "([BIIIZZ[I[D[I[[B[I[D)V",
-                                                                                           (void *) native_processMedicalCTCompareWindows},
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows},
         {"getProcessedRawPixels",
                                   "([BIIIZZ[I[DI[I)[B",
-                                                                                           (void *) native_getProcessedRawPixels},
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels},
         {"processImage",
                                   "(Landroid/graphics/Bitmap;DDDZZZDD)Landroid/graphics/Bitmap;",
-                                                                                           (void *) native_processImage},
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage},
         {"applyRotation",
-                                  "(Landroid/graphics/Bitmap;D)Landroid/graphics/Bitmap;", (void *) native_applyRotation},
-        {"convertToGrayScale",    "(Landroid/graphics/Bitmap;)J",                          (void *) native_convertToGrayScale},
-        {"appBrightnessContrast", "(JDDDD)J",                                              (void *) native_appBrightnessContrast},
-        {"applySharpen",          "(JDDD)J",                                               (void *) native_applySharpen},
-        {"applyInvertedColor",    "(JZ)J",                                                 (void *) native_applyInvertedColor},
-        {"applyFalseColor",       "(JZ)J",                                                 (void *) native_applyFalseColor},
-        {"applyRotationMat",      "(JD)J",                                                 (void *) native_applyRotationMat},
-        {"applyEmbossingEffect",  "(JZ)J",                                                 (void *) native_applyEmbossingEffect},
-        {"convertMatToBitmap",    "(JII)Landroid/graphics/Bitmap;",                        (void *) native_convertMatToBitmap},
-        {"releaseMat",            "(J)V",                                                  (void *) native_releaseMat},
+                                  "(Landroid/graphics/Bitmap;D)Landroid/graphics/Bitmap;",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation},
+        {"convertToGrayScale",    "(Landroid/graphics/Bitmap;)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertToGrayScale},
+        {"appBrightnessContrast", "(JDDDD)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_appBrightnessContrast},
+        {"applySharpen",          "(JDDD)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applySharpen},
+        {"applyInvertedColor",    "(JZ)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyInvertedColor},
+        {"applyFalseColor",       "(JZ)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyFalseColor},
+        {"applyRotationMat",      "(JD)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotationMat},
+        {"applyEmbossingEffect",  "(JZ)J",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyEmbossingEffect},
+        {"convertMatToBitmap",    "(JII)Landroid/graphics/Bitmap;",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertMatToBitmap},
+        {"releaseMat",            "(J)V",
+                (void *) Java_com_example_rawpixeldeal_jni_RawPixelDealJni_releaseMat},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {

@@ -63,14 +63,16 @@ static jstring SafeNewStringUTF(JNIEnv *env, const char *text) {
 /**
  * Native implementation for DcmtkJni.stringFromJNI()
  */
-static jstring native_stringFromJNI(JNIEnv *env, jobject thiz) {
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_stringFromJNI(JNIEnv *env, jobject thiz) {
     return env->NewStringUTF("Hello from DCMTK Native (Dynamic)");
 }
 
 /**
  * Native implementation for DcmtkJni.initDcmtk(String dictPath)
  */
-static void native_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
     const char *path = env->GetStringUTFChars(dict_path, nullptr);
     if (path) {
         DcmDataDictionary &dict = dcmDataDict.wrlock();
@@ -85,8 +87,9 @@ static void native_initDcmtk(JNIEnv *env, jclass clazz, jstring dict_path) {
 /**
  * Native implementation for DcmtkJni.loadDicomFileInfo(String filePath)
  */
-static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz,
-                                        jstring file_path) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz,
+                                                      jstring file_path) {
     jclass mapClass = env->FindClass("java/util/HashMap");
     jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
     jobject hashMap = env->NewObject(mapClass, mapInit);
@@ -113,8 +116,9 @@ static jobject native_loadDicomFileInfo(JNIEnv *env, jclass clazz,
 /**
  * Native implementation for DcmtkJni.writeDicomFile(String rawPath, String dcmPath, int width, int height)
  */
-static jboolean native_writeDicomFile(JNIEnv *env, jclass clazz, jstring raw_path,
-                                      jstring dcm_path, jint width, jint height) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_writeDicomFile(JNIEnv *env, jclass clazz, jstring raw_path,
+                                                   jstring dcm_path, jint width, jint height) {
     JniString raw(env, raw_path);
     JniString dcm(env, dcm_path);
     bool ok = DicomFileIO::writeDicomFile(raw.c_str() ? raw.c_str() : "",
@@ -123,8 +127,9 @@ static jboolean native_writeDicomFile(JNIEnv *env, jclass clazz, jstring raw_pat
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                   jstring local_aet, jstring remote_aet) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                                jstring local_aet, jstring remote_aet) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -134,8 +139,9 @@ static jboolean native_connectPACS(JNIEnv *env, jclass clazz, jstring host, jint
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-static jboolean native_cEcho(JNIEnv *env, jclass clazz, jstring host, jint port,
-                             jstring local_aet, jstring remote_aet) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cEcho(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                          jstring local_aet, jstring remote_aet) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -163,9 +169,10 @@ static PacsClient::ProgressCallback makeProgressCallback(JNIEnv *env, jobject ca
     };
 }
 
-static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port,
-                              jstring local_aet, jstring remote_aet, jstring dcm_path,
-                              jobject callback) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cStore(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                           jstring local_aet, jstring remote_aet, jstring dcm_path,
+                                           jobject callback) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -179,9 +186,11 @@ static jboolean native_cStore(JNIEnv *env, jclass clazz, jstring host, jint port
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-static jint native_cStoreMulti(JNIEnv *env, jclass clazz, jstring host, jint port,
-                               jstring local_aet, jstring remote_aet, jobjectArray dcm_paths,
-                               jobject callback) {
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cStoreMulti(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                                jstring local_aet, jstring remote_aet,
+                                                jobjectArray dcm_paths,
+                                                jobject callback) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -229,8 +238,10 @@ static jint native_cStoreMulti(JNIEnv *env, jclass clazz, jstring host, jint por
                                           paths, multiCallback);
 }
 
-static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                 jstring local_aet, jstring remote_aet, jstring patient_name) {
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cFind(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                          jstring local_aet, jstring remote_aet,
+                                          jstring patient_name) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -251,9 +262,11 @@ static jobjectArray native_cFind(JNIEnv *env, jclass clazz, jstring host, jint p
     return ret;
 }
 
-static jobjectArray native_cFindByAccession(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                            jstring local_aet, jstring remote_aet,
-                                            jstring accession_number) {
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cFindByAccession(JNIEnv *env, jclass clazz, jstring host,
+                                                     jint port,
+                                                     jstring local_aet, jstring remote_aet,
+                                                     jstring accession_number) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -274,14 +287,16 @@ static jobjectArray native_cFindByAccession(JNIEnv *env, jclass clazz, jstring h
     return ret;
 }
 
-static jobjectArray native_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                    jstring local_aet, jstring remote_aet, jstring modality) {
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                             jstring local_aet, jstring remote_aet,
+                                             jstring modality) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
     JniString c_mod(env, modality);
 
-    std::vector<DcmDataset*> results = PacsClient::cFindMWL(
+    std::vector<DcmDataset *> results = PacsClient::cFindMWL(
             c_host.c_str() ? c_host.c_str() : "", port,
             c_local.c_str() ? c_local.c_str() : "",
             c_remote.c_str() ? c_remote.c_str() : "",
@@ -328,9 +343,11 @@ static jobjectArray native_cFindMWL(JNIEnv *env, jclass clazz, jstring host, jin
     return ret;
 }
 
-static jobjectArray native_cFindMWLByTemplate(JNIEnv *env, jclass clazz, jstring host, jint port,
-                                              jstring local_aet, jstring remote_aet,
-                                              jstring template_path, jstring output_dir) {
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cFindMWLByTemplate(JNIEnv *env, jclass clazz, jstring host,
+                                                       jint port,
+                                                       jstring local_aet, jstring remote_aet,
+                                                       jstring template_path, jstring output_dir) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -353,9 +370,10 @@ static jobjectArray native_cFindMWLByTemplate(JNIEnv *env, jclass clazz, jstring
     return ret;
 }
 
-static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
-                             jstring local_aet, jstring remote_aet, jstring patient_id,
-                             jstring dest_aet) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                          jstring local_aet, jstring remote_aet, jstring patient_id,
+                                          jstring dest_aet) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -369,9 +387,10 @@ static jboolean native_cMove(JNIEnv *env, jclass clazz, jstring host, jint port,
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
-                            jstring local_aet, jstring remote_aet, jstring patient_id,
-                            jstring save_dir, jobject callback) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
+                                         jstring local_aet, jstring remote_aet, jstring patient_id,
+                                         jstring save_dir, jobject callback) {
     JniString c_host(env, host);
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
@@ -390,12 +409,14 @@ static jboolean native_cGet(JNIEnv *env, jclass clazz, jstring host, jint port,
 /**
  * Native implementation for DcmtkJni.dcmToJpg(String dir)
  */
-static jint native_dcmToJpg(JNIEnv *env, jclass clazz, jstring dir_path) {
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_dcmToJpg(JNIEnv *env, jclass clazz, jstring dir_path) {
     JniString c_dir(env, dir_path);
     return DicomFileIO::dcmToJpg(c_dir.c_str() ? c_dir.c_str() : "");
 }
 
-static void native_cancelOperation(JNIEnv *env, jclass clazz) {
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_cancelOperation(JNIEnv *env, jclass clazz) {
     PacsClient::cancelOperation();
 }
 
@@ -420,13 +441,17 @@ static jobject buildStringMap(JNIEnv *env, const std::map<std::string, std::stri
     return hashMap;
 }
 
-static jobject native_loadDicomFileInfoEx(JNIEnv *env, jclass clazz, jstring file_path) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_loadDicomFileInfoEx(JNIEnv *env, jclass clazz,
+                                                        jstring file_path) {
     JniString path(env, file_path);
     auto info = DicomFileIO::loadFileInfoNamed(path.c_str() ? path.c_str() : "");
     return buildStringMap(env, info);
 }
 
-static jobject native_readDicomWindowSettingsNative(JNIEnv *env, jclass clazz, jstring file_path) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_readDicomWindowSettingsNative(JNIEnv *env, jclass clazz,
+                                                                  jstring file_path) {
     JniString path(env, file_path);
     auto info = DicomFileIO::readWindowSettings(path.c_str() ? path.c_str() : "");
     return buildStringMap(env, info);
@@ -462,7 +487,8 @@ static jobject createRgbaBitmap(JNIEnv *env, int width, int height,
     return bitmap;
 }
 
-static jobject native_dicomFile2Bitmap(JNIEnv *env, jclass clazz, jstring file_path) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_dicomFile2Bitmap(JNIEnv *env, jclass clazz, jstring file_path) {
     JniString path(env, file_path);
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
@@ -473,8 +499,9 @@ static jobject native_dicomFile2Bitmap(JNIEnv *env, jclass clazz, jstring file_p
     return createRgbaBitmap(env, w, h, rgba);
 }
 
-static jobject native_dicomFile2BitmapWW(JNIEnv *env, jclass clazz, jstring file_path,
-                                         jdouble ww, jdouble wc) {
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_dicomFile2BitmapWW(JNIEnv *env, jclass clazz, jstring file_path,
+                                                       jdouble ww, jdouble wc) {
     JniString path(env, file_path);
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
@@ -564,8 +591,9 @@ static bool readPixelData(JNIEnv *env, jobject pixelData, DicomFileIO::PixelData
     return true;
 }
 
-static jboolean native_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
-                                   jobject pixel_data, jstring dcm_path) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_dcmtk_jni_DcmtkJni_writeDcmFile(JNIEnv *env, jclass clazz, jobject record,
+                                                 jobject pixel_data, jstring dcm_path) {
     ScanRecordFields rec;
     if (!readScanRecord(env, record, rec)) {
         return JNI_FALSE;
@@ -594,68 +622,68 @@ static const char *const kClassName = "com/example/dcmtk/jni/DcmtkJni";
 static const JNINativeMethod kMethods[] = {
         {"stringFromJNI",
                 "()Ljava/lang/String;",
-                (void *) native_stringFromJNI},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_stringFromJNI},
         {"initDcmtk",
                 "(Ljava/lang/String;)V",
-                (void *) native_initDcmtk},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_initDcmtk},
         {"loadDicomFileInfo",
                 "(Ljava/lang/String;)Ljava/util/HashMap;",
-                (void *) native_loadDicomFileInfo},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_loadDicomFileInfo},
         {"writeDicomFile",
                 "(Ljava/lang/String;Ljava/lang/String;II)Z",
-                (void *) native_writeDicomFile},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_writeDicomFile},
         {"connectPACS",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
-                (void *) native_connectPACS},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_connectPACS},
         {"cEcho",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Z",
-                (void *) native_cEcho},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cEcho},
         {"cStore",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtk/callback/ProgressCallback;)Z",
-                (void *) native_cStore},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cStore},
         {"cStoreMulti",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;[Ljava/lang/String;Lcom/example/dcmtk/callback/MultiProgressCallback;)I",
-                (void *) native_cStoreMulti},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cStoreMulti},
         {"cFind",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
-                (void *) native_cFind},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cFind},
         {"cFindByAccession",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
-                (void *) native_cFindByAccession},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cFindByAccession},
         {"cFindMWL",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/util/HashMap;",
-                (void *) native_cFindMWL},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cFindMWL},
         {"cFindMWLByTemplate",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;",
-                (void *) native_cFindMWLByTemplate},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cFindMWLByTemplate},
         {"cMove",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
-                (void *) native_cMove},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cMove},
         {"cGet",
                 "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/example/dcmtk/callback/ProgressCallback;)Z",
-                (void *) native_cGet},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cGet},
         {"dcmToJpg",
                 "(Ljava/lang/String;)I",
-                (void *) native_dcmToJpg},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_dcmToJpg},
         {"cancelOperation",
                 "()V",
-                (void *) native_cancelOperation},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_cancelOperation},
         {"loadDicomFileInfoEx",
                 "(Ljava/lang/String;)Ljava/util/HashMap;",
-                (void *) native_loadDicomFileInfoEx},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_loadDicomFileInfoEx},
         {"readDicomWindowSettingsNative",
                 "(Ljava/lang/String;)Ljava/util/HashMap;",
-                (void *) native_readDicomWindowSettingsNative},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_readDicomWindowSettingsNative},
         {"dicomFile2Bitmap",
                 "(Ljava/lang/String;)Landroid/graphics/Bitmap;",
-                (void *) native_dicomFile2Bitmap},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_dicomFile2Bitmap},
         {"dicomFile2BitmapWW",
                 "(Ljava/lang/String;DD)Landroid/graphics/Bitmap;",
-                (void *) native_dicomFile2BitmapWW},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_dicomFile2BitmapWW},
         {"writeDcmFile",
                 "(Lcom/example/dcmtk/model/ScanRecord;Lcom/example/dcmtk/model/PixelDataNew"
                 ";Ljava/lang/String;)Z",
-                (void *) native_writeDcmFile},
+                (void *) Java_com_example_dcmtk_jni_DcmtkJni_writeDcmFile},
 
 };
 
