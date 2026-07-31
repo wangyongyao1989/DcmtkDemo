@@ -16,6 +16,7 @@ import com.example.dcmtk.db.MwlSyncRepository
 import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
+import com.example.dcmtk.model.ScanRecord
 import com.example.dcmtk.model.WorklistItemMapper
 import com.example.dcmtk.utils.MwlTemplateHelper
 import com.example.dcmtk.view.WorkListConnectionDialog
@@ -128,6 +129,40 @@ class WorklistQueryFragment : Fragment() {
             records.forEachIndexed { index, record ->
                 Log.d(TAG, "UI PatientRecord #$index: $record")
             }
+
+            // 5. 转换为 ScanRecord 列表（DICOM 写入/业务使用）
+            val scanRecords = records.map { pr ->
+                ScanRecord(
+                    examineNo = pr.examineNo,
+                    patientName = pr.patientName,
+                    patientSex = pr.patientSex,
+                    patientAge = pr.patientAge,
+                    patientHeight = pr.patientHeight,
+                    patientWeight = pr.patientWeight,
+                    patientTelephoneNumbers = pr.patientTelephoneNumbers,
+                    patientNote = pr.patientNote,
+                    sendDoctorNo = pr.sendDoctorNo,
+                    sendDoctorName = pr.sendDoctorName,
+                    sendCheckDate = pr.sendCheckDate,
+                    toothPosition = pr.toothPosition,
+                    checkDoctorNo = pr.checkDoctorNo,
+                    checkDoctorName = pr.checkDoctorName,
+                    checkDate = pr.checkDate,
+                    birthDate = pr.birthDate,
+                    examNumber = pr.examNumber,
+                    dcmPath = pr.dcmPath,
+                    imagePath = pr.imagePath,
+                    modifiedImagePath = pr.modifiedImagePath,
+                    deviceName = pr.deviceName,
+                    deviceIp = pr.deviceIp,
+                    checked = pr.checked
+                )
+            }
+            scanRecords.forEachIndexed { index, scan ->
+                Log.d(TAG, "Business ScanRecord #$index: $scan")
+            }
+
+
 
             binding?.progressBar?.visibility = View.GONE
             setButtonsEnabled(true)
