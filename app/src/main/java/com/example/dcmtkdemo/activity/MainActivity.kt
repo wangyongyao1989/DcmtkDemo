@@ -1,5 +1,6 @@
 package com.example.dcmtkdemo.activity
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
@@ -13,6 +14,12 @@ import com.example.dcmtk.viewmodel.PacsViewModel
 import com.example.dcmtkdemo.R
 import com.example.dcmtkdemo.databinding.ActivityMainBinding
 import com.example.dcmtkdemo.fragment.CTPreprocessFragment
+import com.example.dcmtkdemo.fragment.DcmShowFragment
+import com.example.dcmtkdemo.fragment.FileCompareFragment
+import com.example.dcmtkdemo.fragment.QueryFragment
+import com.example.dcmtkdemo.fragment.RetrieveFragment
+import com.example.dcmtkdemo.fragment.UploadFragment
+import com.example.dcmtkdemo.fragment.WorklistQueryFragment
 import com.example.dcmtkdemo.utils.FileUtil
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -64,6 +71,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.navView.setNavigationItemSelectedListener { item ->
             val fragment: Fragment? = when (item.itemId) {
+                R.id.nav_upload -> UploadFragment()
+                R.id.nav_query -> QueryFragment()
+                R.id.nav_worklist -> WorklistQueryFragment()
+                R.id.nav_retrieve -> RetrieveFragment()
+                R.id.nav_show -> DcmShowFragment()
+                R.id.nav_compare -> FileCompareFragment()
                 R.id.nav_ct_preprocess -> CTPreprocessFragment()
                 else -> null
             }
@@ -76,6 +89,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
         if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
             binding.drawerLayout.closeDrawer(GravityCompat.START)
