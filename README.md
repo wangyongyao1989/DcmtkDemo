@@ -65,3 +65,34 @@ String[] results = DcmtkJni.cFind(host, port, localAet, remoteAet, "PatientName^
 *   `PacsClient.h/cpp`: 封装 C-STORE/C-FIND 等网络逻辑。
 *   `DicomFileIO.h/cpp`: 封装文件读写与转换逻辑。
 *   `FileUtil.java`: 辅助处理 Android 系统路径与文件拷贝。
+
+## 6. 医学图像预处理模块 (rawpixeldeal)
+
+`rawpixeldeal` 模块专门用于处理 CT/X-Ray 等医学影像的原始像素数据，提供高性能的 Native 图像增强与调窗算法。
+
+### A. 核心功能
+*   **预处理流水线**: 集成了 HU 校正、自动裁剪、双边去噪、CLAHE 增强及特征锐化 (USM)。
+*   **智能调窗 (Smart Windowing)**: 支持 Peak Area Auto 等多种高级调窗算法，实现高动态范围像素到 8-bit 可视化空间的映射。
+*   **图像后处理 (Native ImageProcessor)**: 
+    *   **实时调节**: 对比度、亮度、锐化程度的精细化调整。
+    *   **视觉增强**: 反色 (Invert)、伪彩 (False Color)、浮雕 (Relief) 效果。
+    *   **几何变换**: 高性能图像旋转。
+
+### B. 细粒度控制 (Fine-Grained API)
+支持基于 Native 地址 (Mat Address) 的链式调用，极大减少了 JNI 通信开销和内存拷贝频率。开发者可以手动控制处理流：
+1.  `convertToGrayScale(Bitmap) -> MatAddr`
+2.  `applyXXX(MatAddr, params...)`
+3.  `convertMatToBitmap(MatAddr) -> Bitmap`
+
+### C. 操作指南
+1.  **执行预处理**: 在 `CT Preprocess` 界面选择 Asset 源，点击“执行最优调节”或自定义流水线。
+2.  **后处理测试**: 
+    *   拖动 **Contrast/Brightness/Sharpen** 滑块调整参数。
+    *   勾选 **Invert/FalseColor/Relief** 开启特效。
+    *   点击 **Test ImageProcessor** 应用所有后处理设置。
+    *   点击 **Rotate 90°** 测试图像旋转。
+    *   点击 **Fine-grained Test** 体验 Native 层链式处理流程。
+3.  **持久化**: 处理满意后点击“写入DICOM”，系统将提取处理后的 16-bit 像素数据并生成标准 `.dcm` 文件。
+
+## 7. 总结
+本项目通过将复杂的 DICOM 协议和图像算法下沉到 Native (C++/OpenCV) 层，在 Android 移动端实现了接近桌面级的医学影像处理能力。`dcmtk` 模块解决了通信与格式兼容性问题，而 `rawpixeldeal` 模块则通过高性能算子保障了临床诊断所需的图像质量。

@@ -15,7 +15,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingBottom="8dp"
-            android:text="CT Preprocess (Medical CT)"
+            android:text="CT Preprocess (Optimal Adjustment Only)"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -37,7 +37,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="2) Base Parameters (Geometry &amp; HU)"
+            android:text="2) Base Parameters"
             android:textStyle="bold" />
 
         <LinearLayout
@@ -55,7 +55,6 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:imeOptions="actionDone"
                 android:inputType="number"
                 android:text="1112"
                 android:textSize="13sp" />
@@ -70,61 +69,26 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:imeOptions="actionDone"
                 android:inputType="number"
-
                 android:text="1740"
                 android:textSize="13sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Bit:" />
 
             <RadioGroup
                 android:id="@+id/rg_bit"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
-
-                <RadioButton
-                    android:id="@+id/rb_8bit"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="8" />
-
-                <RadioButton
-                    android:id="@+id/rb_16bit"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="16" />
+                <RadioButton android:id="@+id/rb_8bit" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="8" />
+                <RadioButton android:id="@+id/rb_16bit" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="16" />
             </RadioGroup>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Endian:" />
 
             <RadioGroup
                 android:id="@+id/rg_endian"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
-
-                <RadioButton
-                    android:id="@+id/rb_big_endian"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Big" />
-
-                <RadioButton
-                    android:id="@+id/rb_little_endian"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Little" />
+                <RadioButton android:id="@+id/rb_big_endian" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="Big" />
+                <RadioButton android:id="@+id/rb_little_endian" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Little" />
             </RadioGroup>
         </LinearLayout>
 
@@ -132,583 +96,129 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Slope:" />
-
-            <EditText
-                android:id="@+id/et_slope"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:imeOptions="actionDone"
-                android:inputType="numberDecimal"
-                android:text="1.0"
-                android:textSize="13sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Intercept:" />
-
-            <EditText
-                android:id="@+id/et_intercept"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:imeOptions="actionDone"
-                android:inputType="numberSigned|numberDecimal"
-                android:text="-1024.0"
-                android:textSize="13sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Slope:" />
+            <EditText android:id="@+id/et_slope" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:inputType="numberDecimal" android:text="1.0" android:textSize="13sp" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Intercept:" />
+            <EditText android:id="@+id/et_intercept" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:inputType="numberSigned|numberDecimal" android:text="-1024.0" android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- 3) Operations -->
+        <!-- 3) Operations Status -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="3) Preprocess Operations"
+            android:text="3) Preprocess Pipeline Status"
             android:textStyle="bold" />
 
         <GridLayout
-            android:id="@+id/gl_preprocess"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:alignmentMode="alignBounds"
-            android:columnCount="3"
-            android:padding="2dp"
-            android:rowOrderPreserved="false">
+            android:columnCount="2">
+            <CheckBox android:id="@+id/cb_hu" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HU校正" android:checked="true" />
+            <CheckBox android:id="@+id/cb_tailor" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="图片裁剪" android:checked="true" />
+            <CheckBox android:id="@+id/cb_invert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invert LUTs" android:checked="true" />
 
-            <CheckBox
-                android:id="@+id/cb_hu"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="HU校正"
-                android:textSize="12sp" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_gaussian"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="高斯去噪"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="K:"
-                    android:textSize="11sp" />
-
-                <EditText
-                    android:id="@+id/et_gauss_k"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="5"
-                    android:textSize="11sp" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <CheckBox android:id="@+id/cb_bilateral" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="双边去噪" android:checked="true" />
+                <EditText android:id="@+id/et_bilateral_d" android:layout_width="30dp" android:layout_height="wrap_content" android:text="5" android:textSize="11sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_median"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="中值去噪"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="K:"
-                    android:textSize="11sp" />
-
-                <EditText
-                    android:id="@+id/et_median_k"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="3"
-                    android:textSize="11sp" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <CheckBox android:id="@+id/cb_clahe" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CLAHE" android:checked="true" />
+                <EditText android:id="@+id/et_clahe_clip" android:layout_width="30dp" android:layout_height="wrap_content" android:text="3.0" android:textSize="11sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_bilateral"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="双边去噪"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="d:"
-                    android:textSize="11sp" />
-
-                <EditText
-                    android:id="@+id/et_bilateral_d"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="5"
-                    android:textSize="11sp" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <CheckBox android:id="@+id/cb_sharpen" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="特征锐化" android:checked="true" />
+                <EditText android:id="@+id/et_sharpen_strength" android:layout_width="30dp" android:layout_height="wrap_content" android:text="6.0" android:textSize="11sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_fft"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="频域FFT"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="R:"
-                    android:textSize="11sp" />
-
-                <EditText
-                    android:id="@+id/et_fft_r"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="300"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_resample"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="重采样"
-                    android:textSize="12sp" />
-
-                <EditText
-                    android:id="@+id/et_res_w"
-                    android:layout_width="35dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="1112"
-                    android:textSize="10sp" />
-
-                <EditText
-                    android:id="@+id/et_res_h"
-                    android:layout_width="35dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="number"
-                    android:text="1740"
-                    android:textSize="10sp" />
-            </LinearLayout>
-
-            <CheckBox
-                android:id="@+id/cb_equalize"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="直方图均衡"
-                android:textSize="12sp" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_clahe"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="CLAHE增强"
-                    android:textSize="12sp" />
-
-                <EditText
-                    android:id="@+id/et_clahe_clip"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="numberDecimal"
-                    android:text="2.0"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <CheckBox
-                android:id="@+id/cb_stretch"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="对比度拉伸"
-                android:textSize="12sp" />
-
-            <CheckBox
-                android:id="@+id/cb_tailor"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="图片裁剪"
-                android:textSize="12sp" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <CheckBox
-                    android:id="@+id/cb_sharpen"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="特征锐化"
-                    android:textSize="12sp" />
-
-                <EditText
-                    android:id="@+id/et_sharpen_strength"
-                    android:layout_width="30dp"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="numberDecimal"
-                    android:text="0.6"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <CheckBox
-                android:id="@+id/cb_log"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Log变换"
-                android:textSize="12sp" />
+            <!-- Hidden radio for method mapping in code -->
+            <RadioButton android:id="@+id/rb_win_peak" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Peak Area" android:visibility="gone" />
         </GridLayout>
 
         <Button
-            android:id="@+id/btn_run"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="LOAD &amp; DISPLAY" />
-
-        <!-- 4) 一键流水线 (One-Click Pipelines) -->
-        <TextView
+            android:id="@+id/btn_optimal_adjustment"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="4) 一键流水线 (One-Click Pipelines)"
-            android:textStyle="bold" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btn_full_pipeline"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="标准流水线" />
-
-            <Button
-                android:id="@+id/btn_tailor_pipeline"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="图片裁剪后标准流程" />
-
-            <Button
-                android:id="@+id/btn_optimal_adjustment"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="最优的调节" />
-        </LinearLayout>
-
-        <!-- 5) 色度反转 (Chromatic Inversion) -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="5) 色度反转 (Chromatic Inversion)"
-            android:textStyle="bold" />
-
-        <CheckBox
-            android:id="@+id/cb_invert"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Invert LUTs (Include in pipeline)"
-            android:textSize="12sp" />
+            android:text="执行最优调节" />
 
         <Button
-            android:id="@+id/btn_invert_lut"
+            android:id="@+id/btn_custom_adjustment"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Invert LUTs" />
-
-        <!-- 6) 调窗算法 (Windowing Methods) -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="6) 调窗算法 (Windowing Methods)"
-            android:textStyle="bold" />
-
-        <GridLayout
-            android:id="@+id/gl_window_method"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:columnCount="3">
-
-            <RadioButton
-                android:id="@+id/rb_win_none"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="None"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_default"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Default"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_72"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="72% Area"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_bimodal"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Bimodal"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_adaptive"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Adaptive"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_hist_type"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Hist Type"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_min_max"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Min-Max"
-                android:textSize="10sp" />
-
-            <RadioButton
-                android:id="@+id/rb_win_peak"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:text="Peak Area"
-                android:textSize="10sp" />
-        </GridLayout>
+            android:text="执行以上预处理后调窗" />
 
         <Button
-            android:id="@+id/btn_windowing"
+            android:id="@+id/btn_write_dcm"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="调窗" />
+            android:enabled="false"
+            android:text="写入DICOM (.dcm) + 展示" />
 
-        <Button
-            android:id="@+id/btn_save_dcm"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="写入dcm文件" />
-
-        <Button
-            android:id="@+id/btn_export_stats"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:backgroundTint="#FF9800"
-            android:text="@string/btn_export_stats"
-            android:visibility="gone" />
-
-        <!-- 6.1) 窗宽窗位动态调节 (Dynamic Windowing) -->
+        <!-- 4) Post Processing Tests -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="6.1) 窗宽窗位动态调节 (Dynamic WL/WW)"
+            android:text="4) Post Processing (Native ImageProcessor)"
             android:textStyle="bold" />
 
-        <CheckBox
-            android:id="@+id/cb_dynamic_window"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="启用动态调窗（拖动 SeekBar 实时调节）"
-            android:textSize="12sp" />
-
-        <!-- 窗位 Window Center (L) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:orientation="vertical"
+            android:padding="4dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="窗位 L:"
-                android:textSize="12sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <CheckBox android:id="@+id/cb_enable_contrast" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Contrast:" />
+                <SeekBar android:id="@+id/sb_contrast" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="50" />
+            </LinearLayout>
 
-            <SeekBar
-                android:id="@+id/sb_window_center"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="2000"
-                android:progress="400" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <CheckBox android:id="@+id/cb_enable_brightness" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Brightness:" />
+                <SeekBar android:id="@+id/sb_brightness" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="50" />
+            </LinearLayout>
 
-            <TextView
-                android:id="@+id/tv_window_center"
-                android:layout_width="60dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="end"
-                android:text="400"
-                android:textSize="12sp" />
-        </LinearLayout>
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <CheckBox android:id="@+id/cb_enable_sharpen" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:layout_width="70dp" android:layout_height="wrap_content" android:text="Sharpen:" />
+                <SeekBar android:id="@+id/sb_post_sharpen" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="100" android:progress="0" />
+            </LinearLayout>
 
-        <!-- 窗宽 Window Width (W) -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
+            <GridLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="窗宽 W:"
-                android:textSize="12sp" />
+                android:columnCount="3">
+                <CheckBox android:id="@+id/cb_post_invert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Invert" />
+                <CheckBox android:id="@+id/cb_post_false_color" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FalseColor" />
+                <CheckBox android:id="@+id/cb_post_relief" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Relief" />
+            </GridLayout>
 
-            <SeekBar
-                android:id="@+id/sb_window_width"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="4000"
-                android:progress="1500" />
-
-            <TextView
-                android:id="@+id/tv_window_width"
-                android:layout_width="60dp"
-                android:layout_height="wrap_content"
-                android:gravity="end"
-                android:text="1500"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <!-- 快捷预设按钮 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/dp_20"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btn_preset_brain"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="36dp"
-                android:text="脑窗\n(40,80)"
-                android:textSize="10sp" />
-
-            <Button
-                android:id="@+id/btn_preset_lung"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="36dp"
-                android:text="肺窗\n(-600,1500)"
-                android:textSize="10sp" />
-
-            <Button
-                android:id="@+id/btn_preset_bone"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="36dp"
-                android:text="骨窗\n(400,1500)"
-                android:textSize="10sp" />
-
-            <Button
-                android:id="@+id/btn_preset_soft"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="36dp"
-                android:text="软组织\n(40,400)"
-                android:textSize="10sp" />
+                android:orientation="horizontal">
+                <Button android:id="@+id/btn_test_rotation" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Rotate 90°" />
+                <Button android:id="@+id/btn_test_fine_grained" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Fine-grained Test" />
+            </LinearLayout>
         </LinearLayout>
 
         <TextView
@@ -721,42 +231,14 @@
             android:text="(status info)"
             android:textSize="11sp" />
 
-        <!-- Comparison Display -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Comparison: Before (Left) vs After (Right)"
-            android:textSize="12sp"
-            android:textStyle="italic" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="350dp"
-            android:orientation="horizontal">
-
-            <com.example.dcmtkdemo.view.ZoomImageView
-                android:id="@+id/iv_before"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="#10000000"
-                android:contentDescription="before windowing"
-                android:scaleType="matrix" />
-
-            <View
-                android:layout_width="2dp"
-                android:layout_height="match_parent"
-                android:background="#44000000" />
-
-            <com.example.dcmtkdemo.view.ZoomImageView
-                android:id="@+id/iv_after"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="#10000000"
-                android:contentDescription="after windowing"
-                android:scaleType="matrix" />
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+            <com.example.dcmtkdemo.view.ZoomImageView android:id="@+id/iv_before" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#10000000" android:scaleType="matrix" />
+            <View android:layout_width="2dp" android:layout_height="match_parent" android:background="#44000000" />
+            <com.example.dcmtkdemo.view.ZoomImageView android:id="@+id/iv_after" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#10000000" android:scaleType="matrix" />
         </LinearLayout>
 
         <TextView

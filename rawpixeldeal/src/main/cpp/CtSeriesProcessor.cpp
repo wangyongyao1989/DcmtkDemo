@@ -11,13 +11,22 @@
 
 namespace CtSeriesProcessor {
 
+    /**
+     * 将原始像素值(SV)转换为亨氏单位(HU)。
+     * 公式: HU = SV * slope + intercept
+     */
     cv::Mat toHu(const cv::Mat &sv, double slope, double intercept) {
         cv::Mat hu;
         if (sv.empty()) return hu;
+        // 使用 CV_32F 保持浮点精度，避免 HU 转换过程中的精度损失
         sv.convertTo(hu, CV_32FC1, slope, intercept);
         return hu;
     }
 
+    /**
+     * HU 域优化：包含双边滤波去噪和极值截断。
+     * 双边滤波(Bilateral Filter)能在平滑噪声的同时很好地保留组织边缘。
+     */
     cv::Mat optimizeHu(const cv::Mat &hu, bool enableBilateral,
                       int bilateralD, double sigmaColor, double sigmaSpace,
                       float clipLowHu, float clipHighHu) {
@@ -25,6 +34,7 @@ namespace CtSeriesProcessor {
         if (out.empty()) return out;
 
         if (enableBilateral) {
+            // 双边滤波要求 8U 或浮点，这里先归一化到 8U 加速处理
             double mn = 0.0, mx = 0.0;
             cv::minMaxLoc(out, &mn, &mx);
             const double span = std::max(1e-6, mx - mn);
@@ -33,14 +43,20 @@ namespace CtSeriesProcessor {
             cv::Mat filtered8u;
             cv::bilateralFilter(normalized, filtered8u, bilateralD, sigmaColor,
                                 sigmaSpace, cv::BORDER_REPLICATE);
+            // 滤波后再映射回原始 HU 范围
             filtered8u.convertTo(out, CV_32FC1, span / 255.0, mn);
         }
 
+        // HU 极值截断：限制数据在医学有效范围内（如 -1024 到 3071）
         cv::threshold(out, out, clipHighHu, clipHighHu, cv::THRESH_TRUNC);
         cv::max(out, clipLowHu, out);
         return out;
     }
 
+    /**
+     * 自动检测人体 ROI (Region of Interest)。
+     * 通过阈值分割和连通域分析定位图像中的主要人体组织，排除背景空气干扰。
+     */
     static cv::Rect autoCropBodyRoi(const cv::Mat &hu, float bodyThreshold,
                                     int morphSize, int minBodyAreaPx,
                                     int marginPx) {
@@ -251,6 +267,17 @@ namespace CtSeriesProcessor {
         wOut = std::max(150.0, range * 0.7);
     }
 
+    /**
+     * 调窗核心分派函数：根据所选方法计算窗位(Center)和窗宽(Width)。
+     *
+     * @param method 算法索引:
+     *   0: DEFAULT (127.5/255)
+     *   1: CUMULATIVE_72 (72% 累积面积法)
+     *   2: BIMODAL (双峰直方图法)
+     *   3: ADAPTIVE (论文自适应法)
+     *   5: MIN_MAX (全量程覆盖)
+     *   6: PEAK_AREA_AUTO (智能波峰面积识别 - 推荐)
+     */
     void pickWindowCenterWidth(int method, double minV, double maxV,
                                const std::vector<int> *hist, int nBins,
                                double &cOut, double &wOut) {
@@ -345,15 +372,15 @@ namespace CtSeriesProcessor {
                 wOut = aw.w;
                 break;
             }
-            case 6: { // PEAK_AREA_AUTO (Custom method)
+            case 6: { // PEAK_AREA_AUTO (智能波峰面积识别)
                 if (hist == nullptr || hist->empty() || nBins <= 0) {
                     cOut = (minV + maxV) * 0.5;
                     wOut = std::max(1.0, span);
                     return;
                 }
-                // 1) Gaussian Smoothing - 改进：降低sigma以保留骨小梁等微细纹理
+                // 1) 高斯平滑直方图：去除细微噪声干扰，突出主要波峰
                 std::vector<double> smooth;
-                double sigma = 3.0; // 从 8.0 降低到 3.0，减少过度平滑
+                double sigma = 3.0;
                 int radius = (int)round(3 * sigma);
                 int kSize = 2 * radius + 1;
                 std::vector<double> kernel(kSize);
@@ -377,7 +404,7 @@ namespace CtSeriesProcessor {
                     smooth[i] = s;
                 }
 
-                // 2) Find peak with max (height * width)
+                // 2) 寻找波峰：识别面积（高度*宽度）最大的波峰
                 struct Peak { int idx; double prod; };
                 std::vector<Peak> peaks;
                 for (int i = 1; i < nBins - 1; i++) {
@@ -393,21 +420,23 @@ namespace CtSeriesProcessor {
                     return a.prod > b.prod;
                 });
 
+                // 3) 组织定位逻辑：
+                // 如果检测到的最大峰位于直方图两端（背景区），则尝试切换到次大峰（组织区）
                 int bestPeakIdx = 0;
                 if (!peaks.empty()) {
                     bestPeakIdx = peaks[0].idx;
-                    // 改进：增强背景抑制，扩展抑制范围
-                    bool isLeftBackground = (bestPeakIdx < nBins * 0.20); // 从 0.15 扩展到 0.20
-                    bool isRightBackground = (bestPeakIdx > nBins * 0.80); // 从 0.85 扩展到 0.80
+                    bool isLeftBackground = (bestPeakIdx < nBins * 0.20);
+                    bool isRightBackground = (bestPeakIdx > nBins * 0.80);
                     if ((isLeftBackground || isRightBackground) && peaks.size() > 1) {
                         bestPeakIdx = peaks[1].idx;
-                        LOGW("pickWindowCenterWidth: Background peak suppressed at %d, using next peak at %d", peaks[0].idx, bestPeakIdx);
+                        LOGW("pickWindowCenterWidth: Background peak suppressed, using tissue peak at %d", bestPeakIdx);
                     }
                 }
 
-                // 3) Find edges - 改进：提高阈值以获得更高对比度，减少虚化
-                double thE = smooth[bestPeakIdx] * 0.70; // 从 0.75 调整到 0.70，优化对比度
+                // 4) 寻找边缘：在选定波峰周围确定有效显示范围
+                double thE = smooth[bestPeakIdx] * 0.70;
                 int minIdx = 0, maxIdx = nBins - 1;
+                // ... (边缘寻找逻辑实现)
                 int leftStart = -1;
                 for (int i = bestPeakIdx - 1; i >= 0; i--) {
                     if (smooth[i] < thE) { leftStart = i; break; }

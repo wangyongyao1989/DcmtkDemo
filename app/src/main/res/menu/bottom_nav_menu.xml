@@ -1,34 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:id="@+id/nav_upload"
-        android:icon="@android:drawable/ic_menu_upload"
-        android:title="Upload" />
-    <item
-        android:id="@+id/nav_query"
-        android:icon="@android:drawable/ic_menu_search"
-        android:title="Query" />
-    <item
-        android:id="@+id/nav_worklist"
-        android:icon="@android:drawable/ic_menu_agenda"
-        android:title="Worklist" />
-    <item
-        android:id="@+id/nav_retrieve"
-        android:icon="@android:drawable/ic_menu_save"
-        android:title="Retrieve" />
-    <item
-        android:id="@+id/nav_show"
-        android:icon="@android:drawable/ic_menu_gallery"
-        android:title="Show" />
-    <item
-        android:id="@+id/nav_compare"
-        android:icon="@android:drawable/ic_menu_edit"
-        android:title="Compare" />
-    <item
-        android:id="@+id/nav_raw_pixel"
-        android:icon="@android:drawable/ic_menu_view"
-        android:title="Raw Pixel Deal" />
-    <item
         android:id="@+id/nav_ct_preprocess"
         android:icon="@android:drawable/ic_menu_manage"
         android:title="CT Preprocess" />
