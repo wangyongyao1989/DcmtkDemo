@@ -87,7 +87,10 @@ class QueryFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val config = viewModel.pacsConfig.value ?: return@launch
             val finalResults = withContext(Dispatchers.IO) {
-                Log.d("QueryFragment", "executeQuery: Running on thread ${Thread.currentThread().name}")
+                Log.d(
+                    "QueryFragment",
+                    "executeQuery: Running on thread ${Thread.currentThread().name}"
+                )
                 if (queryType == 1) {
                     PacsManager.cFindByAccession(config, queryVal)
                 } else {
@@ -128,7 +131,10 @@ class QueryFragment : Fragment() {
                     records.add(PatientRecord(name, id, sex, birth, acc, mod))
                 }
             } else {
-                Log.w("QueryFragment", "executeQuery: Results is null (possible network or association error)")
+                Log.w(
+                    "QueryFragment",
+                    "executeQuery: Results is null (possible network or association error)"
+                )
             }
 
             Log.d("QueryFragment", "executeQuery: [DONE] Parsed ${records.size} records")
@@ -137,7 +143,8 @@ class QueryFragment : Fragment() {
             if (records.isEmpty()) {
                 binding?.tvQueryResults?.text = "No results found."
             } else {
-                binding?.tvQueryResults?.text = "Found ${records.size} records. Details shown below."
+                binding?.tvQueryResults?.text =
+                    "Found ${records.size} records. Details shown below."
             }
         }
     }

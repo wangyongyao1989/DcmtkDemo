@@ -112,8 +112,10 @@ class WorklistQueryFragment : Fragment() {
                     val sex = map["(0010,0040)"] ?: "N/A"
                     val birth = map["(0010,0030)"] ?: "N/A"
                     val mod = map["(0008,0060)"] ?: "N/A"
-                    Log.d(TAG, "executeMwlQuery map loop: name=$name, id=$id" +
-                            ", acc=$acc, sex=$sex, birth=$birth, mod=$mod")
+                    Log.d(
+                        TAG, "executeMwlQuery map loop: name=$name, id=$id" +
+                                ", acc=$acc, sex=$sex, birth=$birth, mod=$mod"
+                    )
                 }
             }
 
@@ -123,9 +125,11 @@ class WorklistQueryFragment : Fragment() {
             } else emptyList()
 
             worklistItems.forEachIndexed { index, item ->
-                Log.d(TAG, "MWL Result #$index: ${item.patientName} (${item.patientID}), " +
-                        "acc=${item.accessionNumber}, modality=${item.modality}, " +
-                        "studyUID=${item.studyInstanceUID}")
+                Log.d(
+                    TAG, "MWL Result #$index: ${item.patientName} (${item.patientID}), " +
+                            "acc=${item.accessionNumber}, modality=${item.modality}, " +
+                            "studyUID=${item.studyInstanceUID}"
+                )
             }
 
             // 3. 同步到数据库 — "查询-匹配-存在则修改-不存在则插入"
@@ -139,14 +143,16 @@ class WorklistQueryFragment : Fragment() {
             // 4. 转换为 PatientRecord 供 UI 显示
             val records = ArrayList<PatientRecord>()
             for (item in worklistItems) {
-                records.add(PatientRecord(
-                    name = item.patientName.ifEmpty { "N/A" },
-                    id = item.patientID.ifEmpty { "N/A" },
-                    sex = item.patientSex.ifEmpty { "N/A" },
-                    birthDate = item.patientBirthDate.ifEmpty { "N/A" },
-                    accessionNumber = item.accessionNumber,
-                    modality = item.modality
-                ))
+                records.add(
+                    PatientRecord(
+                        name = item.patientName.ifEmpty { "N/A" },
+                        id = item.patientID.ifEmpty { "N/A" },
+                        sex = item.patientSex.ifEmpty { "N/A" },
+                        birthDate = item.patientBirthDate.ifEmpty { "N/A" },
+                        accessionNumber = item.accessionNumber,
+                        modality = item.modality
+                    )
+                )
             }
 
             binding?.progressBar?.visibility = View.GONE
@@ -195,23 +201,25 @@ class WorklistQueryFragment : Fragment() {
             }
 
             if (activity == null || binding == null) return@launch
-            
+
             binding?.progressBar?.visibility = View.GONE
             setButtonsEnabled(true)
 
             if (exportedFiles.isNotEmpty()) {
                 val records = ArrayList<PatientRecord>()
                 for (path in exportedFiles) {
-                    Log.e(TAG, "path: "+path)
+                    Log.e(TAG, "path: " + path)
                     val record = withContext(Dispatchers.IO) { parseDicomFile(path) }
                     if (record != null) {
                         records.add(record)
                     }
                 }
                 viewModel.mwlResults.value = records
-                binding?.tvWorklistResults?.text = "MWL Query Complete. Parsed ${records.size} exported DCM files."
+                binding?.tvWorklistResults?.text =
+                    "MWL Query Complete. Parsed ${records.size} exported DCM files."
             } else {
-                binding?.tvWorklistResults?.text = "MWL Query by Template failed or returned no results."
+                binding?.tvWorklistResults?.text =
+                    "MWL Query by Template failed or returned no results."
             }
         }
     }

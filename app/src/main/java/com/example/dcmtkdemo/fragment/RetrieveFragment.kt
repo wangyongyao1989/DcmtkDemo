@@ -55,7 +55,8 @@ class RetrieveFragment : Fragment() {
             if (records == null || records.isEmpty()) {
                 binding?.tvMoveStatus?.text = "No query results. Please go to Query tab first."
             } else {
-                binding?.tvMoveStatus?.text = "Found ${records.size} items from Query. Select to retrieve."
+                binding?.tvMoveStatus?.text =
+                    "Found ${records.size} items from Query. Select to retrieve."
             }
         }
 
@@ -63,7 +64,8 @@ class RetrieveFragment : Fragment() {
             verifyConnection {
                 val selected = adapter.selectedRecords
                 if (selected.isEmpty()) {
-                    Toast.makeText(context, "Please select at least one item", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Please select at least one item", Toast.LENGTH_SHORT)
+                        .show()
                     return@verifyConnection
                 }
                 executeBatchDownload(selected)
@@ -127,7 +129,7 @@ class RetrieveFragment : Fragment() {
                                     val speed = (bytesDiff / 1024.0) / (timeDiff / 1000.0) // KB/s
                                     lastBytes = sent
                                     lastTime = currentTime
-                                    
+
                                     lifecycleScope.launch(Dispatchers.Main) {
                                         binding?.tvDownloadStats?.text = String.format(
                                             "Speed: %.2f KB/s | Progress: %d/%d",

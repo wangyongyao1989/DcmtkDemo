@@ -71,7 +71,8 @@ class FileCompareFragment : Fragment() {
             requireContext(), android.R.layout.simple_spinner_dropdown_item, names
         )
         if (names.isEmpty()) {
-            Toast.makeText(context, "未找到 .dcm 文件：${dir.absolutePath}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "未找到 .dcm 文件：${dir.absolutePath}", Toast.LENGTH_LONG)
+                .show()
         }
     }
 
@@ -191,7 +192,7 @@ class FileCompareFragment : Fragment() {
                         raw[idx++] = ((v shr 8) and 0xFF).toByte()
                     }
                 }
-                val rawFile = File(dir,"synth_test.bin")
+                val rawFile = File(dir, "synth_test.bin")
                 withContext(Dispatchers.IO) {
                     rawFile.writeBytes(raw)
                 }
@@ -278,7 +279,8 @@ class FileCompareFragment : Fragment() {
 
     companion object {
         private const val TAG = "FileCompareFragment"
-        private const val COMPARE_TEXT = """【目的】用 DCMTK native 重新实现 DicomFileUtils.kt（dcm4che3）的 4 个方法，并对比异同。
+        private const val COMPARE_TEXT =
+            """【目的】用 DCMTK native 重新实现 DicomFileUtils.kt（dcm4che3）的 4 个方法，并对比异同。
 
 ① loadDicomFileInfo / loadDicomFileInfoEx
   dcm4che3: DicomInputStream.readDataset → Attributes.getString(Tag.X) 取各命名字段；

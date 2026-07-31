@@ -346,13 +346,18 @@ class RawPixelDealFragment : Fragment() {
                         b.scrollRoot.smoothScrollTo(0, target.coerceAtLeast(0))
                     }
                 }
-                Toast.makeText(ctx, "Series pipeline done. c=%.1f w=%.1f".format(
-                    result.windowCenter, result.windowWidth), Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    ctx, "Series pipeline done. c=%.1f w=%.1f".format(
+                        result.windowCenter, result.windowWidth
+                    ), Toast.LENGTH_SHORT
+                ).show()
             } catch (e: Exception) {
                 Log.e(TAG, "runSeriesPipeline failed", e)
                 binding.tvSeriesInfo.text = "ERROR: ${e.message}"
-                Toast.makeText(ctx, e.message ?: "series pipeline failed",
-                    Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    ctx, e.message ?: "series pipeline failed",
+                    Toast.LENGTH_LONG
+                ).show()
             } finally {
                 _binding?.btnRunSeries?.isEnabled = true
             }
@@ -367,16 +372,25 @@ class RawPixelDealFragment : Fragment() {
         append("series=${assetNames.joinToString()}\n")
         append("nSlices=${r.debug.sliceCount}\n")
         append("cropRect=(L=${r.cropLeft},T=${r.cropTop},W=${r.cropWidth},H=${r.cropHeight})\n")
-        append("Gmin=%.1f  Gmax=%.1f  H_bins=%.3f\n".format(
-            r.debug.gMin, r.debug.gMax, r.debug.hBins))
+        append(
+            "Gmin=%.1f  Gmax=%.1f  H_bins=%.3f\n".format(
+                r.debug.gMin, r.debug.gMax, r.debug.hBins
+            )
+        )
         append("T0=%.1f  T1=%.1f  B=%d\n".format(r.debug.t0, r.debug.t1, r.debug.b))
-        append("N0=%.4f  N1=%.4f  stride=${cfg.histSampleStride}\n".format(
-            r.debug.n0, r.debug.n1))
+        append(
+            "N0=%.4f  N1=%.4f  stride=${cfg.histSampleStride}\n".format(
+                r.debug.n0, r.debug.n1
+            )
+        )
         append("c=%.2f  w=%.2f  (window in HU)\n".format(r.windowCenter, r.windowWidth))
         append("SV range: [${r.debug.srcMin}, ${r.debug.srcMax}]\n")
         // v2：百分位 + 直方图质量（增强可观测性）
-        append("Percentiles: pLow=%.2f  pHigh=%.2f\n".format(
-            cfg.gminPercentile, cfg.gmaxPercentile))
+        append(
+            "Percentiles: pLow=%.2f  pHigh=%.2f\n".format(
+                cfg.gminPercentile, cfg.gmaxPercentile
+            )
+        )
         // 统计直方图熵与 maxBinFrac（用 Kotlin 重算一次，便于 UI 展示）
         val hist = r.histogram
         if (hist.isNotEmpty()) {
@@ -395,16 +409,22 @@ class RawPixelDealFragment : Fragment() {
                     if (curPeak && !inPeak) peaks++
                     inPeak = curPeak
                 }
-                append("hist stats: entropy=%.3f maxBinFrac=%.3f peaks=%d\n".format(
-                    entropy, maxFrac, peaks))
+                append(
+                    "hist stats: entropy=%.3f maxBinFrac=%.3f peaks=%d\n".format(
+                        entropy, maxFrac, peaks
+                    )
+                )
                 if (maxFrac > 0.6 || entropy < 0.3) {
                     append("[!] histogram skewed -> fallback window likely used\n")
                 }
             }
         }
         if (cfg.cropFirst) append("pipeline: cropFirst=1 (crop before denoise)\n")
-        if (cfg.enableDisplayClahe) append("display CLAHE: ON (clip=%.2f tile=%d)\n".format(
-            cfg.displayClaheClip, cfg.displayClaheTile))
+        if (cfg.enableDisplayClahe) append(
+            "display CLAHE: ON (clip=%.2f tile=%d)\n".format(
+                cfg.displayClaheClip, cfg.displayClaheTile
+            )
+        )
         append("histogram bins (first 16): ${r.histogram.take(16).joinToString()}")
     }
 
@@ -459,7 +479,8 @@ class RawPixelDealFragment : Fragment() {
                 Toast.makeText(
                     ctx,
                     "X-ray done. c=%d w=%d (HU)".format(
-                        result.debug.winCenter, result.debug.winWidth),
+                        result.debug.winCenter, result.debug.winWidth
+                    ),
                     Toast.LENGTH_SHORT
                 ).show()
             } catch (e: Exception) {
@@ -516,9 +537,11 @@ class RawPixelDealFragment : Fragment() {
                     toothPosition = "BODY",
                 )
                 val pixelNew = XrayPipeline.toPixelDataNew(result.pixelData)
-                Log.i(TAG, "writeXrayDcm: -> $dcmPath " +
-                        "(${pixelNew.columns}x${pixelNew.rows} " +
-                        "c=${pixelNew.win_center} w=${pixelNew.win_width})")
+                Log.i(
+                    TAG, "writeXrayDcm: -> $dcmPath " +
+                            "(${pixelNew.columns}x${pixelNew.rows} " +
+                            "c=${pixelNew.win_center} w=${pixelNew.win_width})"
+                )
 
                 val ok = DicomManager.writeDcmFile(record, pixelNew, dcmPath)
                 if (!ok) throw IllegalStateException("writeDcmFile returned false")
@@ -566,23 +589,32 @@ class RawPixelDealFragment : Fragment() {
     ): String = buildString {
         append("asset=$assetName\n")
         append("window method: ${cfg.windowMethod.displayName}\n")
-        append("cropRect=(L=${r.cropRect[0]},T=${r.cropRect[1]}," +
-                "W=${r.cropRect[2]},H=${r.cropRect[3]})\n")
+        append(
+            "cropRect=(L=${r.cropRect[0]},T=${r.cropRect[1]}," +
+                    "W=${r.cropRect[2]},H=${r.cropRect[3]})\n"
+        )
         append("SV range=[${r.debug.minPixelValue}, ${r.debug.largestPixelValue}]\n")
         append("min_i(5%)=${r.debug.minI}  max_i(95%)=${r.debug.maxI}\n")
         append("WC=${r.debug.winCenter}  WW=${r.debug.winWidth}  (HU)\n")
-        append("exposure=${r.debug.exposureLevel}  stddev=%.2f\n".format(
-            r.debug.standardDeviation))
+        append(
+            "exposure=${r.debug.exposureLevel}  stddev=%.2f\n".format(
+                r.debug.standardDeviation
+            )
+        )
         append("rotateAngle=%.2f deg\n".format(r.debug.rotateAngle))
-        append("histogram total=${r.debug.histogramTotal}  " +
-                "clip=[${"%.2f".format(r.debug.cdfMinFraction)}," +
-                " ${"%.2f".format(r.debug.cdfMaxFraction)}]\n")
+        append(
+            "histogram total=${r.debug.histogramTotal}  " +
+                    "clip=[${"%.2f".format(r.debug.cdfMinFraction)}," +
+                    " ${"%.2f".format(r.debug.cdfMaxFraction)}]\n"
+        )
         append("bitmap=${r.cropRect[2]}x${r.cropRect[3]}\n")
         append("hist(0..15)=${r.debug.histogramFirst16.joinToString()}\n")
         append("8u(0..15)=${r.debug.display8uFirst16.joinToString()}\n")
-        append("PixelDataNew: rows=${r.pixelData.height} cols=${r.pixelData.width} " +
-                "largestPV=${r.pixelData.largestImagePixelValue} " +
-                "bytes=${r.pixelData.data?.size ?: 0}")
+        append(
+            "PixelDataNew: rows=${r.pixelData.height} cols=${r.pixelData.width} " +
+                    "largestPV=${r.pixelData.largestImagePixelValue} " +
+                    "bytes=${r.pixelData.data?.size ?: 0}"
+        )
     }
 
     override fun onDestroyView() {

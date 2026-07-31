@@ -123,7 +123,7 @@ class DcmShowFragment : Fragment() {
             }
 
             if (activity == null || binding == null) return@launch
-            
+
             hideLoading()
             if (records.isEmpty()) {
                 showEmpty("No valid DICOM files in temp/ folder.")
@@ -131,7 +131,8 @@ class DcmShowFragment : Fragment() {
                 binding?.apply {
                     rvDcmImages.visibility = View.VISIBLE
                     tvDcmEmpty.visibility = View.GONE
-                    tvDcmShowStatus.text = "Showing ${records.size} image(s). Converted $converted to JPG."
+                    tvDcmShowStatus.text =
+                        "Showing ${records.size} image(s). Converted $converted to JPG."
                     adapter.updateData(records)
                 }
             }
