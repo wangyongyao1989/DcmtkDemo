@@ -17,7 +17,6 @@ import com.example.dcmtk.jni.DcmtkJni
 import com.example.dcmtk.model.PacsConfig
 import com.example.dcmtk.model.PatientRecord
 import com.example.dcmtk.model.WorklistItemMapper
-import com.example.dcmtk.utils.DicomTag
 import com.example.dcmtk.utils.MwlTemplateHelper
 import com.example.dcmtk.view.WorkListConnectionDialog
 import com.example.dcmtk.view.WorkListConnectionView
@@ -28,7 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.*
-import kotlin.math.log
 
 class WorklistQueryFragment : Fragment() {
 
@@ -104,22 +102,7 @@ class WorklistQueryFragment : Fragment() {
 
             if (activity == null || binding == null) return@launch
 
-            if (finalResults != null) {
-                for (map in finalResults) {
-                    val name = map["(0010,0010)"] ?: "N/A"
-                    val id = map["(0010,0020)"] ?: "N/A"
-                    val acc = map["(0008,0050)"] ?: "N/A"
-                    val sex = map["(0010,0040)"] ?: "N/A"
-                    val birth = map["(0010,0030)"] ?: "N/A"
-                    val mod = map["(0008,0060)"] ?: "N/A"
-                    Log.d(
-                        TAG, "executeMwlQuery map loop: name=$name, id=$id" +
-                                ", acc=$acc, sex=$sex, birth=$birth, mod=$mod"
-                    )
-                }
-            }
-
-            // 2. 映射为 WorklistItem 列表（统一数据模型）
+            // 2. 映射为 WorklistItem 列表（用于数据库同步）
             val worklistItems = if (finalResults != null) {
                 WorklistItemMapper.fromMapList(finalResults)
             } else emptyList()
@@ -141,18 +124,9 @@ class WorklistQueryFragment : Fragment() {
             Log.i(TAG, "MWL DB sync result: $syncResult")
 
             // 4. 转换为 PatientRecord 供 UI 显示
-            val records = ArrayList<PatientRecord>()
-            for (item in worklistItems) {
-                records.add(
-                    PatientRecord(
-                        name = item.patientName.ifEmpty { "N/A" },
-                        id = item.patientID.ifEmpty { "N/A" },
-                        sex = item.patientSex.ifEmpty { "N/A" },
-                        birthDate = item.patientBirthDate.ifEmpty { "N/A" },
-                        accessionNumber = item.accessionNumber,
-                        modality = item.modality
-                    )
-                )
+            val records = finalResults?.map { PatientRecord.fromMap(it) } ?: emptyList()
+            records.forEachIndexed { index, record ->
+                Log.d(TAG, "UI PatientRecord #$index: $record")
             }
 
             binding?.progressBar?.visibility = View.GONE
@@ -228,13 +202,7 @@ class WorklistQueryFragment : Fragment() {
         return try {
             val info = DcmtkJni.loadDicomFileInfo(path)
             if (info != null && info.isNotEmpty()) {
-                val name = info.getOrDefault(DicomTag.PatientName.formattedTag, "N/A")
-                val id = info.getOrDefault(DicomTag.PatientID.formattedTag, "N/A")
-                val sex = info.getOrDefault(DicomTag.PatientSex.formattedTag, "N/A")
-                val birth = info.getOrDefault(DicomTag.PatientBirthDate.formattedTag, "N/A")
-                val acc = info.getOrDefault(DicomTag.AccessionNumber.formattedTag, "")
-                val mod = info.getOrDefault(DicomTag.Modality.formattedTag, "")
-                PatientRecord(name, id, sex, birth, acc, mod)
+                PatientRecord.fromMap(info)
             } else null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse DCM file: $path", e)
