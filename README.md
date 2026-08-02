@@ -17,6 +17,9 @@
 
 Leveraging the `dcmtk` module, it supports standard DICOM protocols: C-ECHO (connectivity test), C-FIND (multi-dimensional query), C-STORE (async upload with progress), and C-GET/C-MOVE (image retrieval).
 
+**本地 PACS 服务器搭建参考 (Local PACS Server Setup Guide)**:
+[Android 医学影像开发：本地 PACS 服务器搭建指南](https://blog.csdn.net/wangyongyao1989/article/details/162460525?spm=1001.2014.3001.5502)
+
 ### B. 影像文件处理 (DICOM File I/O)
 *   **元数据解析**: 将 DICOM 标签（Tags）解析为易用的 Map 结构。
 *   **DICOM 写入**: 支持将处理后的原始像素数据封装并保存为标准 `.dcm` 文件。
