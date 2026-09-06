@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:text="CBCT DICOM Series Parser (DCMTK Native)"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- 1) Series Source -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="1) Series Source"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/et_path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="CBCT 序列目录绝对路径（或点击下方按钮从 SAF 选择）"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_select_dir"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="选择目录 (SAF)" />
+
+            <Button
+                android:id="@+id/btn_parse"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="解析序列" />
+        </LinearLayout>
+
+        <!-- 2) Series Info -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="2) Series Info"
+            android:textStyle="bold" />
+
+        <ProgressBar
+            android:id="@+id/progress_cbct"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tv_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:padding="4dp"
+            android:text="(waiting for parse)"
+            android:textSize="11sp" />
+
+        <!-- 3) MPR Viewer -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="3) MPR Viewer"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rg_plane"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_axial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Axial 横断面" />
+
+            <RadioButton
+                android:id="@+id/rb_coronal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Coronal 冠状面" />
+
+            <RadioButton
+                android:id="@+id/rb_sagittal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sagittal 矢状面" />
+        </RadioGroup>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="位置:" />
+
+            <SeekBar
+                android:id="@+id/sb_position"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/tv_position"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="-/-"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗宽 WW:" />
+
+            <SeekBar
+                android:id="@+id/sb_ww"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="8000" />
+
+            <TextView
+                android:id="@+id/tv_ww"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="4000"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗位 WC:" />
+
+            <SeekBar
+                android:id="@+id/sb_wc"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="4000" />
+
+            <TextView
+                android:id="@+id/tv_wc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="600"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_bone_window"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="骨骼窗 (4000/600)" />
+
+            <Button
+                android:id="@+id/btn_default_window"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="文件原始窗" />
+        </LinearLayout>
+
+        <com.example.dcmtkdemo.view.ZoomImageView
+            android:id="@+id/iv_cbct"
+            android:layout_width="match_parent"
+            android:layout_height="420dp"
+            android:layout_marginTop="8dp"
+            android:background="#10000000"
+            android:scaleType="matrix" />
+
+        <TextView
+            android:id="@+id/tv_cbct_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="#EEE"
+            android:textColor="#FF000000"
+            android:padding="8dp"
+            android:text="解析完成后此处显示序列摘要；拖动进度条切换切面与窗宽窗位。"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
