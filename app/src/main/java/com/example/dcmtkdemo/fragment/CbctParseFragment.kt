@@ -251,7 +251,10 @@ class CbctParseFragment : Fragment() {
                     else -> handle.extractMpr(CbctJni.PLANE_SAGITTAL, position, ww, wc)
                 }
             }
-            if (_binding == null || bitmap == null) return@launch
+            if (_binding == null || bitmap == null) {
+                if (bitmap == null) Log.e(TAG, "extractCurrentSlice: bitmap is null at pos $position")
+                return@launch
+            }
             binding.ivCbct.setImageBitmap(bitmap)
             updatePositionLabel()
         }

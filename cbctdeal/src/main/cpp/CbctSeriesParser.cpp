@@ -14,6 +14,7 @@
 
 #include "dcmtk/config/osconfig.h"
 #include "dcmtk/dcmdata/dctk.h"
+#include "dcmtk/dcmdata/dcrledrg.h"
 #include "dcmtk/dcmjpeg/djdecode.h"
 #include "dcmtk/dcmjpls/djdecode.h"
 
@@ -31,14 +32,15 @@ long long nowMs() {
     return (long long) ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
 
-// 解码器只注册一次（JPEG / JPEG-LS，覆盖 CBCT 设备常见的压缩导出格式）
+// 解码器只注册一次（JPEG / JPEG-LS / RLE，覆盖常见压缩格式）
 void ensureCodecsRegistered() {
     static bool registered = false;
     if (!registered) {
         DJDecoderRegistration::registerCodecs();
         DJLSDecoderRegistration::registerCodecs();
+        DcmRLEDecoderRegistration::registerCodecs();
         registered = true;
-        LOGD("JPEG / JPEG-LS decoders registered");
+        LOGD("JPEG / JPEG-LS / RLE decoders registered");
     }
 }
 
@@ -93,6 +95,7 @@ bool listFiles(const std::string &dir, std::vector<std::string> &out) {
  * 单文件级别的内存峰值很小，且多线程下每个线程持有独立的 DcmFileFormat 对象。
  */
 bool readMeta(const std::string &path, SliceMeta &m) {
+    m.path = path;
     DcmFileFormat ff;
     if (ff.loadFile(path.c_str()).bad()) {
         return false;   // 非 DICOM 或损坏文件，直接过滤
@@ -178,39 +181,44 @@ bool readMeta(const std::string &path, SliceMeta &m) {
 bool readPixels(const std::string &path, int bitsAllocated, size_t expectedWords,
                 std::vector<Uint16> &out) {
     DcmFileFormat ff;
-    if (ff.loadFile(path.c_str()).bad()) return false;
+    if (ff.loadFile(path.c_str()).bad()) {
+        LOGE("readPixels: loadFile failed: %s", path.c_str());
+        return false;
+    }
     DcmDataset *ds = ff.getDataset();
 
-    E_TransferSyntax xfer = ds->getOriginalXfer();
-    if (xfer != EXS_LittleEndianExplicit && xfer != EXS_BigEndianExplicit &&
-        xfer != EXS_LittleEndianImplicit) {
-        // 压缩传输语法 -> 需要已注册的解码器解压为未压缩表示
-        if (ds->chooseRepresentation(EXS_LittleEndianExplicit, nullptr).bad()) {
-            LOGW("decompress failed: %s", path.c_str());
-            return false;
-        }
-    }
+    // 统一转换为显式小端（处理压缩格式、大端格式及隐式格式）
+    // 如果是未压缩格式，此操作在 DCMTK 中非常快
+    ds->chooseRepresentation(EXS_LittleEndianExplicit, nullptr);
 
-    DcmElement *elem = nullptr;
-    if (ds->findAndGetElement(DCM_PixelData, elem).bad() || !elem) return false;
-    if (elem->loadAllDataIntoMemory().bad()) return false;
+    out.assign(expectedWords, 0);
 
-    if (bitsAllocated == 8) {
-        Uint8 *p = nullptr;
-        if (elem->getUint8Array(p).bad() || !p) return false;
-        size_t n = std::min<size_t>(elem->getLength(), expectedWords);
-        out.resize(expectedWords, 0);
-        for (size_t i = 0; i < n; ++i) out[i] = p[i];
+    // 1. 尝试直接以 16-bit 方式获取 (OW 类型)
+    const Uint16 *p16 = nullptr;
+    unsigned long count = 0;
+    if (ds->findAndGetUint16Array(DCM_PixelData, p16, &count).good() && p16) {
+        size_t n = std::min((size_t)count, expectedWords);
+        memcpy(out.data(), p16, n * 2);
         return true;
     }
 
-    Uint16 *p = nullptr;
-    if (elem->getUint16Array(p).bad() || !p) return false;
-    size_t words = elem->getLength() / 2;
-    size_t n = std::min(words, expectedWords);
-    out.assign(p, p + n);
-    if (n < expectedWords) out.resize(expectedWords, 0);
-    return true;
+    // 2. 尝试以 8-bit 方式获取 (OB 类型)
+    const Uint8 *p8 = nullptr;
+    if (ds->findAndGetUint8Array(DCM_PixelData, p8, &count).good() && p8) {
+        if (bitsAllocated <= 8) {
+            size_t n = std::min((size_t)count, expectedWords);
+            for (size_t i = 0; i < n; ++i) out[i] = p8[i];
+        } else {
+            // 16-bit 数据被存为了 OB 类型
+            size_t n = std::min((size_t)count / 2, expectedWords);
+            memcpy(out.data(), p8, n * 2);
+        }
+        return true;
+    }
+
+    LOGE("readPixels: all access methods failed for %s (xfer=%s)",
+         path.c_str(), DcmXfer(ds->getOriginalXfer()).getXferName());
+    return false;
 }
 
 /** 动态任务分片的多线程 for（原子计数取任务，天然负载均衡） */
