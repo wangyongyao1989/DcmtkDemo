@@ -23,19 +23,48 @@ if(NOT DCMTK_STATIC_LIBS)
     message(WARNING "DCMTK static libraries not found in ${DCMTK_CPP_ROOT}/lib/${ANDROID_ABI}/")
 endif()
 
+# ========== VTK 9.1.0 头文件与静态库（Android arm64-v8a 交叉编译产物） ==========
+# 产物来源：doc/android_vtk.sh（NDK r25 / android-24 / OpenGL ES / 裁剪版）。
+# include/vtk-9.1 平铺头文件目录 + lib/libvtk*.a 全量静态库。
+set(VTK_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${VTK_ROOT}/include/vtk-9.1)
+
+# 全量收集 VTK 模块库与第三方库（均带 libvtk 前缀），
+# --start-group/--end-group 让链接器自动解静态库间循环依赖（VTK 模块间相互引用）。
+file(GLOB VTK_STATIC_LIBS "${VTK_ROOT}/lib/libvtk*.a")
+
+if(NOT VTK_STATIC_LIBS)
+    message(WARNING "VTK static libraries not found in ${VTK_ROOT}/lib/")
+endif()
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         cbct-native-lib.cpp
-        CbctSeriesParser.cpp)
+        CbctSeriesParser.cpp
+        CbctVtkRenderer.cpp)
+
+# 裁包体积（PDF 6.1）：函数/数据分节 + 链接期未引用段回收，
+# 仅保留实际使用的 VTK 渲染路径代码。
+target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+        -Wl,--gc-sections)
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # DCMTK 静态库（--start-group 解决 dcmjpeg/dcmjpls/dcmimage 之间的循环依赖）
         -Wl,--start-group
         ${DCMTK_STATIC_LIBS}
         -Wl,--end-group
-        # Android 系统依赖
+        # VTK 静态库（模块间循环依赖同样以分组解决）
+        -Wl,--start-group
+        ${VTK_STATIC_LIBS}
+        -Wl,--end-group
+        # Android 系统依赖（EGL/GLES：VTK OpenGL ES 渲染窗口所需）
         log
         android
         jnigraphics
+        EGL
+        GLESv2
+        GLESv3
         z
         m
         atomic

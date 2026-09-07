@@ -115,6 +115,7 @@
         </RadioGroup>
 
         <LinearLayout
+            android:id="@+id/row_position"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
@@ -222,6 +223,80 @@
             android:layout_marginTop="8dp"
             android:background="#10000000"
             android:scaleType="matrix" />
+
+        <!-- 4) VTK 3D Visualization -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="4) VTK 3D Visualization (OpenGL ES)"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rg_renderer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_bitmap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Bitmap 2D" />
+
+            <RadioButton
+                android:id="@+id/rb_vtk"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VTK 3D" />
+        </RadioGroup>
+
+        <RadioGroup
+            android:id="@+id/rg_vtk_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <RadioButton
+                android:id="@+id/rb_vtk_vr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="VR 体绘制" />
+
+            <RadioButton
+                android:id="@+id/rb_vtk_mpr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MPR 切面" />
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/btn_reset_cam"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="复位相机 (VTK)" />
+
+        <com.wangyao.cbctdeal.render.CbctVtkView
+            android:id="@+id/vtk_view"
+            android:layout_width="match_parent"
+            android:layout_height="420dp"
+            android:layout_marginTop="8dp"
+            android:background="#FF0B0D12"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tv_vtk_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="4dp"
+            android:text="VTK 手势：单指滑动旋转（VR）/平移（MPR），双指捏合缩放，双指拖动平移"
+            android:textColor="#FF666666"
+            android:textSize="11sp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/tv_cbct_summary"

@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.dcmtkdemo.databinding.FragmentCbctParseBinding
 import com.wangyao.cbctdeal.engine.CbctParseEngine
 import com.wangyao.cbctdeal.jni.CbctJni
+import com.wangyao.cbctdeal.jni.CbctVtkJni
 import com.wangyao.cbctdeal.model.CbctVolumeHandle
 import com.wangyao.cbctdeal.transfer.CbctFileTransfer
 import kotlinx.coroutines.Dispatchers
@@ -29,10 +30,13 @@ import java.io.IOException
  * CBCT DICOM 序列解析演示页：
  * 1) SAF 选择序列目录（或手动输入路径）；
  * 2) 调用 cbctdeal 模块解析（Native 多线程，进度回调）；
- * 3) MPR 浏览：横断面 / 冠状面 / 矢状面切换，位置与窗宽窗位实时调节。
+ * 3) MPR 浏览：横断面 / 冠状面 / 矢状面切换，位置与窗宽窗位实时调节；
+ * 4) VTK 三维可视化：渲染载体切换（Bitmap 2D / VTK 3D），VTK 下支持
+ *    VR 体绘制与 MPR 切面两种模式，手势旋转 / 缩放 / 平移。
  *
- * 说明：UI 与解析功能完全解耦——本 Fragment 只负责交互与展示，
- * 解析能力全部内聚在 cbctdeal 模块（JNI + engine + transfer）。
+ * 说明：UI 与渲染功能完全解耦——本 Fragment 只负责交互与状态路由，
+ * 解析能力内聚在 cbctdeal 模块（JNI + engine + transfer），
+ * VTK 渲染能力同样内聚在 cbctdeal 模块（CbctVtkView + Native 渲染线程）。
  */
 class CbctParseFragment : Fragment() {
 
@@ -52,6 +56,12 @@ class CbctParseFragment : Fragment() {
     private var curPlane = PLANE_AXIAL
     private var curWw = 4000.0
     private var curWc = 600.0
+
+    /** 渲染载体：true = VTK 3D（VR/MPR），false = Bitmap 2D（CPU 切面提取） */
+    private var useVtk = false
+
+    /** VTK 渲染子模式：VR 体绘制 / MPR 切面 */
+    private var vtkMode = CbctVtkJni.MODE_VR
 
     private val dirPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -99,6 +109,9 @@ class CbctParseFragment : Fragment() {
             volumeHandle?.let { applyWindow(it.meta.windowWidth, it.meta.windowCenter) }
         }
         binding.rgPlane.setOnCheckedChangeListener { _, _ -> onPlaneChanged() }
+        binding.rgRenderer.setOnCheckedChangeListener { _, _ -> onRendererChanged() }
+        binding.rgVtkMode.setOnCheckedChangeListener { _, _ -> onVtkModeChanged() }
+        binding.btnResetCam.setOnClickListener { binding.vtkView.resetCamera() }
 
         val seekListener = object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -129,7 +142,9 @@ class CbctParseFragment : Fragment() {
             return
         }
 
-        // 释放旧 Volume，避免连续解析造成 Native 内存堆积
+        // 释放旧资源，避免连续解析造成 Native 内存堆积。
+        // 顺序关键：先销毁零拷贝引用旧 Volume 的 VTK 渲染器，再释放 Volume 本体
+        _binding?.vtkView?.release()
         volumeHandle?.release()
         volumeHandle = null
 
@@ -170,7 +185,9 @@ class CbctParseFragment : Fragment() {
                 binding.tvInfo.text = "解析完成 (${result.meta.elapsedMs} ms)"
                 binding.tvCbctSummary.text = buildSummary(result)
                 setupViewer(result)
-                extractCurrentSlice()
+                // VTK 渲染器挂载新 Volume（零拷贝，UI 状态自动重放）
+                binding.vtkView.setVolume(result)
+                refreshViewer()
             } catch (e: Exception) {
                 Log.e(TAG, "parse failed", e)
                 if (_binding != null) binding.tvInfo.text = "解析异常: ${e.message}"
@@ -199,7 +216,7 @@ class CbctParseFragment : Fragment() {
         updateWindowLabels()
     }
 
-    /** 平面切换：刷新位置 SeekBar 范围并重新提取 */
+    /** 平面切换：刷新位置 SeekBar 范围并刷新查看器 */
     private fun onPlaneChanged() {
         curPlane = when (binding.rgPlane.checkedRadioButtonId) {
             binding.rbCoronal.id -> PLANE_CORONAL
@@ -208,7 +225,52 @@ class CbctParseFragment : Fragment() {
         }
         setPositionRange()
         binding.sbPosition.progress = binding.sbPosition.max / 2
-        extractCurrentSlice()
+        refreshViewer()
+    }
+
+    /** 渲染载体切换（Bitmap 2D / VTK 3D）：互斥显示 + 控件可见性路由 */
+    private fun onRendererChanged() {
+        useVtk = binding.rgRenderer.checkedRadioButtonId == binding.rbVtk.id
+        binding.vtkView.visibility = if (useVtk) View.VISIBLE else View.GONE
+        binding.tvVtkHint.visibility = if (useVtk) View.VISIBLE else View.GONE
+        binding.ivCbct.visibility = if (useVtk) View.GONE else View.VISIBLE
+        updateViewerControlsVisibility()
+        refreshViewer()
+    }
+
+    /** VTK 子模式切换（VR 体绘制 / MPR 切面） */
+    private fun onVtkModeChanged() {
+        vtkMode = if (binding.rgVtkMode.checkedRadioButtonId == binding.rbVtkMpr.id) {
+            CbctVtkJni.MODE_MPR
+        } else {
+            CbctVtkJni.MODE_VR
+        }
+        binding.vtkView.setRenderMode(vtkMode)
+        updateViewerControlsVisibility()
+    }
+
+    /**
+     * 切面相关控件可见性：
+     * VR 模式下平面切换与层位置无意义（隐藏）；Bitmap / VTK-MPR 显示。
+     */
+    private fun updateViewerControlsVisibility() {
+        val showSliceControls = !useVtk || vtkMode == CbctVtkJni.MODE_MPR
+        binding.rgPlane.visibility = if (showSliceControls) View.VISIBLE else View.GONE
+        binding.rowPosition.visibility = if (showSliceControls) View.VISIBLE else View.GONE
+        binding.rgVtkMode.visibility = if (useVtk) View.VISIBLE else View.GONE
+    }
+
+    /** 按当前渲染载体刷新查看器（VTK -> 状态下发；Bitmap -> CPU 切面提取） */
+    private fun refreshViewer() {
+        if (volumeHandle == null) return
+        if (useVtk) applyVtkState() else extractCurrentSlice()
+    }
+
+    /** 将当前平面/位置/窗宽窗位状态同步到 VTK 渲染器 */
+    private fun applyVtkState() {
+        binding.vtkView.setPlane(curPlane, binding.sbPosition.progress)
+        binding.vtkView.setWindowLevel(curWw, curWc)
+        updatePositionLabel()
     }
 
     private fun setPositionRange() {
@@ -220,12 +282,12 @@ class CbctParseFragment : Fragment() {
         }
     }
 
-    /** 位置 / 窗宽窗位变化：取消旧任务并重新提取切面 */
+    /** 位置 / 窗宽窗位变化：取消旧任务并刷新查看器 */
     private fun onViewerParamsChanged() {
         curWw = binding.sbWw.progress.toDouble().coerceAtLeast(1.0)
         curWc = binding.sbWc.progress - wcOffset.toDouble()
         updateWindowLabels()
-        extractCurrentSlice()
+        refreshViewer()
     }
 
     private fun applyWindow(ww: Double, wc: Double) {
