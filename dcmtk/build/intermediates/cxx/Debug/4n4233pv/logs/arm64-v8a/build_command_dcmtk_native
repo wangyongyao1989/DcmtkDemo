@@ -1,0 +1,4 @@
+/Users/wangyao/Library/Android/sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /Users/wangyao/androidproject/DcmtkDemo/dcmtk/.cxx/Debug/4n4233pv/arm64-v8a \
+  dcmtk_native
