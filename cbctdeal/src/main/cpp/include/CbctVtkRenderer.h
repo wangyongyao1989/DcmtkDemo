@@ -24,6 +24,7 @@ class vtkImageReslice;
 class vtkImageMapToColors;
 class vtkLookupTable;
 class vtkImageActor;
+class vtkActor;
 
 /**
  * CBCT VTK 三维渲染核心（纯 C++，无 JNI 依赖，可独立复用/测试）。
@@ -111,9 +112,6 @@ private:
     void applyPan(double dx, double dy);
     void applyZoom(double factor);
 
-    /** HU -> 原始像素值（TF/LUT 定义在 raw 域，避免整卷 HU 预转换拷贝） */
-    double huToRaw(double hu) const;
-
     // ---------- 输入与窗口 ----------
     CbctVolume *vol_ = nullptr;        // 非拥有：destroy() 必须先于 Volume release
     ANativeWindow *window_ = nullptr;  // 拥有 JNI 层 fromSurface 的引用计数
@@ -135,6 +133,8 @@ private:
     vtkSmartPointer<vtkImageMapToColors> mapColors_;
     vtkSmartPointer<vtkLookupTable> lut_;
     vtkSmartPointer<vtkImageActor> imageActor_;
+    // 诊断：世界空间红色立方体（二分定位：世界空间渲染 vs 纹理渲染故障）
+    vtkSmartPointer<vtkActor> diagActor_;
 
     // ---------- 渲染状态（渲染线程内落地到管线） ----------
     int mode_ = MODE_VR;
@@ -153,6 +153,16 @@ private:
     std::deque<std::function<void()>> tasks_;
     bool quit_ = false;
     bool dirty_ = false;
+    int frameCount_ = 0;                 // 诊断：已渲染帧计数
+    bool diagPending_ = true;            // 诊断：下一帧输出 GL/FBO/相机自检日志
+
+    // ---------- 真机排障：复位按钮循环切换诊断假设 ----------
+    // 0=常规 GPU RayCast + 骨窗 TF（基线）
+    // 1=GPU RayCast + 全值域不透明红色 TF（判别：采样是否有输出）
+    // 2=CPU RayCast + 骨窗 TF（判别：GPU 管线专属问题）
+    // 3=GPU RayCast + Linear 插值（判别：Nearest 降级副作用）
+    int diagMode_ = 0;
+    bool floatLinear_ = false;           // 设备是否支持 OES_texture_float_linear
 };
 
 #endif // DCMTKDEMO_CBCTVTKRENDERER_H

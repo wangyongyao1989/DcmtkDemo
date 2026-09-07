@@ -10,14 +10,17 @@
 /**
  * CBCT 序列解析结果：Native 堆上的连续 3D 体数据。
  *
- * 内存布局为 [z][y][x] 的连续 Uint16 数组（Native 堆分配），
- * Java 层仅持有指针（jlong），按需提取切面，避免跨层大块拷贝。
+ * 内存布局为 [z][y][x] 的连续 float 数组（Native 堆分配），已按逐切片
+ * RescaleSlope/Intercept 换算为 HU 域——GLES3 的 3D 纹理没有归一化 16bit
+ * 整数格式（R16/R16_SNORM 均为桌面 GL 专属），float 体素对应 GL_R32F，
+ * 是 ES3 核心保证可用的全精度路径；同时 TF/LUT/窗宽窗位全部直接工作在
+ * HU 域，无需 raw<->HU 往返换算。
  *
  * 结构由 CbctSeriesParser 装配，由 CbctJni（JNI 桥）读写，
  * 生命周期：loadSeries 创建 -> extract* 读取 -> releaseVolume 释放。
  */
 struct CbctVolume {
-    Uint16 *data = nullptr;          // 连续体数据 [depth][height][width]
+    float *data = nullptr;           // 连续体数据 [depth][height][width]，HU 域
     size_t sliceSize = 0;             // 单张切片像素数 = width * height
     int width = 0;                    // x 方向像素数（Columns）
     int height = 0;                   // y 方向像素数（Rows）
@@ -27,9 +30,9 @@ struct CbctVolume {
     double spacingY = 1.0;
     double spacingZ = 1.0;           // 层厚/切片间距 mm
 
-    double slope = 1.0;              // HU = pixel * slope + intercept
-    double intercept = 0.0;
-    int pixelRepresentation = 0;     // 0=unsigned, 1=signed
+    double slope = 1.0;              // 源文件 Rescale 参数（元数据展示用，
+    double intercept = 0.0;          //  数据本身已完成 HU 换算）
+    int pixelRepresentation = 0;     // 源文件存储符号（0=unsigned 1=signed，元数据）
 
     double windowWidth = 4000.0;     // 默认窗宽窗位（缺失时用 CBCT 骨骼窗）
     double windowCenter = 600.0;

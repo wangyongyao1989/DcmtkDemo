@@ -55,6 +55,13 @@
                 android:text="解析序列" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btn_load_assets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="加载 assets/neck_ct (265 张)" />
+
         <!-- 2) Series Info -->
         <TextView
             android:layout_width="match_parent"
@@ -285,7 +292,6 @@
             android:layout_width="match_parent"
             android:layout_height="420dp"
             android:layout_marginTop="8dp"
-            android:background="#FF0B0D12"
             android:visibility="gone" />
 
         <TextView

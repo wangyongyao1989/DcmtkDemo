@@ -189,7 +189,12 @@ bool readPixels(const std::string &path, int bitsAllocated, size_t expectedWords
 
     // 统一转换为显式小端（处理压缩格式、大端格式及隐式格式）
     // 如果是未压缩格式，此操作在 DCMTK 中非常快
-    ds->chooseRepresentation(EXS_LittleEndianExplicit, nullptr);
+    OFCondition repCond = ds->chooseRepresentation(EXS_LittleEndianExplicit, nullptr);
+    if (repCond.bad()) {
+        LOGE("readPixels: chooseRepresentation failed (%s): %s (xfer=%s)",
+             repCond.text(), path.c_str(),
+             DcmXfer(ds->getOriginalXfer()).getXferName());
+    }
 
     out.assign(expectedWords, 0);
 
@@ -258,6 +263,9 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     }
     ensureCodecsRegistered();
     const long long t0 = nowMs();
+
+    // 诊断：数据字典加载状态（JPEG 解压路径依赖标准 tag 的 VR 查询）
+    LOGD("loadSeries: dataDict loaded=%d", dcmDataDict.isDictionaryLoaded() ? 1 : 0);
 
     // ---------- 1. 枚举文件 ----------
     std::vector<std::string> files;
@@ -387,7 +395,10 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     const int depth = (int) (targets.back().zIndex + 1);
 
     // ---------- 7. 分配 Native 堆连续 Volume（内存守卫） ----------
-    const double bytes = (double) sliceSize * depth * 2.0;
+    // 体素直接以 float 存储 HU 值：GLES3 3D 纹理缺归一化 16bit 整数格式
+    // （R16/R16_SNORM 为桌面 GL 专属），float -> GL_R32F 是 ES3 核心保证
+    // 可用的全精度路径，且传递函数/窗宽窗位全程工作在 HU 域。
+    const double bytes = (double) sliceSize * depth * sizeof(float);
     if (bytes > 600.0 * 1024.0 * 1024.0) {
         err = "volume too large (" + std::to_string((long long) (bytes / 1048576.0)) + " MB)";
         return nullptr;
@@ -395,7 +406,10 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     CbctVolume *vol = nullptr;
     try {
         vol = new CbctVolume();
-        vol->data = new Uint16[sliceSize * depth]();   // 零初始化 = 空气填充
+        // 空白填充 = HU(intercept)（raw 0 经 Rescale 换算，即空气）
+        vol->data = new float[sliceSize * depth]();
+        std::fill(vol->data, vol->data + sliceSize * depth,
+                  (float) slices[0].intercept);
     } catch (const std::bad_alloc &) {
         delete vol;
         err = "native memory exhausted when allocating volume";
@@ -410,7 +424,7 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     vol->spacingZ = spacingZ;
     vol->slope = slices[0].slope;
     vol->intercept = slices[0].intercept;
-    vol->pixelRepresentation = slices[0].pixelRepresentation;
+    vol->pixelRepresentation = slices[0].pixelRepresentation;   // 源文件符号（元数据）
     vol->sliceCount = (int) targets.size();
     vol->skippedFiles = skippedFiles;
     vol->zMin = z0;
@@ -452,9 +466,17 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
         } else {
             for (size_t t: fileTargets[f]) {
                 const Target &tg = targets[t];
-                memcpy(vol->data + tg.zIndex * sliceSize,
-                       pixels.data() + tg.frame * sliceSize,
-                       sliceSize * sizeof(Uint16));
+                float *dst = vol->data + tg.zIndex * sliceSize;
+                const Uint16 *src = pixels.data() + tg.frame * sliceSize;
+                // raw -> HU：按本切片的 Rescale 参数换算（slope/intercept 可能逐片不同）
+                const double slope = sm.slope, intercept = sm.intercept;
+                if (sm.pixelRepresentation != 0) {
+                    for (size_t i = 0; i < sliceSize; ++i)
+                        dst[i] = (float) ((double) (Sint16) src[i] * slope + intercept);
+                } else {
+                    for (size_t i = 0; i < sliceSize; ++i)
+                        dst[i] = (float) ((double) src[i] * slope + intercept);
+                }
             }
         }
         size_t done = pixelDone.fetch_add(1) + 1;
@@ -471,11 +493,6 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
 
 void CbctSeriesParser::release(CbctVolume *vol) {
     delete vol;
-}
-
-double CbctSeriesParser::toHu(const CbctVolume *vol, Uint16 raw) {
-    double v = (vol->pixelRepresentation != 0) ? (double) (Sint16) raw : (double) raw;
-    return v * vol->slope + vol->intercept;
 }
 
 uint8_t CbctSeriesParser::applyWindow(double hu, double wc, double ww) {
@@ -496,11 +513,11 @@ bool CbctSeriesParser::extractAxial(const CbctVolume *vol, int zIndex,
     if (zIndex < 0 || zIndex >= vol->depth) return false;
 
     const int w = vol->width, h = vol->height;
-    const Uint16 *slice = vol->data + (size_t) zIndex * vol->sliceSize;
+    const float *slice = vol->data + (size_t) zIndex * vol->sliceSize;
     outRgba.resize((size_t) w * h * 4);
     for (int r = 0; r < h; ++r) {
         for (int c = 0; c < w; ++c) {
-            double hu = toHu(vol, slice[(size_t) r * w + c]);
+            double hu = slice[(size_t) r * w + c];   // 数据已是 HU 域
             uint8_t g = applyWindow(hu, wc, ww);
             size_t o = ((size_t) r * w + c) * 4;
             outRgba[o] = g;
@@ -525,9 +542,9 @@ bool CbctSeriesParser::extractMpr(const CbctVolume *vol, MprPlane plane, int pos
         if (position < 0 || position >= h) return false;
         outRgba.resize((size_t) w * d * 4);
         for (int z = 0; z < d; ++z) {
-            const Uint16 *slice = vol->data + (size_t) z * vol->sliceSize;
+            const float *slice = vol->data + (size_t) z * vol->sliceSize;
             for (int x = 0; x < w; ++x) {
-                double hu = toHu(vol, slice[(size_t) position * w + x]);
+                double hu = slice[(size_t) position * w + x];
                 uint8_t g = applyWindow(hu, wc, ww);
                 size_t o = ((size_t) z * w + x) * 4;
                 outRgba[o] = g;
@@ -544,9 +561,9 @@ bool CbctSeriesParser::extractMpr(const CbctVolume *vol, MprPlane plane, int pos
         if (position < 0 || position >= w) return false;
         outRgba.resize((size_t) h * d * 4);
         for (int z = 0; z < d; ++z) {
-            const Uint16 *slice = vol->data + (size_t) z * vol->sliceSize;
+            const float *slice = vol->data + (size_t) z * vol->sliceSize;
             for (int y = 0; y < h; ++y) {
-                double hu = toHu(vol, slice[(size_t) y * w + position]);
+                double hu = slice[(size_t) y * w + position];
                 uint8_t g = applyWindow(hu, wc, ww);
                 size_t o = ((size_t) z * h + y) * 4;
                 outRgba[o] = g;

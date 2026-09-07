@@ -42,12 +42,12 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         CbctSeriesParser.cpp
         CbctVtkRenderer.cpp)
 
-# 裁包体积（PDF 6.1）：函数/数据分节 + 链接期未引用段回收，
-# 仅保留实际使用的 VTK 渲染路径代码。
+# 裁包体积（PDF 6.1）：函数/数据分节 + 链接期未引用段回收。
+# 注意：暂不启用 --gc-sections —— DCMTK 内置数据字典等静态数据表
+# 仅被惰性初始化路径引用，链接期回收会导致 JPEG 解压时
+# "Tag not found in data dictionary"（VR 查询失败）。
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
         -ffunction-sections -fdata-sections)
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-        -Wl,--gc-sections)
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # DCMTK 静态库（--start-group 解决 dcmjpeg/dcmjpls/dcmimage 之间的循环依赖）

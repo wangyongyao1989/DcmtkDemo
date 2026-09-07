@@ -22,6 +22,14 @@ object CbctJni {
         System.loadLibrary("cbct_native")
     }
 
+    /**
+     * 注入外部 DICOM 数据字典（dicom.dic）。
+     * 交叉编译的 DCMTK 未内置私有字典，压缩序列解压必须先注入，
+     * 由 [com.wangyao.cbctdeal.engine.CbctParseEngine] 在首次解析前保证调用。
+     */
+    @JvmStatic
+    external fun initDictionary(path: String)
+
     /** 冠状面（固定 Y，横向 x 纵向 z） */
     const val PLANE_CORONAL = 0
 

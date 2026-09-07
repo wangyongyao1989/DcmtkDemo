@@ -17,6 +17,9 @@
 #include "include/CbctSeriesParser.h"
 #include "include/CbctVtkRenderer.h"
 
+// DCMTK 外部数据字典（交叉编译产物未内置私有字典，见 initDictionary）
+#include "dcmtk/dcmdata/dcdict.h"
+
 #define TAG "CbctNative"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
@@ -162,6 +165,32 @@ private:
 // =============================================================================
 
 static const char *const kClassName = "com/wangyao/cbctdeal/jni/CbctJni";
+
+/**
+ * CbctJni.initDictionary(dictPath): 注入外部 DICOM 数据字典（dicom.dic）。
+ * 交叉编译的 DCMTK 静态库以 --without-private-dictionary 构建，
+ * loadBuiltinDictionary 为空实现，JPEG/JPEG-LS 解压路径构造标准 tag
+ * 时 VR 查询失败（"Tag not found in data dictionary"）。
+ * 必须在 loadSeries 之前调用（引擎侧保证进程内一次）。
+ */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctJni_initDictionary(JNIEnv *env, jclass clazz,
+                                                     jstring dict_path) {
+    JniStr p(env, dict_path);
+    if (!p.c()) {
+        LOGE("initDictionary: null path");
+        return;
+    }
+    DcmDataDictionary &dict = dcmDataDict.wrlock();
+    OFBool ok = dict.loadDictionary(p.c());
+    dcmDataDict.wrunlock();
+    if (ok) {
+        LOGD("initDictionary: ok (%d entries), path=%s",
+             (int) dcmDataDict.isDictionaryLoaded(), p.c());
+    } else {
+        LOGE("initDictionary: loadDictionary failed: %s", p.c());
+    }
+}
 
 /**
  * CbctJni.loadSeries(dir, callback): 解析序列 -> Volume 指针（0 = 失败）
@@ -410,6 +439,8 @@ Java_com_wangyao_cbctdeal_jni_CbctVtkJni_destroyRenderer(JNIEnv *env, jclass cla
 
 // JNI Registration（沿用 dcmtk 模块的动态注册风格）
 static const JNINativeMethod kMethods[] = {
+        {"initDictionary",     "(Ljava/lang/String;)V",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctJni_initDictionary},
         {"loadSeries",         "(Ljava/lang/String;Ljava/lang/Object;)J",
                 (void *) Java_com_wangyao_cbctdeal_jni_CbctJni_loadSeries},
         {"getVolumeMeta",      "(J)Ljava/util/HashMap;",

@@ -55,9 +55,6 @@ public:
 private:
     /// DICOM 窗宽窗位线性映射（PS3.3 C.11.2.1.2）：HU -> 0..255
     static uint8_t applyWindow(double hu, double wc, double ww);
-
-    /// 原始像素 -> HU（含符号位与 Rescale 斜率截距）
-    static double toHu(const CbctVolume *vol, Uint16 raw);
 };
 
 #endif // DCMTKDEMO_CbctSeriesParser_H

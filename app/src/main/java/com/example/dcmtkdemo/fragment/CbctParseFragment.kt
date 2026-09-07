@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.dcmtkdemo.databinding.FragmentCbctParseBinding
+import com.example.dcmtkdemo.utils.FileUtil
 import com.wangyao.cbctdeal.engine.CbctParseEngine
 import com.wangyao.cbctdeal.jni.CbctJni
 import com.wangyao.cbctdeal.jni.CbctVtkJni
@@ -104,6 +105,7 @@ class CbctParseFragment : Fragment() {
 
         binding.btnSelectDir.setOnClickListener { dirPicker.launch(null) }
         binding.btnParse.setOnClickListener { runParse() }
+        binding.btnLoadAssets.setOnClickListener { loadNeckCtAssets() }
         binding.btnBoneWindow.setOnClickListener { applyWindow(4000.0, 600.0) }
         binding.btnDefaultWindow.setOnClickListener {
             volumeHandle?.let { applyWindow(it.meta.windowWidth, it.meta.windowCenter) }
@@ -128,6 +130,31 @@ class CbctParseFragment : Fragment() {
         updateWindowLabels()
     }
 
+    /**
+     * 一键加载内置测试序列：assets/neck_ct -> 私有存储 -> 自动解析。
+     * 免 SAF 授权，用于真机快速验证解析与三维可视化全链路。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun loadNeckCtAssets() {
+        val ctx = context ?: return
+        binding.btnLoadAssets.isEnabled = false
+        binding.tvInfo.text = "正在释放 assets/neck_ct 到私有存储..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val dir = FileUtil.copyAssetDirToFiles(ctx, "neck_ct", "neck_ct")
+                if (_binding == null) return@launch
+                binding.etPath.setText(dir.absolutePath)
+                binding.tvInfo.text = "assets 拷贝完成，开始解析..."
+                runParse()
+            } catch (e: IOException) {
+                Log.e(TAG, "copy assets failed", e)
+                if (_binding != null) binding.tvInfo.text = "assets 拷贝失败: ${e.message}"
+            } finally {
+                if (_binding != null) binding.btnLoadAssets.isEnabled = true
+            }
+        }
+    }
+
     /** 解析序列（后台线程，进度实时上报） */
     @SuppressLint("SetTextI18n")
     private fun runParse() {
@@ -150,16 +177,22 @@ class CbctParseFragment : Fragment() {
 
         binding.btnParse.isEnabled = false
         binding.btnSelectDir.isEnabled = false
+        binding.btnLoadAssets.isEnabled = false
         binding.progressCbct.visibility = View.VISIBLE
         binding.tvInfo.text = "正在解析序列..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             var handle: CbctVolumeHandle? = null
+            val appCtx = context?.applicationContext
             try {
+                if (appCtx == null) {
+                    handle?.release()
+                    return@launch
+                }
                 // NonCancellable：保证 Native 解析完成后句柄一定被持有，
                 // 避免 UI 提前销毁导致 Native 内存泄漏
                 val result = withContext(NonCancellable) {
-                    val h = CbctParseEngine.parse(dir) { cur, total ->
+                    val h = CbctParseEngine.parse(appCtx, dir) { cur, total ->
                         activity?.runOnUiThread {
                             if (_binding != null && total > 0) {
                                 binding.progressCbct.max = total
@@ -196,6 +229,7 @@ class CbctParseFragment : Fragment() {
                 if (_binding != null) {
                     binding.btnParse.isEnabled = true
                     binding.btnSelectDir.isEnabled = true
+                    binding.btnLoadAssets.isEnabled = true
                     binding.progressCbct.visibility = View.GONE
                 }
             }

@@ -34,6 +34,36 @@ object FileUtil {
         }
     }
 
+    /**
+     * 将 assets 下的目录（含全部 .dcm 文件）拷贝到外部私有存储，返回目标目录。
+     * 已拷贝过（文件数一致）则直接复用，避免重复 IO。
+     */
+    @JvmStatic
+    @Throws(IOException::class)
+    suspend fun copyAssetDirToFiles(context: Context, assetDir: String, targetName: String): File =
+        withContext(Dispatchers.IO) {
+            val names = context.assets.list(assetDir)
+                ?: throw IOException("Asset dir not found: $assetDir")
+            val dcmNames = names.filter { it.lowercase().endsWith(".dcm") }
+            if (dcmNames.isEmpty()) throw IOException("No .dcm files in assets/$assetDir")
+
+            val outDir = File(context.getExternalFilesDir(null), targetName)
+            val existing = outDir.listFiles { f -> f.name.endsWith(".dcm", true) }
+            if (existing?.size == dcmNames.size) {
+                Log.d("FileUtil", "Reusing cached asset dir: ${outDir.absolutePath}")
+                return@withContext outDir
+            }
+            outDir.mkdirs()
+            dcmNames.forEach { name ->
+                val target = File(outDir, name)
+                if (!target.exists()) {
+                    copyAsset(context, "$assetDir/$name", target)
+                }
+            }
+            Log.d("FileUtil", "Copied ${dcmNames.size} files to ${outDir.absolutePath}")
+            outDir
+        }
+
     @Throws(IOException::class)
     private fun copyAsset(context: Context, assetName: String, targetFile: File) {
         context.assets.open(assetName).use { `is` ->
