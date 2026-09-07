@@ -12,7 +12,7 @@
 // CbctSeriesParser（纯 C++，可独立复用/测试）。DCMTK 静态库复用
 // dcmtk 模块下的预编译产物（见 CMakeLists.txt），与 dcmtk 模块的
 // Kotlin 层保持零依赖。
-#include "CbctSeriesParser.h"
+#include "include/CbctSeriesParser.h"
 
 #define TAG "CbctNative"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)

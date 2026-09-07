@@ -1,4 +1,4 @@
-#include "CbctSeriesParser.h"
+#include "include/CbctSeriesParser.h"
 
 #include <dirent.h>
 #include <sys/stat.h>
