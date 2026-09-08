@@ -310,8 +310,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:background="#EEE"
+            android:textColor="@color/bg_title"
             android:padding="8dp"
+            android:textStyle="bold"
             android:text="摘要区域"
             android:textSize="12sp" />
 
