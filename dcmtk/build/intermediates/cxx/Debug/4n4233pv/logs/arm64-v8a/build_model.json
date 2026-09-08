@@ -155,6 +155,7 @@
         "rootBuildGradleFolder": "/Users/wangyao/androidproject/DcmtkDemo",
         "sdkFolder": "/Users/wangyao/Library/Android/sdk",
         "isBuildOnlyTargetAbiEnabled": true,
+        "ideBuildTargetAbi": "arm64-v8a,armeabi-v7a,armeabi",
         "isCmakeBuildCohabitationEnabled": false,
         "isPrefabEnabled": false
       },

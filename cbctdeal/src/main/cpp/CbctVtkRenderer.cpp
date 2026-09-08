@@ -817,7 +817,10 @@ void CbctVtkRenderer::setRenderMode(int mode) {
         if (mode != MODE_VR && mode != MODE_MPR) return;
         if (mode_ == mode && renderer_) return;
         mode_ = mode;
-        if (renderer_) applyRenderMode();
+        if (renderer_) {
+            applyRenderMode();
+            setupCameraForMode();
+        }
         markDirty();
     }, false);
 }

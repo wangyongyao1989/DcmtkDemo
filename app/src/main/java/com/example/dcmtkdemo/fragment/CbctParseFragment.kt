@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.SeekBar
@@ -114,6 +115,14 @@ class CbctParseFragment : Fragment() {
         binding.rgRenderer.setOnCheckedChangeListener { _, _ -> onRendererChanged() }
         binding.rgVtkMode.setOnCheckedChangeListener { _, _ -> onVtkModeChanged() }
         binding.btnResetCam.setOnClickListener { binding.vtkView.resetCamera() }
+
+        // 解决 NestedScrollView 与 CbctVtkView 的滑动冲突，确保双指手势正常
+        binding.vtkView.setOnTouchListener { v, event ->
+            if (event.pointerCount >= 2 || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                v.parent.requestDisallowInterceptTouchEvent(true)
+            }
+            false // 返回 false 以便 vtkView.onTouchEvent 能继续接收事件
+        }
 
         val seekListener = object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -281,6 +290,7 @@ class CbctParseFragment : Fragment() {
         }
         binding.vtkView.setRenderMode(vtkMode)
         updateViewerControlsVisibility()
+        refreshViewer()
     }
 
     /**
@@ -300,8 +310,9 @@ class CbctParseFragment : Fragment() {
         if (useVtk) applyVtkState() else extractCurrentSlice()
     }
 
-    /** 将当前平面/位置/窗宽窗位状态同步到 VTK 渲染器 */
+    /** 将当前渲染模式/平面/位置/窗宽窗位状态同步到 VTK 渲染器 */
     private fun applyVtkState() {
+        binding.vtkView.setRenderMode(vtkMode)
         binding.vtkView.setPlane(curPlane, binding.sbPosition.progress)
         binding.vtkView.setWindowLevel(curWw, curWc)
         updatePositionLabel()

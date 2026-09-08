@@ -191,6 +191,10 @@ class CbctVtkView @JvmOverloads constructor(
         val surface = holder.surface
         if (rendererPtr != 0L && surface.isValid) {
             CbctVtkJni.onSurfaceCreated(rendererPtr, surface, surfW, surfH)
+            // 补发 UI 状态：确保 Surface 重建后，Native 管线能立即获得最新的模式与窗位参数
+            CbctVtkJni.setRenderMode(rendererPtr, curMode)
+            CbctVtkJni.setPlane(rendererPtr, curPlane, curPosition)
+            CbctVtkJni.setWindowLevel(rendererPtr, curWw, curWc)
         }
     }
 
@@ -217,6 +221,13 @@ class CbctVtkView @JvmOverloads constructor(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (rendererPtr == 0L) return false
+
+        // 滑动冲突解决：按下或多指交互时禁止父容器（NestedScrollView）拦截，确保三维旋转与缩放手势流畅
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+        }
 
         scaleDetector.onTouchEvent(event)
         if (event.pointerCount >= 2) {
