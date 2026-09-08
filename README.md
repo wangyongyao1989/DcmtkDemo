@@ -1,133 +1,73 @@
-# DcmtkDemo - Android DICOM 医疗影像全流程解决方案 / Android DICOM Medical Imaging Solution
+# DcmtkDemo - Android 医疗影像全流程解决方案 (PACS + DICOM + 3D CBCT)
 
-`DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理示例项目。它集成了强大的 **DCMTK (DICOM Toolkit)** 和 **OpenCV**，实现了从 PACS 网络通信、DICOM 文件解析到高性能底层像素预处理的全链路功能。
-
-`DcmtkDemo` is a comprehensive medical imaging solution for Android. By integrating **DCMTK** and **OpenCV**, it provides a full-stack workflow including PACS communication, DICOM parsing, and high-performance low-level pixel preprocessing.
+`DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理全栈示例项目。它集成了 **DCMTK (DICOM Toolkit)**、**VTK 9.1.0** 和 **OpenCV**，实现了从 PACS 网络通信、DICOM 文件解析到高性能像素预处理，以及 **CBCT（锥形束 CT）三维体渲染与 MPR 重建** 的全链路功能。
 
 ---
 
-## 1. 项目功能概览 (Project Features)
+## 🚀 核心功能 (Core Features)
 
-### A. PACS 网络服务 (PACS Network Services)
-依托 `dcmtk` 模块，支持标准 DICOM 通信协议：
-*   **C-ECHO**: 测试与远程 PACS 服务器的连通性。
-*   **C-FIND**: 支持按姓名、接入号或工作列表（MWL）进行多维查询。
-*   **C-STORE**: 支持单/多文件异步上传，具备实时进度回调。
+### 1. PACS 网络服务 (`:dcmtk`)
+支持标准 DICOM 3.0 通信协议，可直接对接商用 PACS 系统或医院工作站：
+*   **C-ECHO**: 连通性测试。
+*   **C-FIND**: 按姓名、接入号或 Worklist 进行多维查询。
+*   **C-STORE**: 影像异步上传，支持实时进度回调。
 *   **C-GET / C-MOVE**: 影像调阅与下载。
 
-Leveraging the `dcmtk` module, it supports standard DICOM protocols: C-ECHO (connectivity test), C-FIND (multi-dimensional query), C-STORE (async upload with progress), and C-GET/C-MOVE (image retrieval).
+### 2. CBCT 三维可视化与序列解析 (`:cbctdeal`)
+基于 **VTK 9.1.0** (Android arm64 裁剪版) 与 **DCMTK** 实现：
+*   **VR (Volume Rendering)**: GPU 射线投射体绘制，骨骼三维重建，支持明暗着色。
+*   **MPR (Multi-Planar Reconstruction)**: 横断/冠状/矢状三平面切面浏览，实时窗宽窗位调节。
+*   **序列解析**: 双 Pass 多线程解析（支持 JPEG/JPEG-LS 压缩），Z 坐标自动排序，断层空隙补全。
+*   **手势交互**: 单指旋转/平移、双指缩放/平移，极致流畅的 Native 渲染体验。
 
-**本地 PACS 服务器搭建参考 (Local PACS Server Setup Guide)**:
-[Android 医学影像开发：本地 PACS 服务器搭建指南](https://blog.csdn.net/wangyongyao1989/article/details/162460525?spm=1001.2014.3001.5502)
-
-### B. 影像文件处理 (DICOM File I/O)
-*   **元数据解析**: 将 DICOM 标签（Tags）解析为易用的 Map 结构。
-*   **DICOM 写入**: 支持将处理后的原始像素数据封装并保存为标准 `.dcm` 文件。
-*   **格式转换**: 提供高性能的 `dcmToJpg` 序列帧预览生成。
-
-Supports metadata parsing (tags to Map), DICOM writing (saving processed raw pixels to `.dcm`), and high-performance frame conversion (DICOM to JPEG).
-
-### C. 高性能像素预处理 (Advanced Image Processing)
-依托 `rawpixeldeal` 模块，针对 CT/X-Ray 原始数据进行 C++ 级优化：
-*   **物理校正**: Log 变换（针对 Raw 数据）与 HU 值（亨氏单位）标准化校正。
-*   **智能调窗 (Smart Windowing)**: 自研 `Peak Area Auto` 算法，自动识别人体组织波峰并计算最优窗宽窗位。
-*   **增强与去噪**: 集成双边滤波（保边去噪）、CLAHE（局部对比度增强）及 USM 锐化。
-*   **几何变换**: 支持高性能 Native 旋转、裁剪及色度反转（Invert LUTs）。
-
-Powered by the `rawpixeldeal` module, it offers C++ level optimizations for CT/X-Ray raw data: Log/HU correction, Smart Windowing (Peak Area Auto), denoising/enhancement (Bilateral, CLAHE, USM), and geometric transforms (rotation, cropping, inversion).
-
-### D. CBCT 三维可视化 (CBCT 3D Visualization)
-依托 `cbctdeal` 模块，基于 **DCMTK + VTK 9.1.0**（Android arm64 交叉编译）实现 CBCT（锥形束 CT）全链路三维能力：
-*   **序列解析**: 双 Pass 多线程解析 DICOM 序列（支持 JPEG / JPEG-LS / RLE 压缩），按 `ImagePositionPatient` Z 坐标排序、断层间隙补全，在 Native 堆组装连续 3D 体数据。
-*   **VR 体绘制**: `vtkSmartVolumeMapper` GPU RayCast（CPU FixedPoint 自动回退），骨骼窗传递函数，明暗着色渲染骨骼三维结构。
-*   **MPR 多平面重建**: `vtkImageReslice` 实现横断/冠状/矢状三平面任意层浏览，灰阶窗宽窗位映射，平行投影正交显示。
-*   **渲染交互**: OpenGL ES 渲染，专用渲染线程 + 按需渲染（闲置 0 GPU 占用），单指旋转/双指缩放平移手势，跨序列浏览参数保持。
-
-Leveraging the `cbctdeal` module, built on **DCMTK + VTK 9.1.0** (cross-compiled for Android arm64), it delivers full-pipeline CBCT 3D capabilities: dual-pass parallel DICOM series parsing (JPEG/JPEG-LS/RLE), GPU volume rendering (VR) with bone-window transfer functions, and MPR (axial/coronal/sagittal) with real-time window/level, all rendered via OpenGL ES with gesture interaction on a dedicated render thread.
-
-**演示视频 (Video Demos)**:
-- [vtk3D.mp4](cbctdeal/doc/vtk3D.mp4) —— 序列解析 + 骨骼三维重建 + 手势交互
-- [vtk3D-1.mp4](cbctdeal/doc/vtk3D-1.mp4) —— VR/MPR 模式切换、切面浏览、窗宽窗位调节
-
-**技术文章 (Technical Article)**:
-- [Android 平台 CBCT 三维可视化实战：DCMTK + VTK 交叉编译、集成与体渲染全流程](cbctdeal/CSDN-Android平台CBCT三维可视化实战.md)
+### 3. 高性能像素预处理 (`:rawpixeldeal`)
+针对 CT/X-Ray 原始数据（16bit Raw/HU）进行 Native 级优化：
+*   **物理校正**: Log 变换与 HU 值标准化校正。
+*   **智能调窗 (Smart Windowing)**: 自研 `Peak Area Auto` 算法，自动识别组织波峰。
+*   **图像增强**: 双边滤波去噪、CLAHE 对比度增强、USM 锐化。
 
 ---
 
-## 2. 模块架构 (Module Architecture)
+## 📺 演示视频 (Video Demos)
 
-*   **`:app`**: 业务表现层。包含 Fragment UI、权限管理及基于协程的异步调用逻辑。
-*   **`:dcmtk`**: 核心协议模块。通过 JNI 封装了 DCMTK 静态库，处理网络与文件 IO。
-*   **`:rawpixeldeal`**: 算法增强模块。基于 OpenCV 4.x 构建，负责毫秒级的底层图像算子。
-*   **`:cbctdeal`**: CBCT 三维模块。DICOM 序列解析（DCMTK）+ VR 体绘制/MPR 重建（VTK 9.1.0 arm64 交叉编译静态库），详见 [cbctdeal/README.md](cbctdeal/README.md)。
-
-*   **`:app`**: UI layer with Fragment-based interfaces and Coroutine-based async logic.
-*   **`:dcmtk`**: Core protocol module. Wraps DCMTK static libs via JNI for network and IO.
-*   **`:rawpixeldeal`**: Algorithm module. Built on OpenCV 4.x for millisecond-level image operators.
-*   **`:cbctdeal`**: CBCT 3D module. DICOM series parsing (DCMTK) + volume rendering & MPR (VTK 9.1.0 cross-compiled static libs). See [cbctdeal/README.md](cbctdeal/README.md).
+| 视频演示 | 功能描述 |
+| :--- | :--- |
+| [**vtk3D.mp4**](cbctdeal/doc/vtk3D.mp4) | CBCT 序列解析 + 骨骼三维重建 + 手势交互全过程 |
+| [**vtk3D-1.mp4**](cbctdeal/doc/vtk3D-1.mp4) | VR/MPR 模式切换、切面浏览、窗宽窗位动态调节细节 |
 
 ---
 
-## 3. 使用指南 (Usage Guide)
+## 📚 技术文档 (Technical Documentation)
 
-### 环境要求 (Requirements)
+*   **[Android 平台 VTK 集成与 CBCT 三维重建技术实战](cbctdeal/Android平台VTK集成与CBCT三维重建技术实战.md)** —— **深度技术长文**，涵盖 VTK/DCMTK 交叉编译、GLES3 兼容性补丁、序列解析算法及渲染管线实现原理。
+*   **[VTK Android 交叉编译脚本 (android_vtk.sh)](cbctdeal/doc/android_vtk.sh)** —— 基于 NDK r25 的模块化裁剪编译配置。
+
+---
+
+## 🏗️ 项目架构 (Architecture)
+
+*   **`:app`**: UI 表现层，基于协程编排异步业务。
+*   **`:cbctdeal`**: **三维核心模块**。包含 VTK 9.1.0 静态库与 C++ 渲染引擎。
+*   **`:dcmtk`**: 通信模块。封装 DCMTK 静态库，处理网络与文件 IO。
+*   **`:rawpixeldeal`**: 算法模块。基于 OpenCV 处理底层像素变换。
+
+---
+
+## 🛠️ 快速开始 (Getting Started)
+
+### 环境要求
 *   Android SDK / NDK (r25+)
+*   OpenGL ES 3.0+ (三维可视化需真机验证)
 *   CMake 3.22+
-*   已编译的 DCMTK 静态库 (libdcmdata, liboflog 等)
-*   已交叉编译的 VTK 9.1.0 静态库 (arm64-v8a，编译脚本见 [cbctdeal/doc/android_vtk.sh](cbctdeal/doc/android_vtk.sh))
-*   CBCT 三维可视化需真机验证（依赖 OpenGL ES 3.0+）
 
-### 初始化 (Initialization)
-在使用任何 DICOM 功能前，需初始化数据字典：
-Before using DICOM features, initialize the data dictionary:
-
-```java
-// 获取字典路径并加载
-String dictPath = FileUtil.getDictPath(context);
-DcmtkJni.initDcmtk(dictPath);
+### 初始化
+在使用前需注入 DICOM 数据字典：
+```kotlin
+val dictPath = FileUtil.getDictPath(context)
+CbctJni.initDictionary(dictPath)
 ```
 
-### 影像预处理流程 (Preprocessing Workflow)
-1.  **加载数据**: 从 Assets 或文件系统读取 Raw/DICOM 数据。
-2.  **配置流水线**: 在 `CT Preprocess` 界面选择算子（如：裁剪 -> Log 变换 -> HU 校正 -> 去噪）。
-3.  **智能调窗**: 点击 `RUN WINDOWING` 应用自适应算法，获取最佳视觉效果。
-4.  **保存**: 处理满意后，点击“写入 DICOM”持久化处理结果。
-
-1. **Load**: Read Raw/DICOM data. 2. **Pipeline**: Select operators (Crop -> Log -> HU -> Denoise). 3. **Windowing**: Run adaptive algorithms for best visualization. 4. **Save**: Export as a standard `.dcm` file.
-
 ---
 
-## 4. CBCT 三维可视化使用流程 (CBCT 3D Workflow)
-
-入口：主界面「CBCT Parse」页（`CbctParseFragment`）。详细操作说明见 [cbctdeal/README.md](cbctdeal/README.md)。
-
-1.  **加载序列**: 「选择目录 (SAF)」选取 CBCT 序列目录，或直接填写绝对路径 / 加载内置测试数据；
-2.  **解析**: 点击「Parse Series」，双 Pass 进度展示，完成后输出体数据维度、层间距、耗时等摘要；
-3.  **三维浏览**: 查看器切换「VTK 3D」载体——VR 体绘制（默认 45° 俯视）或 MPR 三平面切面浏览；
-4.  **窗宽窗位**: SeekBar 实时调节，VR 传递函数与 MPR 灰阶区间同步生效；
-5.  **手势**: 单指滑动旋转（VR）/平移（MPR）、双指捏合缩放、双指拖动平移。
-
-Entry: "CBCT Parse" page (`CbctParseFragment`). Load a CBCT series (SAF / path / assets), parse with dual-pass progress, then explore via VTK 3D (VR volume rendering / MPR planes) with gesture interaction and real-time window/level. See [cbctdeal/README.md](cbctdeal/README.md) for details.
-
----
-
-## 5. 技术亮点与优化 (Technical Highlights)
-
-*   **链式 Native 调用**: 引入 Native 地址（Mat Address）传递机制，极大地减少了 JNI 通信开销和内存拷贝频率。
-*   **针对探测器数据的专项优化**: 针对 `FT46` 等探测器产生的 Raw 数据，优化了高斯平滑（sigma 8.0->3.0）与边缘检测参数，有效解决了图像虚化和骨骼细节丢失问题。
-*   **内存安全**: 利用 C++ 辅助类管理 JNI 资源生命周期，防止在大数据量影像处理时出现内存泄漏。
-*   **CBCT 零拷贝渲染**: 数百 MB 体数据经 `vtkFloatArray::SetArray` 只读借用导入 VTK 管线，Native 堆零重复占用；专用渲染线程 + 按需渲染（闲置 0 GPU 占用）。
-*   **VTK 裁剪交叉编译**: VTK 9.1 模块化裁剪至 44 个静态库（vs 全量数百个），并修复 GLES3 上下文、深度纹理格式等 Android 兼容性问题（详见技术文章）。
-
-*   **Chained Native Calls**: Uses Mat Address passing to minimize JNI overhead and memory copying.
-*   **Detector-Specific Optimization**: Optimized for Raw data (e.g., FT46) to fix blurring and detail loss by tuning Gaussian sigma and edge detection.
-*   **Memory Safety**: Managed JNI resource lifecycles via C++ helpers to prevent leaks during large-scale image processing.
-*   **CBCT Zero-Copy Rendering**: Hundreds of MB of volume data are borrowed read-only into the VTK pipeline via `vtkFloatArray::SetArray`, with zero duplication on the native heap; dedicated render thread with on-demand rendering (0% GPU when idle).
-*   **Trimmed VTK Cross-Compilation**: VTK 9.1 trimmed to 44 static libs via module-level cropping, with GLES3 context / depth-texture compatibility fixes for Android (see the technical article).
-
----
-
-## 6. 总结 (Summary)
-本项目通过将复杂的 DICOM 协议和重度图像算法下沉到 Native 层，在 Android 移动端实现了接近桌面级的医学影像处理能力——从 PACS 通信、DICOM 解析、像素预处理，到 CBCT 序列解析与 GPU 体渲染三维可视化，是开发移动医生站、影像阅片 APP 的理想参考方案。
-
-By pushing complex protocols and heavy algorithms to the Native layer (DCMTK / OpenCV / VTK), this project achieves desktop-grade medical imaging capabilities on Android — from PACS communication, DICOM parsing, and pixel preprocessing, to CBCT series parsing and GPU volume-rendered 3D visualization — serving as an ideal reference for mobile RIS/PACS or diagnostic apps.
+## 🤝 总结
+本项目通过将重度图像算法与解析逻辑下沉至 Native 层，在 Android 移动端实现了接近桌面工作站级的医学影像处理能力，是开发**移动医生站、口腔影像阅片、远程会诊 App** 的理想参考方案。
