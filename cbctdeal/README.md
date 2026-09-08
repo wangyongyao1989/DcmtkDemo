@@ -9,6 +9,24 @@
 
 ---
 
+## 0. 演示视频 (Video Demos)
+
+真机（arm64-v8a）运行效果，演示 **VR 体绘制**（骨骼三维渲染、手势旋转/缩放/平移）与 **MPR 多平面重建**（三平面切换、层位置浏览、窗宽窗位调节）：
+
+| 视频 | 内容说明 |
+|---|---|
+| [vtk3D.mp4](doc/vtk3D.mp4) | CBCT DICOM 序列解析 + VTK 三维体渲染（VR）完整流程：加载序列 → 骨骼三维重建 → 手势交互 |
+| [vtk3D-1.mp4](doc/vtk3D-1.mp4) | VTK 三维可视化交互细节：VR/MPR 模式切换、切面浏览、窗宽窗位实时调节 |
+
+> 视频无法在文档内直接预览时，请 clone 仓库后从 `cbctdeal/doc/` 目录获取原文件播放。
+
+**相关技术文档**：
+- 技术文章（CSDN 版）：[CSDN-Android平台CBCT三维可视化实战.md](CSDN-Android平台CBCT三维可视化实战.md) —— 覆盖 VTK/DCMTK 交叉编译、Android 集成、序列解析与体渲染实现全流程
+- VTK 交叉编译脚本：[doc/android_vtk.sh](doc/android_vtk.sh)（NDK r25 / android-24 / OpenGL ES / 模块裁剪版）
+- 参考研究报告：`doc/` 目录下三份 PDF（CBCT 原理、DICOM 序列解析、VTK 集成流程）
+
+---
+
 ## 1. 模块结构
 
 ```

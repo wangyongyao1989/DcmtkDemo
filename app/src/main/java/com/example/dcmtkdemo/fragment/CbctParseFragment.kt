@@ -116,12 +116,11 @@ class CbctParseFragment : Fragment() {
         binding.rgVtkMode.setOnCheckedChangeListener { _, _ -> onVtkModeChanged() }
         binding.btnResetCam.setOnClickListener { binding.vtkView.resetCamera() }
 
-        // 解决 NestedScrollView 与 CbctVtkView 的滑动冲突，确保双指手势正常
-        binding.vtkView.setOnTouchListener { v, event ->
-            if (event.pointerCount >= 2 || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-                v.parent.requestDisallowInterceptTouchEvent(true)
-            }
-            false // 返回 false 以便 vtkView.onTouchEvent 能继续接收事件
+        // 强力解决滑动冲突：在容器层截断 NestedScrollView 的拦截，并转发给 VTK 视图
+        binding.vtkContainer.setOnTouchListener { _, event ->
+            binding.vtkContainer.parent?.requestDisallowInterceptTouchEvent(true)
+            binding.vtkView.dispatchTouchEvent(event)
+            true
         }
 
         val seekListener = object : SeekBar.OnSeekBarChangeListener {
@@ -137,6 +136,15 @@ class CbctParseFragment : Fragment() {
 
         // 默认窗值展示
         updateWindowLabels()
+
+        // AUTO TEST
+        viewLifecycleOwner.lifecycleScope.launch {
+            kotlinx.coroutines.delay(1000)
+            loadNeckCtAssets()
+            kotlinx.coroutines.delay(3000)
+            binding.rbVtk.isChecked = true
+            onRendererChanged()
+        }
     }
 
     /**
@@ -274,7 +282,7 @@ class CbctParseFragment : Fragment() {
     /** 渲染载体切换（Bitmap 2D / VTK 3D）：互斥显示 + 控件可见性路由 */
     private fun onRendererChanged() {
         useVtk = binding.rgRenderer.checkedRadioButtonId == binding.rbVtk.id
-        binding.vtkView.visibility = if (useVtk) View.VISIBLE else View.GONE
+        binding.vtkContainer.visibility = if (useVtk) View.VISIBLE else View.GONE
         binding.tvVtkHint.visibility = if (useVtk) View.VISIBLE else View.GONE
         binding.ivCbct.visibility = if (useVtk) View.GONE else View.VISIBLE
         updateViewerControlsVisibility()

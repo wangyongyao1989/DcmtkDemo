@@ -181,6 +181,7 @@ bool CbctVtkRenderer::init(CbctVolume *vol) {
     // VTK 9 的 vtkImageActor 不再直接暴露 SetInputConnection，经内部 mapper 挂接
     imageActor_->GetMapper()->SetInputConnection(mapColors_->GetOutputPort());
     imageActor_->InterpolateOff();     // 切面按原始分辨率显示，避免平滑模糊
+    imageActor_->ForceOpaqueOn();      // 强制 Opaque 队列，规避 Mali 驱动对透明队列 FBO 的兼容性问题
 
     // 诊断：体中心红色立方体（不透明、无纹理、无深度无关特效）。
     // 两种模式均挂载——用于二分定位：立方体可见 = 世界空间渲染正常，
@@ -735,7 +736,7 @@ void CbctVtkRenderer::ensureWindow() {
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
     renderer_->SetBackground(0.05, 0.06, 0.09);       // 深色阅片背景
     renderer_->SetBackground2(0.10, 0.12, 0.16);
-    renderer_->GradientBackgroundOn();
+    renderer_->GradientBackgroundOff();               // 关键修复：关闭渐变背景，规避 Mali 等 GPU 触发 Float FBO 导致的 Blend/Blit 兼容性黑屏
     renderWindow_->AddRenderer(renderer_);
 
     // Initialize() 创建 EGL Context/Surface 并 MakeCurrent（渲染线程），
@@ -815,7 +816,7 @@ void CbctVtkRenderer::onSurfaceDestroyed() {
 void CbctVtkRenderer::setRenderMode(int mode) {
     post([this, mode] {
         if (mode != MODE_VR && mode != MODE_MPR) return;
-        if (mode_ == mode && renderer_) return;
+        // 移除 mode_ == mode 拦截，允许 UI 层通过重复调用强制同步状态
         mode_ = mode;
         if (renderer_) {
             applyRenderMode();
@@ -828,9 +829,14 @@ void CbctVtkRenderer::setRenderMode(int mode) {
 void CbctVtkRenderer::setPlane(int plane, int position) {
     post([this, plane, position] {
         if (plane != PLANE_AXIAL && plane != PLANE_CORONAL && plane != PLANE_SAGITTAL) return;
+        bool planeChanged = (plane_ != plane);
         plane_ = plane;
         position_ = position;
         applyPlane();
+        // 如果平面发生变化，重新自适应相机（不同维度的切面 bounds 不同）
+        if (planeChanged && mode_ == MODE_MPR && renderer_) {
+            setupCameraForMode();
+        }
         markDirty();
     }, false);
 }
@@ -1041,14 +1047,24 @@ void CbctVtkRenderer::setupCameraForMode() {
         cam->SetViewUp(0.0, 0.0, 1.0);
         renderer_->ResetCamera();   // 按包围盒自动取距
     } else {
-        // 平行投影：切面（XY 平面）正交显示，ResetCamera 自适应铺满
+        // 平行投影：切面（XY 平面）正交显示
         cam->ParallelProjectionOn();
+        // 关键修复：确保 MPR 管线已更新，否则 ResetCamera 得到的 bounds 可能为 0 导致黑屏
+        if (imageActor_ && imageActor_->GetMapper()) {
+            imageActor_->GetMapper()->Update();
+        }
+        // 初始看向坐标系原点（Reslice 输出图像的左下角）
         cam->SetFocalPoint(0.0, 0.0, 0.0);
         cam->SetPosition(0.0, 0.0, 1.0);
         cam->SetViewUp(0.0, 1.0, 0.0);
         renderer_->ResetCamera();
+
+        // 关键修复：对于 2D 切面，ResetCamera 计算的 ClippingRange 可能过小（尤其是 far plane），
+        // 导致切面被裁减掉。使用内置自适应计算，确保所有 Prop 都在视锥内。
+        renderer_->ResetCameraClippingRange();
     }
     initDist_ = cam->GetDistance();
+    diagPending_ = true; // 触发一帧诊断日志
 }
 
 void CbctVtkRenderer::applyRotate(double dx, double dy) {
@@ -1057,6 +1073,7 @@ void CbctVtkRenderer::applyRotate(double dx, double dy) {
         applyPan(dx, dy);   // MPR 模式单指滑动即平移切面
         return;
     }
+    LOGD("applyRotate: dx=%.2f dy=%.2f", dx, dy);
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
     // trackball 语义：约 180°/视口高的灵敏度
@@ -1068,6 +1085,7 @@ void CbctVtkRenderer::applyRotate(double dx, double dy) {
 
 void CbctVtkRenderer::applyPan(double dx, double dy) {
     if (!renderer_) return;
+    LOGD("applyPan: dx=%.2f dy=%.2f", dx, dy);
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
 
@@ -1108,14 +1126,14 @@ void CbctVtkRenderer::applyZoom(double factor) {
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
     if (cam->GetParallelProjection()) {
-        // 平行投影：捏合放大 -> 平行缩放减小（视野变窄）
-        cam->SetParallelScale(cam->GetParallelScale() / factor);
+        const double oldScale = cam->GetParallelScale();
+        cam->SetParallelScale(oldScale / factor);
+        LOGD("applyZoom (Parallel): factor=%.4f scale %.1f -> %.1f",
+             factor, oldScale, cam->GetParallelScale());
     } else {
-        // 透视投影：捏合放大 -> 相机沿视线前移，距离钳制 [0.1x, 10x] 初始距离
-        double newDist = cam->GetDistance() / factor;
-        if (initDist_ > 0.0) {
-            newDist = std::max(initDist_ * 0.1, std::min(initDist_ * 10.0, newDist));
-        }
-        cam->SetDistance(newDist);
+        const double oldDist = cam->GetDistance();
+        cam->Dolly(factor);
+        LOGD("applyZoom (Perspective): factor=%.4f dist %.1f -> %.1f",
+             factor, oldDist, cam->GetDistance());
     }
 }

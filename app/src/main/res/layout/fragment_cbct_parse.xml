@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:hint="CBCT 序列目录绝对路径（或点击下方按钮从 SAF 选择）"
+            android:hint="CBCT 序列目录绝对路径"
             android:textSize="13sp" />
 
         <LinearLayout
@@ -60,15 +60,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="加载 assets/neck_ct (265 张)" />
+            android:text="加载 assets/neck_ct" />
 
         <!-- 2) Series Info -->
         <TextView
+            android:id="@+id/tv_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="2) Series Info"
-            android:textStyle="bold" />
+            android:text="(waiting for parse)"
+            android:textSize="11sp" />
 
         <ProgressBar
             android:id="@+id/progress_cbct"
@@ -77,15 +78,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/tv_info"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:padding="4dp"
-            android:text="(waiting for parse)"
-            android:textSize="11sp" />
 
         <!-- 3) MPR Viewer -->
         <TextView
@@ -213,14 +205,14 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="骨骼窗 (4000/600)" />
+                android:text="骨骼窗" />
 
             <Button
                 android:id="@+id/btn_default_window"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="文件原始窗" />
+                android:text="原始窗" />
         </LinearLayout>
 
         <com.example.dcmtkdemo.view.ZoomImageView
@@ -236,7 +228,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="4) VTK 3D Visualization (OpenGL ES)"
+            android:text="4) VTK 3D Visualization"
             android:textStyle="bold" />
 
         <RadioGroup
@@ -249,13 +241,13 @@
                 android:id="@+id/rb_bitmap"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:checked="true"
                 android:text="Bitmap 2D" />
 
             <RadioButton
                 android:id="@+id/rb_vtk"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:checked="true"
                 android:text="VTK 3D" />
         </RadioGroup>
 
@@ -280,6 +272,22 @@
                 android:text="MPR 切面" />
         </RadioGroup>
 
+        <FrameLayout
+            android:id="@+id/vtk_container"
+            android:layout_width="match_parent"
+            android:layout_height="420dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            android:background="#11FF0000">
+
+            <com.wangyao.cbctdeal.render.CbctVtkView
+                android:id="@+id/vtk_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="true"
+                android:focusable="true" />
+        </FrameLayout>
+
         <Button
             android:id="@+id/btn_reset_cam"
             android:layout_width="match_parent"
@@ -287,19 +295,12 @@
             android:layout_marginTop="4dp"
             android:text="复位相机 (VTK)" />
 
-        <com.wangyao.cbctdeal.render.CbctVtkView
-            android:id="@+id/vtk_view"
-            android:layout_width="match_parent"
-            android:layout_height="420dp"
-            android:layout_marginTop="8dp"
-            android:visibility="gone" />
-
         <TextView
             android:id="@+id/tv_vtk_hint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="4dp"
-            android:text="VTK 手势：单指滑动旋转（VR）/平移（MPR），双指捏合缩放，双指拖动平移"
+            android:text="VTK 手势：单指旋转，双指缩放/平移"
             android:textColor="#FF666666"
             android:textSize="11sp"
             android:visibility="gone" />
@@ -309,11 +310,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:background="#EEE"
-            android:textColor="#FF000000"
+            android:textColor="@color/bg_title"
             android:padding="8dp"
-            android:text="解析完成后此处显示序列摘要；拖动进度条切换切面与窗宽窗位。"
+            android:textStyle="bold"
+            android:text="摘要区域"
             android:textSize="12sp" />
+
+        <!-- 增加底部间距 -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="400dp" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
