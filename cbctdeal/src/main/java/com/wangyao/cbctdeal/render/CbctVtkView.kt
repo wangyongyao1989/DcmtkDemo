@@ -61,6 +61,14 @@ class CbctVtkView @JvmOverloads constructor(
 
     private val scaleDetector = ScaleGestureDetector(context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                lastFocusX = detector.focusX
+                lastFocusY = detector.focusY
+                android.util.Log.d("CbctVtkView", "onScaleBegin: focusX=${detector.focusX}")
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 val ptr = rendererPtr
                 if (ptr == 0L) return true
@@ -71,11 +79,17 @@ class CbctVtkView @JvmOverloads constructor(
                 val dyFocus = fy - lastFocusY
                 lastFocusX = fx
                 lastFocusY = fy
-                if (kotlin.math.abs(dxFocus) > 0.5f || kotlin.math.abs(dyFocus) > 0.5f) {
+
+                val factor = detector.scaleFactor
+                if (kotlin.math.abs(factor - 1.0) > 0.0001) {
+                    android.util.Log.d("CbctVtkView", "onScale: factor=$factor")
+                    CbctVtkJni.zoom(ptr, factor.toDouble())
+                }
+
+                if (kotlin.math.abs(dxFocus) > 0.1f || kotlin.math.abs(dyFocus) > 0.1f) {
+                    android.util.Log.v("CbctVtkView", "onScale: pan dx=$dxFocus, dy=$dyFocus")
                     CbctVtkJni.pan(ptr, dxFocus.toDouble(), dyFocus.toDouble())
                 }
-                // 双指缩放：相机远近调节
-                CbctVtkJni.zoom(ptr, detector.scaleFactor.toDouble())
                 return true
             }
         })
@@ -87,12 +101,15 @@ class CbctVtkView @JvmOverloads constructor(
                 e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float,
             ): Boolean {
                 val ptr = rendererPtr
-                if (ptr == 0L) return true
+                if (ptr == 0L || scaleDetector.isInProgress) return false
+                
                 val dx = -distanceX.toDouble()
                 val dy = -distanceY.toDouble()
                 if (curMode == CbctVtkJni.MODE_VR) {
+                    android.util.Log.v("CbctVtkView", "onScroll (VR): rotate dx=$dx, dy=$dy")
                     CbctVtkJni.rotate(ptr, dx, dy)
                 } else {
+                    android.util.Log.v("CbctVtkView", "onScroll (MPR): pan dx=$dx, dy=$dy")
                     CbctVtkJni.pan(ptr, dx, dy)
                 }
                 return true
@@ -102,6 +119,18 @@ class CbctVtkView @JvmOverloads constructor(
     init {
         holder.addCallback(this)
         holder.setFormat(android.graphics.PixelFormat.RGBA_8888)
+        
+        // 确保视图可交互
+        isClickable = true
+        isFocusable = true
+        isFocusableInTouchMode = true
+        
+        // 设置触摸监听并强力禁止拦截
+        setOnTouchListener { v, event ->
+            android.util.Log.e("VTK_TOUCH", "Listener: action=${event.actionMasked}, pointers=${event.pointerCount}")
+            v.parent?.requestDisallowInterceptTouchEvent(true)
+            false // 继续分发到 onTouchEvent
+        }
     }
 
     // =========================================================================
@@ -218,28 +247,20 @@ class CbctVtkView @JvmOverloads constructor(
     // 触摸手势：捕获后经 JNI 驱动 Native 侧 VTK 相机
     // =========================================================================
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        android.util.Log.e("VTK_TOUCH", "dispatchTouchEvent: action=${event.actionMasked}")
+        parent?.requestDisallowInterceptTouchEvent(true)
+        return super.dispatchTouchEvent(event)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (rendererPtr == 0L) return false
-
-        // 滑动冲突解决：按下或多指交互时禁止父容器（NestedScrollView）拦截，确保三维旋转与缩放手势流畅
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-            }
-        }
+        android.util.Log.e("VTK_TOUCH", "onTouchEvent: action=${event.actionMasked}, pointers=${event.pointerCount}")
+        if (rendererPtr == 0L) return super.onTouchEvent(event)
 
         scaleDetector.onTouchEvent(event)
-        if (event.pointerCount >= 2) {
-            // 双指阶段：记录捏合焦点初值，供 onScale 计算平移增量
-            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-                lastFocusX = scaleDetector.focusX
-                lastFocusY = scaleDetector.focusY
-            }
-            return true
-        }
-        // 单指：旋转（VR）/ 平移（MPR）
         gestureDetector.onTouchEvent(event)
+        
         return true
     }
 

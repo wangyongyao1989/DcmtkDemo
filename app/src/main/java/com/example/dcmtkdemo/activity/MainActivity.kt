@@ -55,8 +55,8 @@ class MainActivity : AppCompatActivity() {
         setupNavigation()
 
         if (savedInstanceState == null) {
-            switchFragment(CTPreprocessFragment())
-            binding.navView.setCheckedItem(R.id.nav_ct_preprocess)
+            switchFragment(CbctParseFragment())
+            binding.navView.setCheckedItem(R.id.nav_cbct)
         }
     }
 

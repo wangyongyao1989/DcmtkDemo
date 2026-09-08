@@ -1057,6 +1057,7 @@ void CbctVtkRenderer::applyRotate(double dx, double dy) {
         applyPan(dx, dy);   // MPR 模式单指滑动即平移切面
         return;
     }
+    LOGD("applyRotate: dx=%.2f dy=%.2f", dx, dy);
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
     // trackball 语义：约 180°/视口高的灵敏度
@@ -1068,6 +1069,7 @@ void CbctVtkRenderer::applyRotate(double dx, double dy) {
 
 void CbctVtkRenderer::applyPan(double dx, double dy) {
     if (!renderer_) return;
+    LOGD("applyPan: dx=%.2f dy=%.2f", dx, dy);
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
 
@@ -1108,14 +1110,14 @@ void CbctVtkRenderer::applyZoom(double factor) {
     vtkCamera *cam = renderer_->GetActiveCamera();
     if (!cam) return;
     if (cam->GetParallelProjection()) {
-        // 平行投影：捏合放大 -> 平行缩放减小（视野变窄）
-        cam->SetParallelScale(cam->GetParallelScale() / factor);
+        const double oldScale = cam->GetParallelScale();
+        cam->SetParallelScale(oldScale / factor);
+        LOGD("applyZoom (Parallel): factor=%.4f scale %.1f -> %.1f",
+             factor, oldScale, cam->GetParallelScale());
     } else {
-        // 透视投影：捏合放大 -> 相机沿视线前移，距离钳制 [0.1x, 10x] 初始距离
-        double newDist = cam->GetDistance() / factor;
-        if (initDist_ > 0.0) {
-            newDist = std::max(initDist_ * 0.1, std::min(initDist_ * 10.0, newDist));
-        }
-        cam->SetDistance(newDist);
+        const double oldDist = cam->GetDistance();
+        cam->Dolly(factor);
+        LOGD("applyZoom (Perspective): factor=%.4f dist %.1f -> %.1f",
+             factor, oldDist, cam->GetDistance());
     }
 }
