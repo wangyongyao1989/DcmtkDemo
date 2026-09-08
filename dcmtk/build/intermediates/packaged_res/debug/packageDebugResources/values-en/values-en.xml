@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dicom_upload_current_item">Uploading(%1$d/%2$d): %3$s</string>
+    <string name="dicom_upload_exit">Exit</string>
+    <string name="dicom_upload_finished">Upload Finished</string>
+    <string name="dicom_upload_progress_label">Upload Progress:</string>
+    <string name="dicom_upload_result_summary">Success: %1$d, Failed: %2$d (Total %3$d)</string>
+    <string name="dicom_upload_title">File Upload</string>
+</resources>

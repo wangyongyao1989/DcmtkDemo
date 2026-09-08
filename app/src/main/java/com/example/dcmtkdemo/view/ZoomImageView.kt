@@ -94,21 +94,34 @@ class ZoomImageView @JvmOverloads constructor(
     }
 
     override fun onTouch(v: View, event: MotionEvent): Boolean {
-        if (mGestureDetector?.onTouchEvent(event) == true) return true
+        // 让两个探测器都处理事件
         mScaleGestureDetector?.onTouchEvent(event)
+        mGestureDetector?.onTouchEvent(event)
 
         when (event.action and MotionEvent.ACTION_MASK) {
-            MotionEvent.ACTION_POINTER_DOWN -> parent?.requestDisallowInterceptTouchEvent(true)
+            MotionEvent.ACTION_DOWN -> {
+                val rect = getMatrixRectF()
+                // 如果图片已放大，按下时就禁止父容器拦截，确保能立即拖动
+                if (rect.width() > width + 1f || rect.height() > height + 1f) {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // 多指按下，绝对禁止父容器拦截（准备缩放）
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
             MotionEvent.ACTION_MOVE -> {
                 val rect = getMatrixRectF()
-                // 如果图片放大超过容器，则拦截滑动事件，允许拖动图片
-                if (rect.width() > width + 1f || rect.height() > height + 1f) {
+                // 移动过程中根据缩放状态动态判断是否拦截
+                if (rect.width() > width + 1f || rect.height() > height + 1f || event.pointerCount >= 2) {
                     parent?.requestDisallowInterceptTouchEvent(true)
                 } else {
                     parent?.requestDisallowInterceptTouchEvent(false)
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
         }
         return true
     }

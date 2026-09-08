@@ -26,3 +26,4 @@ rootProject.name = "DcmtkDemo"
 include ':app'
 include ':dcmtk'
 include ':rawpixeldeal'
+include ':cbctdeal'

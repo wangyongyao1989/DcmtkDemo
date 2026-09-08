@@ -37,6 +37,7 @@ android {
 dependencies {
     implementation(project(":dcmtk"))
     implementation(project(":rawpixeldeal"))
+    implementation(project(":cbctdeal"))
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)
     implementation(libs.material)
