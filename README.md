@@ -41,6 +41,11 @@
 
 *   **[Android 平台 VTK 集成与 CBCT 三维重建技术实战](cbctdeal/Android平台VTK集成与CBCT三维重建技术实战.md)** —— **深度技术长文**，涵盖 VTK/DCMTK 交叉编译、GLES3 兼容性补丁、序列解析算法及渲染管线实现原理。
 *   **[VTK Android 交叉编译脚本 (android_vtk.sh)](cbctdeal/doc/android_vtk.sh)** —— 基于 NDK r25 的模块化裁剪编译配置。
+*   **[CBCT 三维可视化实战：DCMTK + VTK 交叉编译、集成与体渲染全流程](https://blog.csdn.net/wangyongyao1989/article/details/164620462?spm=1001.2014.3001.5502)** —— 实现 CBCT（锥形束 CT）DICOM 序列解析 + VTK 三维体渲染（VR）+ 多平面重建（MPR） 的全流程：从 DCMTK / VTK 9.1.0 的 NDK 交叉编译、Android 工程集成，到序列解析引擎、体渲染管线的实现原理，以及真机调试中踩过的每一个"黑屏深坑"。
+*   **[DcmtkDemo 技术解析医学影像处理全栈方案](https://blog.csdn.net/wangyongyao1989/article/details/163419757)** —— **DcmtkDemo 是一个专为 Android 平台设计的医疗影像处理示例项目。它将复杂的 DICOM 通信协议和重度图像算法 下沉到 Native 层，在移动端实现了接近桌面级的医学影像处理能力。项目集成了 DCMTK（DICOM Toolkit）和 OpenCV 4.x，覆盖了从 PACS 网络通信、DICOM 文件解析到高性能底层像素 预处理的全链路功能。
+*   **[Mac Pro上的DCMTK的服务搭建](https://blog.csdn.net/wangyongyao1989/article/details/162460525)** —— DCMTK的服务用可于测试的搭建全流程。
+
+
 
 ---
 
