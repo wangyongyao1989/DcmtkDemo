@@ -104,59 +104,69 @@ class RetrieveFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.pacsConfig.value ?: return@launch
-            var count = 0
-            selected.forEach { record ->
-                val currentCount = ++count
-                val patId = record.id
+            try {
+                val config = viewModel.pacsConfig.value
+                if (config == null) {
+                    binding?.tvMoveStatus?.text = "PACS configuration not set. Please verify connection first."
+                    return@launch
+                }
+                var count = 0
+                selected.forEach { record ->
+                    val currentCount = ++count
+                    val patId = record.id
 
-                lastBytes = 0L
-                lastTime = System.currentTimeMillis()
+                    lastBytes = 0L
+                    lastTime = System.currentTimeMillis()
 
-                binding?.tvMoveStatus?.text = "Downloading ($currentCount/${selected.size}): $patId"
+                    binding?.tvMoveStatus?.text = "Downloading ($currentCount/${selected.size}): $patId"
 
-                val success = withContext(Dispatchers.IO) {
-                    PacsManager.cGet(
-                        config,
-                        patId,
-                        tempDir.absolutePath,
-                        object : ProgressCallback {
-                            override fun onProgress(sent: Long, total: Long) {
-                                val currentTime = System.currentTimeMillis()
-                                val timeDiff = currentTime - lastTime
-                                if (timeDiff >= 1000) {
-                                    val bytesDiff = sent - lastBytes
-                                    val speed = (bytesDiff / 1024.0) / (timeDiff / 1000.0) // KB/s
-                                    lastBytes = sent
-                                    lastTime = currentTime
+                    val success = withContext(Dispatchers.IO) {
+                        PacsManager.cGet(
+                            config,
+                            patId,
+                            tempDir.absolutePath,
+                            object : ProgressCallback {
+                                override fun onProgress(sent: Long, total: Long) {
+                                    val currentTime = System.currentTimeMillis()
+                                    val timeDiff = currentTime - lastTime
+                                    if (timeDiff >= 1000) {
+                                        val bytesDiff = sent - lastBytes
+                                        val speed = if (timeDiff > 0) (bytesDiff / 1024.0) / (timeDiff / 1000.0) else 0.0 // KB/s
+                                        lastBytes = sent
+                                        lastTime = currentTime
 
-                                    lifecycleScope.launch(Dispatchers.Main) {
-                                        binding?.tvDownloadStats?.text = String.format(
-                                            "Speed: %.2f KB/s | Progress: %d/%d",
-                                            speed, currentCount, selected.size
-                                        )
+                                        lifecycleScope.launch(Dispatchers.Main) {
+                                            binding?.tvDownloadStats?.text = String.format(
+                                                "Speed: %.2f KB/s | Progress: %d/%d",
+                                                speed, currentCount, selected.size
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
+
+                    if (success) {
+                        record.isDownloaded = true
+                    }
+
+                    binding?.progressBar?.progress = currentCount
+                    adapter.notifyDataSetChanged()
                 }
 
-                if (success) {
-                    record.isDownloaded = true
+                binding?.apply {
+                    tvMoveStatus.text = "Batch download completed."
+                    selected.forEach { it.isSelected = false }
+                    adapter.notifyDataSetChanged()
+                    Toast.makeText(context, "Batch download finished", Toast.LENGTH_SHORT).show()
                 }
-
-                binding?.progressBar?.progress = currentCount
-                adapter.notifyDataSetChanged()
-            }
-
-            binding?.apply {
-                progressBar.visibility = View.GONE
-                btnDownloadSelected.isEnabled = true
-                tvMoveStatus.text = "Batch download completed."
-                selected.forEach { it.isSelected = false }
-                adapter.notifyDataSetChanged()
-                Toast.makeText(context, "Batch download finished", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.e("RetrieveFragment", "executeBatchDownload error", e)
+                binding?.tvMoveStatus?.text = "Download error: ${e.message}"
+            } finally {
+                binding?.progressBar?.visibility = View.GONE
+                binding?.btnDownloadSelected?.isEnabled = true
             }
         }
     }

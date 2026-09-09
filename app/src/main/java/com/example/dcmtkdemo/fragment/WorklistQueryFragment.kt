@@ -94,87 +94,94 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.worklistConfig.value ?: return@launch
-
-            // 1. C-FIND 查询 MWL
-            val finalResults = withContext(Dispatchers.IO) {
-                PacsManager.cFindMWL(config, modality)
-            }
-
-            if (activity == null || binding == null) return@launch
-
-            // 2. 映射为 WorklistItem 列表（用于数据库同步）
-            val worklistItems = if (finalResults != null) {
-                WorklistItemMapper.fromMapList(finalResults)
-            } else emptyList()
-
-            worklistItems.forEachIndexed { index, item ->
-                Log.d(
-                    TAG, "MWL Result #$index: ${item.patientName} (${item.patientID}), " +
-                            "acc=${item.accessionNumber}, modality=${item.modality}, " +
-                            "studyUID=${item.studyInstanceUID}"
-                )
-            }
-
-            // 3. 同步到数据库 — "查询-匹配-存在则修改-不存在则插入"
-            val syncConfig = buildMwlSyncConfig()
-            val syncResult = withContext(Dispatchers.IO) {
-                MwlSyncRepository.getInstance(requireContext())
-                    .syncWorklistItems(worklistItems, syncConfig)
-            }
-            Log.i(TAG, "MWL DB sync result: $syncResult")
-
-            // 4. 转换为 PatientRecord 供 UI 显示
-            val records = finalResults?.map { PatientRecord.fromMap(it) } ?: emptyList()
-            records.forEachIndexed { index, record ->
-                Log.d(TAG, "UI PatientRecord #$index: $record")
-            }
-
-            // 5. 转换为 ScanRecord 列表（DICOM 写入/业务使用）
-            val scanRecords = records.map { pr ->
-                ScanRecord(
-                    examineNo = pr.examineNo,
-                    patientName = pr.patientName,
-                    patientSex = pr.patientSex,
-                    patientAge = pr.patientAge,
-                    patientHeight = pr.patientHeight,
-                    patientWeight = pr.patientWeight,
-                    patientTelephoneNumbers = pr.patientTelephoneNumbers,
-                    patientNote = pr.patientNote,
-                    sendDoctorNo = pr.sendDoctorNo,
-                    sendDoctorName = pr.sendDoctorName,
-                    sendCheckDate = pr.sendCheckDate,
-                    toothPosition = pr.toothPosition,
-                    checkDoctorNo = pr.checkDoctorNo,
-                    checkDoctorName = pr.checkDoctorName,
-                    checkDate = pr.checkDate,
-                    birthDate = pr.birthDate,
-                    examNumber = pr.examNumber,
-                    dcmPath = pr.dcmPath,
-                    imagePath = pr.imagePath,
-                    modifiedImagePath = pr.modifiedImagePath,
-                    deviceName = pr.deviceName,
-                    deviceIp = pr.deviceIp,
-                    checked = pr.checked
-                )
-            }
-            scanRecords.forEachIndexed { index, scan ->
-                Log.d(TAG, "Business ScanRecord #$index: $scan")
-            }
-
-
-
-            binding?.progressBar?.visibility = View.GONE
-            setButtonsEnabled(true)
-
-            viewModel.mwlResults.value = records
-            binding?.tvWorklistResults?.text = buildString {
-                append("Found ${records.size} records via MWL C-FIND.\n")
-                append("DB Sync: patient[ins=${syncResult.patientInserted}, upd=${syncResult.patientUpdated}], ")
-                append("study[ins=${syncResult.studyInserted}, upd=${syncResult.studyUpdated}]")
-                if (syncResult.errors.isNotEmpty()) {
-                    append(", errors=${syncResult.errors.size}")
+            try {
+                val config = viewModel.worklistConfig.value
+                if (config == null) {
+                    binding?.tvWorklistResults?.text = "Worklist configuration not set. Please verify connection first."
+                    return@launch
                 }
+
+                // 1. C-FIND 查询 MWL
+                val finalResults = withContext(Dispatchers.IO) {
+                    PacsManager.cFindMWL(config, modality)
+                }
+
+                if (activity == null || binding == null) return@launch
+
+                // 2. 映射为 WorklistItem 列表（用于数据库同步）
+                val worklistItems = if (finalResults != null) {
+                    WorklistItemMapper.fromMapList(finalResults)
+                } else emptyList()
+
+                worklistItems.forEachIndexed { index, item ->
+                    Log.d(
+                        TAG, "MWL Result #$index: ${item.patientName} (${item.patientID}), " +
+                                "acc=${item.accessionNumber}, modality=${item.modality}, " +
+                                "studyUID=${item.studyInstanceUID}"
+                    )
+                }
+
+                // 3. 同步到数据库 — "查询-匹配-存在则修改-不存在则插入"
+                val syncConfig = buildMwlSyncConfig()
+                val syncResult = withContext(Dispatchers.IO) {
+                    MwlSyncRepository.getInstance(requireContext())
+                        .syncWorklistItems(worklistItems, syncConfig)
+                }
+                Log.i(TAG, "MWL DB sync result: $syncResult")
+
+                // 4. 转换为 PatientRecord 供 UI 显示
+                val records = finalResults?.map { PatientRecord.fromMap(it) } ?: emptyList()
+                records.forEachIndexed { index, record ->
+                    Log.d(TAG, "UI PatientRecord #$index: $record")
+                }
+
+                // 5. 转换为 ScanRecord 列表（DICOM 写入/业务使用）
+                val scanRecords = records.map { pr ->
+                    ScanRecord(
+                        examineNo = pr.examineNo,
+                        patientName = pr.patientName,
+                        patientSex = pr.patientSex,
+                        patientAge = pr.patientAge,
+                        patientHeight = pr.patientHeight,
+                        patientWeight = pr.patientWeight,
+                        patientTelephoneNumbers = pr.patientTelephoneNumbers,
+                        patientNote = pr.patientNote,
+                        sendDoctorNo = pr.sendDoctorNo,
+                        sendDoctorName = pr.sendDoctorName,
+                        sendCheckDate = pr.sendCheckDate,
+                        toothPosition = pr.toothPosition,
+                        checkDoctorNo = pr.checkDoctorNo,
+                        checkDoctorName = pr.checkDoctorName,
+                        checkDate = pr.checkDate,
+                        birthDate = pr.birthDate,
+                        examNumber = pr.examNumber,
+                        dcmPath = pr.dcmPath,
+                        imagePath = pr.imagePath,
+                        modifiedImagePath = pr.modifiedImagePath,
+                        deviceName = pr.deviceName,
+                        deviceIp = pr.deviceIp,
+                        checked = pr.checked
+                    )
+                }
+                scanRecords.forEachIndexed { index, scan ->
+                    Log.d(TAG, "Business ScanRecord #$index: $scan")
+                }
+
+                viewModel.mwlResults.value = records
+                binding?.tvWorklistResults?.text = buildString {
+                    append("Found ${records.size} records via MWL C-FIND.\n")
+                    append("DB Sync: patient[ins=${syncResult.patientInserted}, upd=${syncResult.patientUpdated}], ")
+                    append("study[ins=${syncResult.studyInserted}, upd=${syncResult.studyUpdated}]")
+                    if (syncResult.errors.isNotEmpty()) {
+                        append(", errors=${syncResult.errors.size}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "executeMwlQuery error", e)
+                binding?.tvWorklistResults?.text = "Query error: ${e.message}"
+            } finally {
+                binding?.progressBar?.visibility = View.GONE
+                setButtonsEnabled(true)
             }
         }
     }
@@ -199,36 +206,45 @@ class WorklistQueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.worklistConfig.value ?: return@launch
-            val exportedFiles = withContext(Dispatchers.IO) {
-                MwlTemplateHelper.prepareTemplates(requireContext())
-                MwlTemplateHelper.executeMwlQuery(
-                    requireContext(),
-                    config,
-                    templateName
-                )
-            }
-
-            if (activity == null || binding == null) return@launch
-
-            binding?.progressBar?.visibility = View.GONE
-            setButtonsEnabled(true)
-
-            if (exportedFiles.isNotEmpty()) {
-                val records = ArrayList<PatientRecord>()
-                for (path in exportedFiles) {
-                    Log.e(TAG, "path: " + path)
-                    val record = withContext(Dispatchers.IO) { parseDicomFile(path) }
-                    if (record != null) {
-                        records.add(record)
-                    }
+            try {
+                val config = viewModel.worklistConfig.value
+                if (config == null) {
+                    binding?.tvWorklistResults?.text = "Worklist configuration not set. Please verify connection first."
+                    return@launch
                 }
-                viewModel.mwlResults.value = records
-                binding?.tvWorklistResults?.text =
-                    "MWL Query Complete. Parsed ${records.size} exported DCM files."
-            } else {
-                binding?.tvWorklistResults?.text =
-                    "MWL Query by Template failed or returned no results."
+                val exportedFiles = withContext(Dispatchers.IO) {
+                    MwlTemplateHelper.prepareTemplates(requireContext())
+                    MwlTemplateHelper.executeMwlQuery(
+                        requireContext(),
+                        config,
+                        templateName
+                    )
+                }
+
+                if (activity == null || binding == null) return@launch
+
+                if (exportedFiles.isNotEmpty()) {
+                    val records = ArrayList<PatientRecord>()
+                    for (path in exportedFiles) {
+                        Log.e(TAG, "path: " + path)
+                        val record = withContext(Dispatchers.IO) { parseDicomFile(path) }
+                        if (record != null) {
+                            records.add(record)
+                        }
+                    }
+                    viewModel.mwlResults.value = records
+                    binding?.tvWorklistResults?.text =
+                        "MWL Query Complete. Parsed ${records.size} exported DCM files."
+                } else {
+                    binding?.tvWorklistResults?.text =
+                        "MWL Query by Template failed or returned no results."
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "executeMwlQueryByTemplate error", e)
+                binding?.tvWorklistResults?.text = "Query error: ${e.message}"
+            } finally {
+                binding?.progressBar?.visibility = View.GONE
+                setButtonsEnabled(true)
             }
         }
     }

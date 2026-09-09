@@ -195,6 +195,10 @@ Java_com_example_dcmtk_jni_DcmtkJni_cStoreMulti(JNIEnv *env, jclass clazz, jstri
     JniString c_local(env, local_aet);
     JniString c_remote(env, remote_aet);
 
+    if (!dcm_paths) {
+        LOGE("native_cStoreMulti: dcm_paths is null");
+        return 0;
+    }
     int numPaths = env->GetArrayLength(dcm_paths);
     std::vector<std::string> paths;
     for (int i = 0; i < numPaths; ++i) {

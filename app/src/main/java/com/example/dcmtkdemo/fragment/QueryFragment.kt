@@ -85,66 +85,75 @@ class QueryFragment : Fragment() {
         setButtonsEnabled(false)
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = viewModel.pacsConfig.value ?: return@launch
-            val finalResults = withContext(Dispatchers.IO) {
-                Log.d(
-                    "QueryFragment",
-                    "executeQuery: Running on thread ${Thread.currentThread().name}"
-                )
-                if (queryType == 1) {
-                    PacsManager.cFindByAccession(config, queryVal)
-                } else {
-                    PacsManager.cFind(config, queryVal)
+            try {
+                val config = viewModel.pacsConfig.value
+                if (config == null) {
+                    binding?.tvQueryResults?.text = "PACS configuration not set. Please verify connection first."
+                    return@launch
                 }
-            }
-
-            if (activity == null || binding == null) return@launch
-
-            binding?.progressBar?.visibility = View.GONE
-            setButtonsEnabled(true)
-
-            val records = ArrayList<PatientRecord>()
-            if (finalResults != null) {
-                Log.d("QueryFragment", "executeQuery: Received ${finalResults.size} raw records")
-                for (res in finalResults) {
-                    Log.d("QueryFragment", "Parsing raw result: $res")
-                    val parts = res.split(" | ".toRegex()).toTypedArray()
-                    var name = "N/A"
-                    var id = "N/A"
-                    var sex = "N/A"
-                    var birth = "N/A"
-                    var acc = ""
-                    var mod = ""
-
-                    if (parts.isNotEmpty()) name = parts[0]
-                    for (p in parts) {
-                        when {
-                            p.startsWith("ID:") -> id = p.substring(3).trim { it <= ' ' }
-                            p.startsWith("Acc:") -> acc = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Mod:") -> mod = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Sex:") -> sex = p.substring(4).trim { it <= ' ' }
-                            p.startsWith("Birth:") -> birth = p.substring(6).trim { it <= ' ' }
-                            p == "M" || p == "F" || p == "O" -> sex = p
-                            p.length == 8 && p.matches("\\d+".toRegex()) -> birth = p
-                        }
+                val finalResults = withContext(Dispatchers.IO) {
+                    Log.d(
+                        "QueryFragment",
+                        "executeQuery: Running on thread ${Thread.currentThread().name}"
+                    )
+                    if (queryType == 1) {
+                        PacsManager.cFindByAccession(config, queryVal)
+                    } else {
+                        PacsManager.cFind(config, queryVal)
                     }
-                    records.add(PatientRecord(name, id, sex, birth, acc, mod))
                 }
-            } else {
-                Log.w(
-                    "QueryFragment",
-                    "executeQuery: Results is null (possible network or association error)"
-                )
-            }
 
-            Log.d("QueryFragment", "executeQuery: [DONE] Parsed ${records.size} records")
-            viewModel.queryResults.value = records
+                if (activity == null || binding == null) return@launch
 
-            if (records.isEmpty()) {
-                binding?.tvQueryResults?.text = "No results found."
-            } else {
-                binding?.tvQueryResults?.text =
-                    "Found ${records.size} records. Details shown below."
+                val records = ArrayList<PatientRecord>()
+                if (finalResults != null) {
+                    Log.d("QueryFragment", "executeQuery: Received ${finalResults.size} raw records")
+                    for (res in finalResults) {
+                        Log.d("QueryFragment", "Parsing raw result: $res")
+                        val parts = res.split(" | ".toRegex()).toTypedArray()
+                        var name = "N/A"
+                        var id = "N/A"
+                        var sex = "N/A"
+                        var birth = "N/A"
+                        var acc = ""
+                        var mod = ""
+
+                        if (parts.isNotEmpty()) name = parts[0]
+                        for (p in parts) {
+                            when {
+                                p.startsWith("ID:") -> id = p.substring(3).trim { it <= ' ' }
+                                p.startsWith("Acc:") -> acc = p.substring(4).trim { it <= ' ' }
+                                p.startsWith("Mod:") -> mod = p.substring(4).trim { it <= ' ' }
+                                p.startsWith("Sex:") -> sex = p.substring(4).trim { it <= ' ' }
+                                p.startsWith("Birth:") -> birth = p.substring(6).trim { it <= ' ' }
+                                p == "M" || p == "F" || p == "O" -> sex = p
+                                p.length == 8 && p.matches("\\d+".toRegex()) -> birth = p
+                            }
+                        }
+                        records.add(PatientRecord(name, id, sex, birth, acc, mod))
+                    }
+                } else {
+                    Log.w(
+                        "QueryFragment",
+                        "executeQuery: Results is null (possible network or association error)"
+                    )
+                }
+
+                Log.d("QueryFragment", "executeQuery: [DONE] Parsed ${records.size} records")
+                viewModel.queryResults.value = records
+
+                if (records.isEmpty()) {
+                    binding?.tvQueryResults?.text = "No results found."
+                } else {
+                    binding?.tvQueryResults?.text =
+                        "Found ${records.size} records. Details shown below."
+                }
+            } catch (e: Exception) {
+                Log.e("QueryFragment", "executeQuery error", e)
+                binding?.tvQueryResults?.text = "Query error: ${e.message}"
+            } finally {
+                binding?.progressBar?.visibility = View.GONE
+                setButtonsEnabled(true)
             }
         }
     }

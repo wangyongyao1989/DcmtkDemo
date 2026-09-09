@@ -29,6 +29,7 @@ class ZoomImageView @JvmOverloads constructor(
 
     private var mMinScale = 0.1f 
     private var mMaxScale = 5.0f
+    private var mBaseScale = 1.0f
 
     init {
         scaleType = ScaleType.MATRIX
@@ -69,9 +70,10 @@ class ZoomImageView @JvmOverloads constructor(
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (drawable == null) return false
                 val scale = getScale()
-                // 如果当前接近最小缩放，则放大；否则恢复
-                if (scale < mMinScale * 1.5f) {
-                    mMatrix.postScale(2.0f, 2.0f, e.x, e.y)
+                if (scale < mBaseScale * 1.5f) {
+                    val targetScale = Math.min(mBaseScale * 2.5f, mMaxScale)
+                    val factor = targetScale / scale
+                    mMatrix.postScale(factor, factor, e.x, e.y)
                 } else {
                     resetMatrix()
                 }
@@ -178,9 +180,9 @@ class ZoomImageView @JvmOverloads constructor(
         mMatrix.setRectToRect(srcRect, dstRect, Matrix.ScaleToFit.CENTER)
         
         // 基于 FitCenter 后的比例更新最小/最大缩放限制
-        val baseScale = getScale()
-        mMinScale = baseScale * 0.8f
-        mMaxScale = Math.max(baseScale * 10f, 5.0f)
+        mBaseScale = getScale()
+        mMinScale = mBaseScale * 0.8f
+        mMaxScale = Math.max(mBaseScale * 10f, 5.0f)
         
         imageMatrix = mMatrix
     }

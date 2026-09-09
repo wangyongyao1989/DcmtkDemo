@@ -16,6 +16,7 @@
 // Kotlin 层保持零依赖。
 #include "include/CbctSeriesParser.h"
 #include "include/CbctVtkRenderer.h"
+#include "include/CbctJniHelper.h"
 
 // DCMTK 外部数据字典（交叉编译产物未内置私有字典，见 initDictionary）
 #include "dcmtk/dcmdata/dcdict.h"
@@ -25,140 +26,7 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-// Stubs for missing NDK symbols（与 dcmtk 模块 native-lib.cpp 保持一致）
-extern "C" char *getlogin() { return (char *) "android"; }
-extern "C" int getlogin_r(char *buf, size_t bufsize) {
-    const char *user = "android";
-    if (strlen(user) >= bufsize) return ERANGE;
-    strcpy(buf, user);
-    return 0;
-}
-
-// =============================================================================
-// 辅助工具（本模块自包含，不跨模块引用头文件）
-// =============================================================================
-
-/** RAII jstring -> const char* */
-class JniStr {
-public:
-    JniStr(JNIEnv *env, jstring str) : env_(env), jstr_(str), c_(nullptr) {
-        if (jstr_) c_ = env_->GetStringUTFChars(jstr_, nullptr);
-    }
-    ~JniStr() {
-        if (c_) env_->ReleaseStringUTFChars(jstr_, c_);
-    }
-    JniStr(const JniStr &) = delete;
-    JniStr &operator=(const JniStr &) = delete;
-    const char *c() const { return c_; }
-
-private:
-    JNIEnv *env_;
-    jstring jstr_;
-    const char *c_;
-};
-
-/** 容错版 NewStringUTF：用 Java 侧 UTF-8 解码替换非法字节，避免崩溃 */
-static jstring SafeNewStringUTF(JNIEnv *env, const char *text) {
-    if (!text) return nullptr;
-    jsize len = (jsize) strlen(text);
-    jbyteArray bytes = env->NewByteArray(len);
-    env->SetByteArrayRegion(bytes, 0, len, (const jbyte *) text);
-    jstring encoding = env->NewStringUTF("UTF-8");
-    jclass strClass = env->FindClass("java/lang/String");
-    jmethodID ctor = env->GetMethodID(strClass, "<init>", "([BLjava/lang/String;)V");
-    jstring result = (jstring) env->NewObject(strClass, ctor, bytes, encoding);
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    env->DeleteLocalRef(bytes);
-    env->DeleteLocalRef(encoding);
-    env->DeleteLocalRef(strClass);
-    return result;
-}
-
-/** 用 RGBA8888 数据创建 android.graphics.Bitmap */
-static jobject createRgbaBitmap(JNIEnv *env, int width, int height,
-                                const std::vector<uint8_t> &rgba) {
-    jclass bmpCls = env->FindClass("android/graphics/Bitmap");
-    jmethodID createBmp = env->GetStaticMethodID(
-            bmpCls, "createBitmap",
-            "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;");
-    jclass cfgCls = env->FindClass("android/graphics/Bitmap$Config");
-    jfieldID argbField = env->GetStaticFieldID(cfgCls, "ARGB_8888",
-                                               "Landroid/graphics/Bitmap$Config;");
-    jobject config = env->GetStaticObjectField(cfgCls, argbField);
-    jobject bitmap = env->CallStaticObjectMethod(bmpCls, createBmp, width, height, config);
-    env->DeleteLocalRef(config);
-    if (!bitmap) {
-        LOGE("createRgbaBitmap: createBitmap failed");
-        return nullptr;
-    }
-    AndroidBitmapInfo info;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) {
-        LOGE("createRgbaBitmap: getInfo failed");
-        return bitmap;
-    }
-    void *pixels = nullptr;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) {
-        LOGE("createRgbaBitmap: lockPixels failed");
-        return bitmap;
-    }
-    memcpy(pixels, rgba.data(), rgba.size());
-    AndroidBitmap_unlockPixels(env, bitmap);
-    return bitmap;
-}
-
-/**
- * Java 侧进度回调适配器。
- * 解析在 native 线程池中执行，回调可能来自任意工作线程：
- * 通过 JavaVM AttachCurrentThread 按需附加，全局引用保证对象生命周期。
- */
-class JniProgress {
-public:
-    JniProgress(JNIEnv *env, jobject callback) : vm_(nullptr), ref_(nullptr) {
-        if (!callback) return;
-        if (env->GetJavaVM(&vm_) == JNI_OK && vm_) {
-            ref_ = env->NewGlobalRef(callback);
-        }
-    }
-    ~JniProgress() {
-        if (ref_ && vm_) {
-            JNIEnv *env = nullptr;
-            bool attached = false;
-            if (vm_->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
-                if (vm_->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
-                else env = nullptr;
-            }
-            if (env) env->DeleteGlobalRef(ref_);
-            if (attached) vm_->DetachCurrentThread();
-            ref_ = nullptr;
-        }
-    }
-    JniProgress(const JniProgress &) = delete;
-    JniProgress &operator=(const JniProgress &) = delete;
-
-    void invoke(size_t current, size_t total) {
-        if (!ref_ || !vm_) return;
-        JNIEnv *env = nullptr;
-        bool attached = false;
-        if (vm_->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
-            if (vm_->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
-            else return;
-        }
-        jclass cls = env->GetObjectClass(ref_);
-        if (cls) {
-            jmethodID mid = env->GetMethodID(cls, "onProgress", "(JJ)V");
-            if (mid) {
-                env->CallVoidMethod(ref_, mid, (jlong) current, (jlong) total);
-                if (env->ExceptionCheck()) env->ExceptionClear();
-            }
-            env->DeleteLocalRef(cls);
-        }
-        if (attached) vm_->DetachCurrentThread();
-    }
-
-private:
-    JavaVM *vm_;
-    jobject ref_;
-};
+using namespace CbctJniHelper;
 
 // =============================================================================
 // JNI 方法：Java com.wangyao.cbctdeal.jni.CbctJni
@@ -213,64 +81,6 @@ Java_com_wangyao_cbctdeal_jni_CbctJni_loadSeries(JNIEnv *env, jclass clazz, jstr
 }
 
 /** 构建 Volume 元数据 flat map（由 Kotlin 侧组装为 CbctSeriesMeta） */
-static jobject buildMetaMap(JNIEnv *env, const CbctVolume *vol) {
-    jclass mapClass = env->FindClass("java/util/HashMap");
-    jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
-    jobject hashMap = env->NewObject(mapClass, mapInit);
-    jmethodID put = env->GetMethodID(mapClass, "put",
-                                     "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    auto putStr = [&](const char *k, const std::string &v) {
-        jstring key = SafeNewStringUTF(env, k);
-        jstring val = SafeNewStringUTF(env, v.c_str());
-        env->CallObjectMethod(hashMap, put, key, val);
-        env->DeleteLocalRef(key);
-        env->DeleteLocalRef(val);
-    };
-    char buf[64];
-    putStr("patientName", vol->patientName);
-    putStr("patientID", vol->patientID);
-    putStr("patientSex", vol->patientSex);
-    putStr("patientBirthDate", vol->patientBirthDate);
-    putStr("studyDate", vol->studyDate);
-    putStr("modality", vol->modality);
-    putStr("manufacturer", vol->manufacturer);
-
-    snprintf(buf, sizeof(buf), "%d", vol->width);
-    putStr("width", buf);
-    snprintf(buf, sizeof(buf), "%d", vol->height);
-    putStr("height", buf);
-    snprintf(buf, sizeof(buf), "%d", vol->depth);
-    putStr("depth", buf);
-    snprintf(buf, sizeof(buf), "%d", vol->sliceCount);
-    putStr("sliceCount", buf);
-    snprintf(buf, sizeof(buf), "%d", vol->skippedFiles);
-    putStr("skippedFiles", buf);
-    snprintf(buf, sizeof(buf), "%lld", vol->elapsedMs);
-    putStr("elapsedMs", buf);
-
-    snprintf(buf, sizeof(buf), "%.6f", vol->spacingX);
-    putStr("spacingX", buf);
-    snprintf(buf, sizeof(buf), "%.6f", vol->spacingY);
-    putStr("spacingY", buf);
-    snprintf(buf, sizeof(buf), "%.6f", vol->spacingZ);
-    putStr("spacingZ", buf);
-    snprintf(buf, sizeof(buf), "%.6f", vol->slope);
-    putStr("slope", buf);
-    snprintf(buf, sizeof(buf), "%.6f", vol->intercept);
-    putStr("intercept", buf);
-    snprintf(buf, sizeof(buf), "%d", vol->pixelRepresentation);
-    putStr("pixelRepresentation", buf);
-    snprintf(buf, sizeof(buf), "%.2f", vol->windowWidth);
-    putStr("windowWidth", buf);
-    snprintf(buf, sizeof(buf), "%.2f", vol->windowCenter);
-    putStr("windowCenter", buf);
-    snprintf(buf, sizeof(buf), "%.3f", vol->zMin);
-    putStr("zMin", buf);
-    snprintf(buf, sizeof(buf), "%.3f", vol->zMax);
-    putStr("zMax", buf);
-    return hashMap;
-}
-
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_wangyao_cbctdeal_jni_CbctJni_getVolumeMeta(JNIEnv *env, jclass clazz, jlong volume_ptr) {
     CbctVolume *vol = (CbctVolume *) (intptr_t) volume_ptr;

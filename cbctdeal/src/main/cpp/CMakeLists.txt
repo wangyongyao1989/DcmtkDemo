@@ -40,7 +40,8 @@ endif()
 add_library(${CMAKE_PROJECT_NAME} SHARED
         cbct-native-lib.cpp
         CbctSeriesParser.cpp
-        CbctVtkRenderer.cpp)
+        CbctVtkRenderer.cpp
+        CbctJniHelper.cpp)
 
 # 裁包体积（PDF 6.1）：函数/数据分节 + 链接期未引用段回收。
 # 注意：暂不启用 --gc-sections —— DCMTK 内置数据字典等静态数据表
