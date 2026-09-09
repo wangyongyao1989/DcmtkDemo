@@ -64,37 +64,22 @@ class DetailActivity : AppCompatActivity() {
             return
         }
 
-        // JPG 不存在，后台重新转换（转换是耗时操作，显示 loading）
-        binding!!.progressBar.visibility = View.VISIBLE
-        
+        // JPG 不存在，后台加载单张 DICOM 并渲染为 Bitmap
+        binding?.progressBar?.visibility = View.VISIBLE
+
         lifecycleScope.launch {
-            val pathToLoad = withContext(Dispatchers.IO) {
-                if (dcmPath != null) {
-                    val dcmFile = File(dcmPath)
-                    val tempDir = dcmFile.parentFile
-                    tempDir?.let {
-                        DcmtkJni.dcmToJpg(it.absolutePath)
-                    }
-                }
-                
-                var finalJpg = jpgPath
-                if (finalJpg == null && dcmPath != null) {
-                    val dcmFile = File(dcmPath)
-                    val tempDir = dcmFile.parentFile
-                    if (tempDir != null) {
-                        finalJpg = File(File(tempDir, "jpg"),
-                            "${dcmFile.name}.jpg").absolutePath
-                    }
-                }
-                finalJpg
+            val bitmap = withContext(Dispatchers.IO) {
+                if (dcmPath != null && File(dcmPath).exists()) {
+                    DcmtkJni.dicomFile2Bitmap(dcmPath)
+                } else null
             }
-            
+
             if (isFinishing || binding == null) return@launch
-            binding!!.progressBar.visibility = View.GONE
-            if (pathToLoad != null && File(pathToLoad).exists()) {
-                Glide.with(this@DetailActivity).load(File(pathToLoad)).into(binding!!.ivDetailImage)
+            binding?.progressBar?.visibility = View.GONE
+            if (bitmap != null) {
+                binding?.ivDetailImage?.setImageBitmap(bitmap)
             } else {
-                Log.e(TAG, "loadImage: JPG not available at $pathToLoad")
+                Log.e(TAG, "loadImage: Failed to render bitmap from $dcmPath")
             }
         }
     }

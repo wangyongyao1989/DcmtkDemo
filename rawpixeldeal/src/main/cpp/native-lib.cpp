@@ -156,9 +156,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
                                                                                  jobjectArray outDisplays,
                                                                                  jintArray outInfo,
                                                                                  jdoubleArray outHuRange) {
-    if (outDisplays == nullptr || windowMethods == nullptr) return;
+    if (rawBuf == nullptr || ops == nullptr || params == nullptr || 
+        windowMethods == nullptr || outDisplays == nullptr) return;
     jsize nMethods = env->GetArrayLength(windowMethods);
-    if (nMethods <= 0) return;
+    jsize outDisplaysLen = env->GetArrayLength(outDisplays);
+    if (nMethods <= 0 || outDisplaysLen <= 0) return;
 
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
@@ -170,7 +172,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
     cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
     mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
-    for (int mi = 0; mi < nMethods; ++mi) {
+    int maxCount = std::min(static_cast<int>(nMethods), static_cast<int>(outDisplaysLen));
+    for (int mi = 0; mi < maxCount; ++mi) {
         const int method = pMethods[mi];
         cv::Mat out8u = (method == -1) ? normalizeTo8u(mat) : windowTo8u(mat, method);
         jbyteArray rgba;
@@ -210,6 +213,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
                                                                         jdoubleArray params,
                                                                         jint windowMethod,
                                                                         jintArray info) {
+    if (rawBuf == nullptr || ops == nullptr || params == nullptr) return nullptr;
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);

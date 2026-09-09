@@ -88,6 +88,12 @@ bool DicomFileIO::writeDicomFile(const std::string &rawPath, const std::string &
         fseek(f, 0, SEEK_SET);
         LOGD("native_writeDicomFile: Opened raw file, size=%ld bytes", size);
 
+        if (size <= 0) {
+            LOGE("native_writeDicomFile: Invalid raw file size: %ld", size);
+            fclose(f);
+            return false;
+        }
+
         unsigned char *pixelData = new unsigned char[size];
         size_t readSize = fread(pixelData, 1, size, f);
         fclose(f);
@@ -574,8 +580,8 @@ bool DicomFileIO::writeDcmFileFull(const std::string &dcmPath, const ScanRecordI
 
     {
         char w[32], c[32];
-        snprintf(w, sizeof(w), "%.2d", pixelData.win_width);
-        snprintf(c, sizeof(c), "%.2d", pixelData.win_center);
+        snprintf(w, sizeof(w), "%d", pixelData.win_width);
+        snprintf(c, sizeof(c), "%d", pixelData.win_center);
         ds->putAndInsertString(DCM_WindowWidth, w);
         ds->putAndInsertString(DCM_WindowCenter, c);
     }

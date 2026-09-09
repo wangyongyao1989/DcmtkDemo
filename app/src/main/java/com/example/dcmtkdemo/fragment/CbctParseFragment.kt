@@ -136,15 +136,6 @@ class CbctParseFragment : Fragment() {
 
         // 默认窗值展示
         updateWindowLabels()
-
-        // AUTO TEST
-        viewLifecycleOwner.lifecycleScope.launch {
-            kotlinx.coroutines.delay(1000)
-            loadNeckCtAssets()
-            kotlinx.coroutines.delay(3000)
-            binding.rbVtk.isChecked = true
-            onRendererChanged()
-        }
     }
 
     /**

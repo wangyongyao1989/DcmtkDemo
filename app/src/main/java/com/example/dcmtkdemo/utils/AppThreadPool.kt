@@ -15,7 +15,8 @@ object AppThreadPool {
         MAX_POOL_SIZE,
         KEEP_ALIVE_TIME,
         TimeUnit.SECONDS,
-        LinkedBlockingQueue()
+        LinkedBlockingQueue(128),
+        ThreadPoolExecutor.CallerRunsPolicy()
     )
 
     /**
