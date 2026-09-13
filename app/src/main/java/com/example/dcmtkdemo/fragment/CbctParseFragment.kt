@@ -119,7 +119,11 @@ class CbctParseFragment : Fragment() {
 
         // 强力解决滑动冲突：在容器层截断 NestedScrollView 的拦截，并转发给 VTK 视图
         binding.vtkContainer.setOnTouchListener { _, event ->
-            binding.vtkContainer.parent?.requestDisallowInterceptTouchEvent(true)
+            // 解决多指操作时的嵌套滑动冲突：
+            // 当有多于一个手指触摸时，或者正在缩放/旋转时，禁止父布局拦截事件
+            if (event.pointerCount > 1 || event.actionMasked == MotionEvent.ACTION_MOVE) {
+                binding.vtkContainer.parent?.requestDisallowInterceptTouchEvent(true)
+            }
             binding.vtkView.dispatchTouchEvent(event)
             true
         }

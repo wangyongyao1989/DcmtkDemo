@@ -102,6 +102,9 @@ class CbctVtkView @JvmOverloads constructor(
             ): Boolean {
                 val ptr = rendererPtr
                 if (ptr == 0L || scaleDetector.isInProgress) return false
+
+                // 性能与冲突优化：如果单指滑动距离非常小（可能是由于多指操作引发的抖动），跳过
+                if (kotlin.math.abs(distanceX) < 0.5f && kotlin.math.abs(distanceY) < 0.5f) return false
                 
                 val dx = -distanceX.toDouble()
                 val dy = -distanceY.toDouble()
