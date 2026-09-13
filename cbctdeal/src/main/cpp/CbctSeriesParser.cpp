@@ -10,6 +10,10 @@
 #include <mutex>
 #include <thread>
 
+#if defined(__ARM_NEON) || defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #include <android/log.h>
 
 #include "dcmtk/config/osconfig.h"
@@ -97,7 +101,9 @@ bool listFiles(const std::string &dir, std::vector<std::string> &out) {
 bool readMeta(const std::string &path, SliceMeta &m) {
     m.path = path;
     DcmFileFormat ff;
-    if (ff.loadFile(path.c_str()).bad()) {
+    // 性能优化点 1：Pass A 仅需元数据，设置 maxReadLength 为 4096 字节。
+    // 这会使 DCMTK 跳过大块 PixelData 元素的加载，极大减少 I/O 耗时与内存占用。
+    if (ff.loadFile(path.c_str(), EXS_Unknown, EGL_withoutGL, 4096).bad()) {
         return false;   // 非 DICOM 或损坏文件，直接过滤
     }
     DcmDataset *ds = ff.getDataset();
@@ -406,8 +412,9 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     CbctVolume *vol = nullptr;
     try {
         vol = new CbctVolume();
-        // 空白填充 = HU(intercept)（raw 0 经 Rescale 换算，即空气）
-        vol->data = new float[sliceSize * depth]();
+        // 性能优化点 2：去掉 new[]() 的大括号，避免冗余的零初始化（之后会立即用 intercept 填充）。
+        // 对于数百 MB 的内存分配，这能节省一次完整的内存遍历时间。
+        vol->data = new float[sliceSize * depth];
         std::fill(vol->data, vol->data + sliceSize * depth,
                   (float) slices[0].intercept);
     } catch (const std::bad_alloc &) {
@@ -468,14 +475,35 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
                 const Target &tg = targets[t];
                 float *dst = vol->data + tg.zIndex * sliceSize;
                 const Uint16 *src = pixels.data() + tg.frame * sliceSize;
-                // raw -> HU：按本切片的 Rescale 参数换算（slope/intercept 可能逐片不同）
-                const double slope = sm.slope, intercept = sm.intercept;
+                // 性能优化点 3：使用 NEON 指令集加速 raw -> HU 的线性转换 (y = x * slope + intercept)。
+                // 相比逐像素的 double 浮点运算，SIMD 可以在一个指令周期内处理 4 个像素，并利用 FMA (乘加) 指令。
+                const float fSlope = (float) sm.slope;
+                const float fIntercept = (float) sm.intercept;
+                size_t i = 0;
+#if defined(__ARM_NEON) || defined(__aarch64__)
+                float32x4_t vSlope = vdupq_n_f32(fSlope);
+                float32x4_t vIntercept = vdupq_n_f32(fIntercept);
                 if (sm.pixelRepresentation != 0) {
-                    for (size_t i = 0; i < sliceSize; ++i)
-                        dst[i] = (float) ((double) (Sint16) src[i] * slope + intercept);
+                    for (; i + 3 < sliceSize; i += 4) {
+                        int16x4_t vSrc = vld1_s16(reinterpret_cast<const int16_t *>(&src[i]));
+                        int32x4_t vSrc32 = vmovl_s16(vSrc);
+                        float32x4_t vSrcF = vcvtq_f32_s32(vSrc32);
+                        vst1q_f32(&dst[i], vmlaq_f32(vIntercept, vSrcF, vSlope));
+                    }
                 } else {
-                    for (size_t i = 0; i < sliceSize; ++i)
-                        dst[i] = (float) ((double) src[i] * slope + intercept);
+                    for (; i + 3 < sliceSize; i += 4) {
+                        uint16x4_t vSrc = vld1_u16(reinterpret_cast<const uint16_t *>(&src[i]));
+                        uint32x4_t vSrc32 = vmovl_u16(vSrc);
+                        float32x4_t vSrcF = vcvtq_f32_u32(vSrc32);
+                        vst1q_f32(&dst[i], vmlaq_f32(vIntercept, vSrcF, vSlope));
+                    }
+                }
+#endif
+                for (; i < sliceSize; ++i) {
+                    if (sm.pixelRepresentation != 0)
+                        dst[i] = (float) ((Sint16) src[i] * fSlope + fIntercept);
+                    else
+                        dst[i] = (float) (src[i] * fSlope + fIntercept);
                 }
             }
         }
@@ -506,6 +534,56 @@ uint8_t CbctSeriesParser::applyWindow(double hu, double wc, double ww) {
     return (uint8_t) (t * 255.0 + 0.5);
 }
 
+/** 性能优化点 4：批量调窗映射 (HU -> RGBA8888)，使用 NEON 并行处理 4 个像素 */
+static void batchApplyWindow(const float *src, uint8_t *dstRgba, size_t count, double ww, double wc) {
+    const float c = (float) wc - 0.5f;
+    const float w = (float) ww - 1.0f;
+    const float invW = (w > 0.0f) ? (1.0f / w) : 0.0f;
+
+    size_t i = 0;
+#if defined(__ARM_NEON) || defined(__aarch64__)
+    float32x4_t vC = vdupq_n_f32(c);
+    float32x4_t vInvW = vdupq_n_f32(invW);
+    float32x4_t v05 = vdupq_n_f32(0.5f);
+    float32x4_t v255 = vdupq_n_f32(255.0f);
+    float32x4_t v1 = vdupq_n_f32(1.0f);
+    float32x4_t v0 = vdupq_n_f32(0.0f);
+    uint32x4_t vAlpha = vdupq_n_u32(0xFF000000);
+
+    for (; i + 3 < count; i += 4) {
+        float32x4_t vSrc = vld1q_f32(src + i);
+        // t = (hu - c) * invW + 0.5
+        float32x4_t vT = vmlaq_f32(v05, vsubq_f32(vSrc, vC), vInvW);
+        // clamp(0, 1)
+        vT = vmaxq_f32(vminq_f32(vT, v1), v0);
+        // grey = t * 255 + 0.5
+        uint32x4_t vG = vcvtq_u32_f32(vmlaq_f32(v05, vT, v255));
+
+        // 组装 RGBA8888 (小端序: 0xAABBGGRR)
+        uint32x4_t vRgba = vorrq_u32(vAlpha, vG);            // R
+        vRgba = vorrq_u32(vRgba, vshlq_n_u32(vG, 8));        // G
+        vRgba = vorrq_u32(vRgba, vshlq_n_u32(vG, 16));       // B
+        vst1q_u32(reinterpret_cast<uint32_t *>(&dstRgba[i * 4]), vRgba);
+    }
+#endif
+    for (; i < count; ++i) {
+        float hu = src[i];
+        uint8_t g;
+        if (w <= 0.0f) g = (hu > c) ? 255 : 0;
+        else {
+            float t = (hu - c) * invW + 0.5f;
+            if (t <= 0.0f) g = 0;
+            else if (t >= 1.0f) g = 255;
+            else g = (uint8_t) (t * 255.0f + 0.5f);
+        }
+        size_t o = i * 4;
+        dstRgba[o] = g;
+        dstRgba[o + 1] = g;
+        dstRgba[o + 2] = g;
+        dstRgba[o + 3] = 0xFF;
+    }
+}
+
 bool CbctSeriesParser::extractAxial(const CbctVolume *vol, int zIndex,
                                     double ww, double wc,
                                     std::vector<uint8_t> &outRgba, int &outW, int &outH) {
@@ -515,17 +593,7 @@ bool CbctSeriesParser::extractAxial(const CbctVolume *vol, int zIndex,
     const int w = vol->width, h = vol->height;
     const float *slice = vol->data + (size_t) zIndex * vol->sliceSize;
     outRgba.resize((size_t) w * h * 4);
-    for (int r = 0; r < h; ++r) {
-        for (int c = 0; c < w; ++c) {
-            double hu = slice[(size_t) r * w + c];   // 数据已是 HU 域
-            uint8_t g = applyWindow(hu, wc, ww);
-            size_t o = ((size_t) r * w + c) * 4;
-            outRgba[o] = g;
-            outRgba[o + 1] = g;
-            outRgba[o + 2] = g;
-            outRgba[o + 3] = 0xFF;
-        }
-    }
+    batchApplyWindow(slice, outRgba.data(), (size_t) w * h, ww, wc);
     outW = w;
     outH = h;
     return true;
@@ -541,18 +609,14 @@ bool CbctSeriesParser::extractMpr(const CbctVolume *vol, MprPlane plane, int pos
         // 冠状面：固定 Y，输出 w × d（横向 x，纵向 z）
         if (position < 0 || position >= h) return false;
         outRgba.resize((size_t) w * d * 4);
+        // 性能优化点 5：先收集 HU 数据到连续缓冲区，再利用 batchApplyWindow 批量映射。
+        // 对于冠状面，同一层的 X 行是连续的，利用 memcpy 提升 I/O 效率。
+        std::vector<float> huBuf((size_t) w * d);
         for (int z = 0; z < d; ++z) {
             const float *slice = vol->data + (size_t) z * vol->sliceSize;
-            for (int x = 0; x < w; ++x) {
-                double hu = slice[(size_t) position * w + x];
-                uint8_t g = applyWindow(hu, wc, ww);
-                size_t o = ((size_t) z * w + x) * 4;
-                outRgba[o] = g;
-                outRgba[o + 1] = g;
-                outRgba[o + 2] = g;
-                outRgba[o + 3] = 0xFF;
-            }
+            memcpy(&huBuf[z * w], slice + (size_t) position * w, w * sizeof(float));
         }
+        batchApplyWindow(huBuf.data(), outRgba.data(), (size_t) w * d, ww, wc);
         outW = w;
         outH = d;
         return true;
@@ -560,18 +624,14 @@ bool CbctSeriesParser::extractMpr(const CbctVolume *vol, MprPlane plane, int pos
         // 矢状面：固定 X，输出 h × d（横向 y，纵向 z）
         if (position < 0 || position >= w) return false;
         outRgba.resize((size_t) h * d * 4);
+        std::vector<float> huBuf((size_t) h * d);
         for (int z = 0; z < d; ++z) {
             const float *slice = vol->data + (size_t) z * vol->sliceSize;
             for (int y = 0; y < h; ++y) {
-                double hu = slice[(size_t) y * w + position];
-                uint8_t g = applyWindow(hu, wc, ww);
-                size_t o = ((size_t) z * h + y) * 4;
-                outRgba[o] = g;
-                outRgba[o + 1] = g;
-                outRgba[o + 2] = g;
-                outRgba[o + 3] = 0xFF;
+                huBuf[z * h + y] = slice[(size_t) y * w + position];
             }
         }
+        batchApplyWindow(huBuf.data(), outRgba.data(), (size_t) h * d, ww, wc);
         outW = h;
         outH = d;
         return true;

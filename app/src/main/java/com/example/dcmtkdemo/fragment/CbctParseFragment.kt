@@ -101,6 +101,7 @@ class CbctParseFragment : Fragment() {
         return binding.root
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -127,6 +128,7 @@ class CbctParseFragment : Fragment() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) onViewerParamsChanged()
             }
+
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         }
@@ -358,7 +360,10 @@ class CbctParseFragment : Fragment() {
                 }
             }
             if (_binding == null || bitmap == null) {
-                if (bitmap == null) Log.e(TAG, "extractCurrentSlice: bitmap is null at pos $position")
+                if (bitmap == null) Log.e(
+                    TAG,
+                    "extractCurrentSlice: bitmap is null at pos $position"
+                )
                 return@launch
             }
             binding.ivCbct.setImageBitmap(bitmap)
@@ -389,8 +394,19 @@ class CbctParseFragment : Fragment() {
             appendLine("- 检查日期: ${m.studyDate.ifEmpty { "N/A" }}    设备: ${m.manufacturer.ifEmpty { "N/A" }} (${m.modality.ifEmpty { "-" }})")
             appendLine("- 体数据: ${m.width} x ${m.height} x ${m.depth} (物理尺寸 $sizeMm mm)")
             appendLine("- 有效切片: ${m.sliceCount}（按 ImagePositionPatient Z 轴排序，过滤无效文件 ${m.skippedFiles} 个）")
-            appendLine("- 体素间距: %.4f / %.4f / %.4f mm".format(m.spacingX, m.spacingY, m.spacingZ))
-            appendLine("- HU 参数: slope=%.2f, intercept=%.2f（16bit 体素全程保留）".format(m.slope, m.intercept))
+            appendLine(
+                "- 体素间距: %.4f / %.4f / %.4f mm".format(
+                    m.spacingX,
+                    m.spacingY,
+                    m.spacingZ
+                )
+            )
+            appendLine(
+                "- HU 参数: slope=%.2f, intercept=%.2f（16bit 体素全程保留）".format(
+                    m.slope,
+                    m.intercept
+                )
+            )
             appendLine("- 解析耗时: ${m.elapsedMs} ms（Native 多线程）")
         }
     }
