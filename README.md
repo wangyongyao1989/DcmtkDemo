@@ -1,6 +1,10 @@
 # DcmtkDemo - Android 医疗影像全流程解决方案 (PACS + DICOM + 3D CBCT)
 
+🌐 **中文** | **[English](README.en.md)**
+
 `DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理全栈示例项目。它集成了 **DCMTK (DICOM Toolkit)**、**VTK 9.1.0** 和 **OpenCV**，实现了从 PACS 网络通信、DICOM 文件解析到高性能像素预处理，以及 **CBCT（锥形束 CT）三维体渲染与 MPR 重建** 的全链路功能。
+
+> [README.en.md](README.en.md) 是本文件的英文对照版，内容与中文版逐节同步；仓库内的模块文档、代码注释与技术文章以中文为主。
 
 ---
 
@@ -150,8 +154,6 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 `app/src/main/assets/` 下已内置全部演示数据：CT Preprocess 用的 `.raw` / `.bin` 裸数据、若干 `.dcm`，以及 `neck_ct/`（265 层 CBCT 序列，供 `:cbctdeal` 的「加载 ASSETS/NECK_CT」使用）。
 
 > ⚠️ **CT Preprocess 页选对字节序**：`.raw` 文件要用 **Little**，`.bin` 文件要用 **Big**。选错时像素值会散到 0~65535，直方图看起来近似均匀、自动调窗退化成全跨度——这是**读错字节序的症状，不是算法缺陷**。另外 W/H 输入框与所选文件不联动，例如 1112x1740 对 1112x1700 的 `CR*.raw` 会多要 40 行，Native 侧会按行截断并打一条 `RawPixelDealJni: ... truncate to 1700 rows` 的 WARN，属正常提示。
-
-
 
 ---
 
