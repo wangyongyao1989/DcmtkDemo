@@ -77,6 +77,13 @@ VTK_MODULE_INIT(vtkRenderingVolumeOpenGL2)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// 真机排障用的 GL/FBO 自检块（renderLoop 内 诊断 1/1b/1c/1d/2/3/4）。
+// 它会编译一个 mini shader、重放十余次 FBO 绑定、并整屏 glReadPixels，
+// 首帧和每次模式切换各触发一次（实测单帧 ~290 ms）。排障时改为 1 重新编译。
+#ifndef CBCT_VTK_DIAG
+#define CBCT_VTK_DIAG 0
+#endif
+
 // =============================================================================
 // 构造 / 析构 / 创建
 // =============================================================================
@@ -301,12 +308,15 @@ void CbctVtkRenderer::renderLoop() {
                         GL_READ_FRAMEBUFFER, (unsigned) realRead);
                 while (glGetError() != GL_NO_ERROR) {}
             }
+#if CBCT_VTK_DIAG
             const auto t0 = std::chrono::steady_clock::now();
+#endif
             try {
                 renderWindow_->Render();
             } catch (...) {
                 LOGE("renderLoop: render exception");
             }
+#if CBCT_VTK_DIAG
             if (frameCount_ == 0 || diagPending_) {
                 diagPending_ = false;
                 const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -708,6 +718,7 @@ void CbctVtkRenderer::renderLoop() {
                     }
                 }
             }
+#endif
             frameCount_++;
             lock.lock();
         }
@@ -759,7 +770,6 @@ void CbctVtkRenderer::ensureWindow() {
     }
     if (exts && strstr(exts, "GL_OES_texture_float_linear")) {
         LOGD("ensureWindow: %s | OES_texture_float_linear: yes -> Linear", renderer);
-        floatLinear_ = true;
     } else {
         LOGW("ensureWindow: %s | OES_texture_float_linear: NO -> Nearest", renderer);
         if (volProperty_) volProperty_->SetInterpolationTypeToNearest();
@@ -852,45 +862,10 @@ void CbctVtkRenderer::setWindowLevel(double ww, double wc) {
 
 void CbctVtkRenderer::resetCamera() {
     post([this] {
-        // 真机排障：复位按钮同时循环切换诊断假设（见头文件 diagMode_ 注释）
-        diagMode_ = (diagMode_ + 1) % 4;
-        switch (diagMode_) {
-            case 1:   // 全值域不透明红色：判别 3D 纹理采样是否有输出
-                if (colorTF_) {
-                    colorTF_->RemoveAllPoints();
-                    colorTF_->AddRGBPoint(-4000.0, 1.0, 0.05, 0.05);
-                    colorTF_->AddRGBPoint(5000.0, 1.0, 0.05, 0.05);
-                }
-                if (opacityTF_) {
-                    opacityTF_->RemoveAllPoints();
-                    opacityTF_->AddPoint(-4000.0, 0.85);
-                    opacityTF_->AddPoint(5000.0, 0.85);
-                }
-                if (volume_) volume_->Modified();
-                break;
-            case 2:   // CPU RayCast：判别 GPU 管线专属问题
-                if (volMapper_) volMapper_->SetRequestedRenderModeToRayCast();
-                applyWindowLevel();
-                break;
-            case 3:   // GPU + Linear 插值：判别 Nearest 降级副作用
-                if (volMapper_) volMapper_->SetRequestedRenderModeToDefault();
-                if (volProperty_) volProperty_->SetInterpolationTypeToLinear();
-                applyWindowLevel();
-                break;
-            case 0:   // 恢复基线：GPU 默认 + 按设备能力定插值 + 骨窗 TF
-            default:
-                if (volMapper_) volMapper_->SetRequestedRenderModeToDefault();
-                if (volProperty_) {
-                    if (floatLinear_) volProperty_->SetInterpolationTypeToLinear();
-                    else volProperty_->SetInterpolationTypeToNearest();
-                }
-                applyWindowLevel();
-                break;
-        }
-        LOGW("diagMode=%d (0=GPU基线 1=全不透明红GPU 2=CPU 3=GPULinear)",
-             diagMode_);
+        // 这里原本还顺带循环切换 4 组真机排障假设（diagMode_）：用户点一次「复位相机」
+        // 就可能把体绘制切成全不透明红色、CPU RayCast 或改掉插值方式，且界面上毫无提示。
+        // 排障假设只应在 init 阶段按设备能力确定，复位按钮只做复位相机这一件事。
         setupCameraForMode();
-        diagPending_ = true;
         markDirty();
     }, false);
 }

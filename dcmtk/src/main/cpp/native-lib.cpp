@@ -35,24 +35,98 @@ extern "C" int getlogin_r(char *buf, size_t bufsize) {
 }
 
 /**
- * A safe version of NewStringUTF that doesn't crash on invalid UTF-8 sequences.
- * It uses Java's String(byte[], "UTF-8") constructor which replaces invalid bytes.
+ * 按指定 Java 字符集解码 native 字符串。
+ *
+ * 背景：本模块链接的预编译 DCMTK 关闭了 iconv（DCMTK_WITH_ICONV=OFF），
+ * DcmDataset::convertToUTF8() 对 GB18030/GBK 等代码扩展不做任何转换，元素值里
+ * 保存的仍是原始 8-bit 字节，直接按 UTF-8 解码会得到替换字符（◈◈◈）。
  */
-static jstring SafeNewStringUTF(JNIEnv *env, const char *text) {
+static jstring NewStringDecoded(JNIEnv *env, const char *text, const char *charset) {
     if (!text) return nullptr;
     jsize len = (jsize) strlen(text);
     jbyteArray bytes = env->NewByteArray(len);
     env->SetByteArrayRegion(bytes, 0, len, (const jbyte *) text);
-    jstring encoding = env->NewStringUTF("UTF-8");
     jclass strClass = env->FindClass("java/lang/String");
     jmethodID ctor = env->GetMethodID(strClass, "<init>", "([BLjava/lang/String;)V");
-    jstring result = (jstring) env->NewObject(strClass, ctor, bytes, encoding);
-    if (env->ExceptionCheck()) env->ExceptionClear();
+
+    jstring result = nullptr;
+    if (charset) {
+        jstring encoding = env->NewStringUTF(charset);
+        result = (jstring) env->NewObject(strClass, ctor, bytes, encoding);
+        if (env->ExceptionCheck()) {   // 设备不支持该字符集时退回 UTF-8
+            env->ExceptionClear();
+            result = nullptr;
+        }
+        env->DeleteLocalRef(encoding);
+    }
+    if (!result) {
+        jstring encoding = env->NewStringUTF("UTF-8");
+        result = (jstring) env->NewObject(strClass, ctor, bytes, encoding);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->DeleteLocalRef(encoding);
+    }
     env->DeleteLocalRef(bytes);
-    env->DeleteLocalRef(encoding);
     env->DeleteLocalRef(strClass);
     return result;
 }
+
+/**
+ * DICOM (0008,0005) 代码项 -> Java 字符集名。未识别的一律按 UTF-8 处理。
+ */
+static const char *JavaCharsetForDicom(const std::string &cs) {
+    if (cs.find("GB18030") != std::string::npos) return "GB18030";
+    if (cs.find("GBK") != std::string::npos) return "GBK";
+    if (cs.find("GB2312") != std::string::npos) return "GB2312";
+    if (cs.find("ISO 2022") != std::string::npos) return "ISO-2022-JP";
+    if (cs.find("ISO_IR 100") != std::string::npos || cs.find("ISO 8859") != std::string::npos)
+        return "ISO-8859-1";
+    return "UTF-8";
+}
+
+/**
+ * A safe version of NewStringUTF that doesn't crash on invalid UTF-8 sequences.
+ * 未知字符集时的兜底：合法 UTF-8 按 UTF-8 解码，否则按中国 DICOM 最常见的
+ * GB18030（GBK/GB2312 的超集）解码。
+ */
+static bool IsValidUtf8(const char *text) {
+    const auto *p = reinterpret_cast<const unsigned char *>(text);
+    while (*p) {
+        unsigned char c = *p;
+        int extra;
+        unsigned int min;
+        if (c < 0x80) { ++p; continue; }
+        else if ((c & 0xE0) == 0xC0) { extra = 1; min = 0x80; }
+        else if ((c & 0xF0) == 0xE0) { extra = 2; min = 0x800; }
+        else if ((c & 0xF8) == 0xF0) { extra = 3; min = 0x10000; }
+        else return false;
+        unsigned int cp = c & ((1u << (6 - extra)) - 1);
+        for (int i = 0; i < extra; ++i) {
+            ++p;
+            if ((*p & 0xC0) != 0x80) return false;
+            cp = (cp << 6) | (*p & 0x3F);
+        }
+        if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        ++p;
+    }
+    return true;
+}
+
+static jstring SafeNewStringUTF(JNIEnv *env, const char *text) {
+    if (!text) return nullptr;
+    return NewStringDecoded(env, text, IsValidUtf8(text) ? "UTF-8" : "GB18030");
+}
+
+/**
+ * 混合来源的取值：DICOM 文件里的原始字节按 fallbackCharset（文件声明的字符集）解码，
+ * 而 native 层自己生成的 UTF-8 常量（如 "男"/"女"）已是合法 UTF-8，必须优先按 UTF-8 解，
+ * 否则会被二次解码成乱码。
+ */
+static jstring DecodeValue(JNIEnv *env, const char *text, const char *fallbackCharset) {
+    if (!text) return nullptr;
+    return NewStringDecoded(env, text, IsValidUtf8(text) ? "UTF-8" : fallbackCharset);
+}
+
+static jobject buildStringMap(JNIEnv *env, const std::map<std::string, std::string> &m);
 
 // =============================================================================
 // JNI bridge: each native_* function only marshals JNI types <-> C++ types and
@@ -90,27 +164,12 @@ Java_com_example_dcmtk_jni_DcmtkJni_initDcmtk(JNIEnv *env, jclass clazz, jstring
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_example_dcmtk_jni_DcmtkJni_loadDicomFileInfo(JNIEnv *env, jclass clazz,
                                                       jstring file_path) {
-    jclass mapClass = env->FindClass("java/util/HashMap");
-    jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
-    jobject hashMap = env->NewObject(mapClass, mapInit);
-    jmethodID putMethod = env->GetMethodID(mapClass, "put",
-                                           "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-
     JniString path(env, file_path);
     if (!path.c_str()) {
         LOGE("native_loadDicomFileInfo: Path is null");
-        return hashMap;
+        return buildStringMap(env, std::map<std::string, std::string>());
     }
-
-    std::map<std::string, std::string> info = DicomFileIO::loadFileInfo(path.c_str());
-    for (const auto &kv: info) {
-        jstring key = SafeNewStringUTF(env, kv.first.c_str());
-        jstring val = SafeNewStringUTF(env, kv.second.c_str());
-        env->CallObjectMethod(hashMap, putMethod, key, val);
-        env->DeleteLocalRef(key);
-        env->DeleteLocalRef(val);
-    }
-    return hashMap;
+    return buildStringMap(env, DicomFileIO::loadFileInfo(path.c_str()));
 }
 
 /**
@@ -317,6 +376,9 @@ Java_com_example_dcmtk_jni_DcmtkJni_cFindMWL(JNIEnv *env, jclass clazz, jstring 
         DcmDataset *ds = results[i];
         jobject hashMap = env->NewObject(mapClass, mapInit);
         if (ds) {
+            OFString csRaw;
+            ds->findAndGetOFString(DCM_SpecificCharacterSet, csRaw);
+            const char *charset = JavaCharsetForDicom(std::string(csRaw.c_str()));
             DcmStack stack;
             while (ds->nextObject(stack, OFTrue).good()) {
                 DcmObject *obj = stack.top();
@@ -332,7 +394,7 @@ Java_com_example_dcmtk_jni_DcmtkJni_cFindMWL(JNIEnv *env, jclass clazz, jstring 
                         element->getOFStringArray(valueStr);
 
                         jstring key = SafeNewStringUTF(env, tagStr);
-                        jstring val = SafeNewStringUTF(env, valueStr.c_str());
+                        jstring val = DecodeValue(env, valueStr.c_str(), charset);
                         env->CallObjectMethod(hashMap, putMethod, key, val);
                         env->DeleteLocalRef(key);
                         env->DeleteLocalRef(val);
@@ -428,16 +490,20 @@ Java_com_example_dcmtk_jni_DcmtkJni_cancelOperation(JNIEnv *env, jclass clazz) {
 // 对应 dcm4che3 版 DicomFileUtils.kt 的新增 JNI 方法
 // =============================================================================
 
-// HashMap 构造辅助：把 std::map<string,string> 填入新建的 java.util.HashMap
+// HashMap 构造辅助：把 std::map<string,string> 填入新建的 java.util.HashMap。
+// 若 map 中带有字符集信息（SpecificCharacterSet / (0008,0005)），值按该字符集解码。
 static jobject buildStringMap(JNIEnv *env, const std::map<std::string, std::string> &m) {
     jclass mapClass = env->FindClass("java/util/HashMap");
     jmethodID mapInit = env->GetMethodID(mapClass, "<init>", "()V");
     jobject hashMap = env->NewObject(mapClass, mapInit);
     jmethodID putMethod = env->GetMethodID(mapClass, "put",
                                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    auto cs = m.find("SpecificCharacterSet");
+    if (cs == m.end()) cs = m.find("(0008,0005)");
+    const char *charset = JavaCharsetForDicom(cs == m.end() ? std::string() : cs->second);
     for (const auto &kv: m) {
         jstring key = SafeNewStringUTF(env, kv.first.c_str());
-        jstring val = SafeNewStringUTF(env, kv.second.c_str());
+        jstring val = DecodeValue(env, kv.second.c_str(), charset);
         env->CallObjectMethod(hashMap, putMethod, key, val);
         env->DeleteLocalRef(key);
         env->DeleteLocalRef(val);
@@ -486,7 +552,23 @@ static jobject createRgbaBitmap(JNIEnv *env, int width, int height,
         LOGE("createRgbaBitmap: lockPixels failed");
         return bitmap;
     }
-    memcpy(pixels, rgba.data(), rgba.size());
+    const size_t srcStride = (size_t) width * 4;
+    if (rgba.size() < srcStride * (size_t) height) {
+        LOGE("createRgbaBitmap: buffer too small: %zu < %zu",
+             rgba.size(), srcStride * (size_t) height);
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return nullptr;
+    }
+    // AndroidBitmapInfo.stride 可能带行末填充，必须按行写入，否则图像会整体错位。
+    if (info.stride == srcStride) {
+        memcpy(pixels, rgba.data(), srcStride * (size_t) height);
+    } else {
+        auto *dst = static_cast<uint8_t *>(pixels);
+        for (int y = 0; y < height; ++y) {
+            memcpy(dst + (size_t) y * info.stride,
+                   rgba.data() + (size_t) y * srcStride, srcStride);
+        }
+    }
     AndroidBitmap_unlockPixels(env, bitmap);
     return bitmap;
 }

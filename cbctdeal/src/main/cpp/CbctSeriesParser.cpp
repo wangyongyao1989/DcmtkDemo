@@ -347,6 +347,11 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     }
     LOGD("loadSeries: geometry %dx%d, %zu inconsistent slices removed", rows, cols, removed);
 
+    // 剔除切片后重新统计：下面的判断必须与当前的 slices.size() 比较，
+    // 否则一旦有切片被剔除，Z 间距计算就会被静默跳过。
+    withZ = 0;
+    for (const auto &s : slices) if (s.hasZ) ++withZ;
+
     // ---------- 5. 计算 Z 间距（取相邻 Z 差的中位数，回退层厚） ----------
     double spacingZ = slices[0].thickness;
     if (withZ == slices.size() && slices.size() >= 2) {

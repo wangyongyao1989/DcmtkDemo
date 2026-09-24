@@ -13,11 +13,49 @@
 #define TAG "RawPixelDealJni"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // =============================================================================
 // 辅助与核心逻辑
 // =============================================================================
+
+// 目标 Bitmap 的 cv::Mat 封装：必须用它自己的 stride。Android Bitmap 行末可能有填充，
+// 用默认紧凑步长会让整幅图像逐行错位；源图那侧的 stride 也不能直接复用，所以重新取一次 info。
+// （源图侧的 6 处封装在同一文件里逐个显式传 info.stride，见各 lockPixels 之后。）
+static cv::Mat wrapBitmapDst(JNIEnv *env, jobject bitmap, void *pixels) {
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) return cv::Mat();
+    return cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+}
+
+/**
+ * 把请求的行数收敛到原始缓冲区真正装得下的行数；返回 0 表示完全不可用。
+ *
+ * W/H 来自 UI 的手工输入框，与所选 asset 的实际像素数没有联动（默认 1112x1740 就超过
+ * 了 1112x1700 的 CR*.raw）。LoadRawPixelBuffer 直接用 (rows, cols) 包住这块内存，
+ * 长度不足时 OpenCV 会越界读 Java 堆。这里按行截断而不是报错：多出来的行本来就没有
+ * 数据，旧实现读的是堆上的随机字节；截断只丢掉不存在的行，outInfo 回传截断后的真实尺寸。
+ *
+ * 每像素固定 2 字节：LoadRawPixelBuffer 只按 isUint16 决定 16U/16S，从不按 bitDepth
+ * 走 8-bit 分支，所以选 8-bit 时同样会读超一倍，一并收敛。
+ */
+static jint fitRawBufferRows(JNIEnv *env, jbyteArray rawBuf, jint w, jint h) {
+    if (w <= 0 || h <= 0) return 0;
+    const long long rowBytes = static_cast<long long>(w) * 2;
+    const long long have = env->GetArrayLength(rawBuf);
+    const long long fit = have / rowBytes;
+    if (fit <= 0) {
+        LOGE("raw buffer too small: w=%d needs %lld bytes/row, got %lld bytes", w, rowBytes, have);
+        return 0;
+    }
+    if (fit < h) {
+        LOGW("raw buffer holds only %lld of %d rows (w=%d, %lld of %lld bytes), truncate to %lld rows",
+             fit, h, w, have, rowBytes * h, fit);
+        return static_cast<jint>(fit);
+    }
+    return h;
+}
 
 static cv::Mat normalizeTo8u(const cv::Mat &mat) {
     cv::Mat out8u;
@@ -158,6 +196,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
                                                                                  jdoubleArray outHuRange) {
     if (rawBuf == nullptr || ops == nullptr || params == nullptr || 
         windowMethods == nullptr || outDisplays == nullptr) return;
+    const jint rows = fitRawBufferRows(env, rawBuf, w, h);
+    if (rows <= 0) return;
     jsize nMethods = env->GetArrayLength(windowMethods);
     jsize outDisplaysLen = env->GetArrayLength(outDisplays);
     if (nMethods <= 0 || outDisplaysLen <= 0) return;
@@ -169,7 +209,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
     jsize opsCount = env->GetArrayLength(ops);
     jsize paramsCount = env->GetArrayLength(params);
 
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, rows, w, isU16, 0, big);
     mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     int maxCount = std::min(static_cast<int>(nMethods), static_cast<int>(outDisplaysLen));
@@ -214,6 +254,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
                                                                         jint windowMethod,
                                                                         jintArray info) {
     if (rawBuf == nullptr || ops == nullptr || params == nullptr) return nullptr;
+    const jint rows = fitRawBufferRows(env, rawBuf, w, h);
+    if (rows <= 0) return nullptr;
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
@@ -221,7 +263,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
     const jsize paramsCount = env->GetArrayLength(params);
 
     // 1) 加载与处理
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, rows, w, isU16, 0, big);
     mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     if (mat.empty()) {
@@ -320,9 +362,9 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jcla
 
     cv::Mat src;
     if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
     } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
     } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
@@ -354,7 +396,12 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jcla
         return nullptr;
     }
 
-    cv::Mat dst(info.height, info.width, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return nullptr;
+    }
     if (processed.channels() == 1) {
         cv::cvtColor(processed, dst, cv::COLOR_GRAY2RGBA);
     } else if (processed.channels() == 3) {
@@ -380,9 +427,9 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jcl
 
     cv::Mat src;
     if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
     } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
     } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
@@ -408,7 +455,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jcl
     void *newPixels;
     if (AndroidBitmap_lockPixels(env, newBitmap, &newPixels) < 0) return nullptr;
 
-    cv::Mat dst(rotated.rows, rotated.cols, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        return nullptr;
+    }
     if (rotated.channels() == 1) {
         cv::cvtColor(rotated, dst, cv::COLOR_GRAY2RGBA);
     } else if (rotated.channels() == 2) {
@@ -442,9 +493,9 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertToGrayScale(JNIEnv *env
 
     cv::Mat src;
     if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
     } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
     } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return 0;
@@ -547,7 +598,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertMatToBitmap(JNIEnv *env
     void *newPixels;
     if (AndroidBitmap_lockPixels(env, newBitmap, &newPixels) < 0) return nullptr;
 
-    cv::Mat dst(height, width, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        return nullptr;
+    }
     if (mat->channels() == 1) {
         cv::cvtColor(*mat, dst, cv::COLOR_GRAY2RGBA);
     } else if (mat->channels() == 3) {

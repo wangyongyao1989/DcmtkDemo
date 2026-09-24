@@ -46,6 +46,10 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.viewmodel)
+
+    // LeakCanary for memory leak detection (debug only)
+    debugImplementation(libs.leakcanary.android)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)

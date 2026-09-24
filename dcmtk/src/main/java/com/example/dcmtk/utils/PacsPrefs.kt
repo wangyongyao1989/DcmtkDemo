@@ -15,6 +15,14 @@ object PacsPrefs {
     private const val KEY_WL_LOCAL_AET = "wl_local_aet"
     private const val KEY_WL_REMOTE_AET = "wl_remote_aet"
 
+    private const val DEFAULT_HOST = "192.168.10.110"
+    private const val DEFAULT_PORT = 11112
+    private const val DEFAULT_LOCAL_AET = "ANDROID_SCU"
+    private const val DEFAULT_REMOTE_AET = "ACME_STORE"
+
+    // MWL 服务常与图像存储分开部署，默认指向独立的 worklist SCP
+    private const val DEFAULT_WL_REMOTE_AET = "OFFIS"
+
     fun saveConfig(context: Context, config: PacsConfig) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
@@ -28,10 +36,10 @@ object PacsPrefs {
     fun getConfig(context: Context): PacsConfig {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return PacsConfig(
-            host = prefs.getString(KEY_HOST, "192.168.10.110") ?: "192.168.10.153",
-            port = prefs.getInt(KEY_PORT, 11112),
-            localAet = prefs.getString(KEY_LOCAL_AET, "ANDROID_SCU") ?: "ANDROID_SCU",
-            remoteAet = prefs.getString(KEY_REMOTE_AET, "ACME_STORE") ?: "ACME_STORE"
+            host = prefs.getString(KEY_HOST, DEFAULT_HOST) ?: DEFAULT_HOST,
+            port = prefs.getInt(KEY_PORT, DEFAULT_PORT),
+            localAet = prefs.getString(KEY_LOCAL_AET, DEFAULT_LOCAL_AET) ?: DEFAULT_LOCAL_AET,
+            remoteAet = prefs.getString(KEY_REMOTE_AET, DEFAULT_REMOTE_AET) ?: DEFAULT_REMOTE_AET
         )
     }
 
@@ -48,10 +56,11 @@ object PacsPrefs {
     fun getWorklistConfig(context: Context): PacsConfig {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return PacsConfig(
-            host = prefs.getString(KEY_WL_HOST, "192.168.10.110") ?: "192.168.10.153",
-            port = prefs.getInt(KEY_WL_PORT, 11112),
-            localAet = prefs.getString(KEY_WL_LOCAL_AET, "ANDROID_SCU") ?: "ANDROID_SCU",
-            remoteAet = prefs.getString(KEY_WL_REMOTE_AET, "OFFIS") ?: "OFFIS"
+            host = prefs.getString(KEY_WL_HOST, DEFAULT_HOST) ?: DEFAULT_HOST,
+            port = prefs.getInt(KEY_WL_PORT, DEFAULT_PORT),
+            localAet = prefs.getString(KEY_WL_LOCAL_AET, DEFAULT_LOCAL_AET) ?: DEFAULT_LOCAL_AET,
+            remoteAet = prefs.getString(KEY_WL_REMOTE_AET, DEFAULT_WL_REMOTE_AET)
+                ?: DEFAULT_WL_REMOTE_AET
         )
     }
 }

@@ -155,14 +155,6 @@ private:
     bool dirty_ = false;
     int frameCount_ = 0;                 // 诊断：已渲染帧计数
     bool diagPending_ = true;            // 诊断：下一帧输出 GL/FBO/相机自检日志
-
-    // ---------- 真机排障：复位按钮循环切换诊断假设 ----------
-    // 0=常规 GPU RayCast + 骨窗 TF（基线）
-    // 1=GPU RayCast + 全值域不透明红色 TF（判别：采样是否有输出）
-    // 2=CPU RayCast + 骨窗 TF（判别：GPU 管线专属问题）
-    // 3=GPU RayCast + Linear 插值（判别：Nearest 降级副作用）
-    int diagMode_ = 0;
-    bool floatLinear_ = false;           // 设备是否支持 OES_texture_float_linear
 };
 
 #endif // DCMTKDEMO_CBCTVTKRENDERER_H
