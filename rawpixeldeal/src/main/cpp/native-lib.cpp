@@ -19,10 +19,52 @@
 // 辅助与核心逻辑
 // =============================================================================
 
+// 把已 lockPixels 的 Bitmap 内存包成 cv::Mat。必须显式传入 AndroidBitmapInfo.stride：
+// Android Bitmap 的行末可能有填充，用默认紧凑步长会导致整幅图像逐行错位。
+static bool wrapBitmapMat(const AndroidBitmapInfo &info, void *pixels, cv::Mat &out) {
+    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        out = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+        return true;
+    }
+    if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
+        out = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
+        return true;
+    }
+    return false;
+}
+
+// 目标 Bitmap 同理；getInfo 失败时返回空 Mat，调用方据此放弃写入。
+static cv::Mat wrapBitmapDst(JNIEnv *env, jobject bitmap, void *pixels) {
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) return cv::Mat();
+    return cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+}
+
+/**
+ * 统计/调窗用的数据横轴范围。
+ *
+ * 32F HU 域必须用百分位而不是绝对 min/max：后处理（尤其是不锐化掩模）会在 float HU
+ * 上制造 ±30 万量级的过冲离群点，绝对跨度会让 500 个 bin 每个宽达 1400 HU，
+ * 全部组织挤进 1~2 个 bin，波峰检测彻底失效，窗宽退化成一整段跨度（实测 W≈51897），
+ * 显示效果就是灰白一片。
+ */
+static void histogramRange(const cv::Mat &mat, const cv::Rect &roi,
+                           double &minV, double &maxV) {
+    cv::minMaxLoc(mat, &minV, &maxV);
+    if (mat.depth() != CV_32F || roi.area() <= 0) return;
+    std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
+    float pMin = 0.0f, pMax = 0.0f;
+    CtSeriesProcessor::computePercentileHu(slices, roi, 8, 0.5, 99.5, pMin, pMax);
+    if (pMax > pMin) {
+        minV = pMin;
+        maxV = pMax;
+    }
+}
+
 static cv::Mat normalizeTo8u(const cv::Mat &mat) {
     cv::Mat out8u;
     double mn = 0.0, mx = 0.0;
-    cv::minMaxLoc(mat, &mn, &mx);
+    histogramRange(mat, cv::Rect(0, 0, mat.cols, mat.rows), mn, mx);
     const double span = std::max(1e-7, mx - mn);
     mat.convertTo(out8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
     return out8u;
@@ -32,10 +74,7 @@ static cv::Mat normalizeTo8u(const cv::Mat &mat) {
  * 调窗映射逻辑：将高动态范围的原始数据(HU)线性映射到 8-bit 可视化空间。
  */
 static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
-    double minV = 0.0, maxV = 0.0;
-    cv::minMaxLoc(mat, &minV, &maxV);
-
-    int nBins = (windowMethod == 6) ? 500 : 256;
+    const int nBins = (windowMethod == 6) ? 500 : 256;
     std::vector<int> hist;
     const std::vector<int> *histPtr = nullptr;
 
@@ -44,6 +83,9 @@ static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
     if (mat.depth() == CV_32F) {
         roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
     }
+
+    double minV = 0.0, maxV = 0.0;
+    histogramRange(mat, roi, minV, maxV);
 
     // 统计 ROI 区域内的直方图
     std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
@@ -271,8 +313,6 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
 
         double c = 0, winW = 0;
         if (windowMethod >= 0) {
-            double hMin, hMax;
-            cv::minMaxLoc(mat, &hMin, &hMax);
             int nBins = (windowMethod == 6) ? 500 : 256;
             std::vector<int> hist;
             const std::vector<int> *histPtr = nullptr;
@@ -281,6 +321,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
             if (mat.depth() == CV_32F) {
                 roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
             }
+            double hMin, hMax;
+            histogramRange(mat, roi, hMin, hMax);
             std::vector<cv::Mat> slices = {mat};
             CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, hMin, hMax, nBins, 1, hist);
             histPtr = &hist;
@@ -319,11 +361,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jcla
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return nullptr;
 
     cv::Mat src;
-    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
-    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
-    } else {
+    if (!wrapBitmapMat(info, pixels, src)) {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
     }
@@ -354,7 +392,12 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jcla
         return nullptr;
     }
 
-    cv::Mat dst(info.height, info.width, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return nullptr;
+    }
     if (processed.channels() == 1) {
         cv::cvtColor(processed, dst, cv::COLOR_GRAY2RGBA);
     } else if (processed.channels() == 3) {
@@ -379,11 +422,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jcl
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return nullptr;
 
     cv::Mat src;
-    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
-    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
-    } else {
+    if (!wrapBitmapMat(info, pixels, src)) {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
     }
@@ -408,7 +447,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jcl
     void *newPixels;
     if (AndroidBitmap_lockPixels(env, newBitmap, &newPixels) < 0) return nullptr;
 
-    cv::Mat dst(rotated.rows, rotated.cols, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        return nullptr;
+    }
     if (rotated.channels() == 1) {
         cv::cvtColor(rotated, dst, cv::COLOR_GRAY2RGBA);
     } else if (rotated.channels() == 2) {
@@ -441,11 +484,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertToGrayScale(JNIEnv *env
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return 0;
 
     cv::Mat src;
-    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        src = cv::Mat(info.height, info.width, CV_8UC4, pixels);
-    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        src = cv::Mat(info.height, info.width, CV_8UC2, pixels);
-    } else {
+    if (!wrapBitmapMat(info, pixels, src)) {
         AndroidBitmap_unlockPixels(env, bitmap);
         return 0;
     }
@@ -547,7 +586,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertMatToBitmap(JNIEnv *env
     void *newPixels;
     if (AndroidBitmap_lockPixels(env, newBitmap, &newPixels) < 0) return nullptr;
 
-    cv::Mat dst(height, width, CV_8UC4, newPixels);
+    cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
+    if (dst.empty() || dst.size() != mat->size()) {
+        AndroidBitmap_unlockPixels(env, newBitmap);
+        return nullptr;
+    }
     if (mat->channels() == 1) {
         cv::cvtColor(*mat, dst, cv::COLOR_GRAY2RGBA);
     } else if (mat->channels() == 3) {

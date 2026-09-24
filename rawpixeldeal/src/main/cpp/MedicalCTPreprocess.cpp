@@ -93,12 +93,21 @@ namespace CTPreprocess {
     /**
      * 简单的锐化算子：USM (Unsharp Mask) 增强。
      * 公式: dst = src * 1.0 + (src - blurred) * strength
+     *
+     * 输出必须夹回 src 的原始范围：USM 的过冲量与数据跨度成正比，而不是与 8-bit 的
+     * 0~255 成正比。在 HU 域（跨度约 6.5 万）用 strength=6 时，骨/空气边缘的过冲达到
+     * ±39 万，直接毁掉后续直方图的分辨率（500 个 bin 每个宽 1400 HU），
+     * 最优调窗因此退化成一整段跨度。夹紧只削峰，不改变平坦区域的锐化效果。
      */
     cv::Mat SharpenUSM(const cv::Mat &src, double sigma, double strength) {
         cv::Mat blurred, sharp, dst;
         cv::GaussianBlur(src, blurred, cv::Size(0, 0), sigma, sigma);
         cv::addWeighted(src, 1.0, blurred, -1.0, 0, sharp);
         cv::addWeighted(src, 1.0, sharp, strength, 0, dst);
+        double mn = 0.0, mx = 0.0;
+        cv::minMaxLoc(src, &mn, &mx);
+        cv::threshold(dst, dst, mx, mx, cv::THRESH_TRUNC);
+        cv::max(dst, cv::Scalar(mn), dst);
         return dst;
     }
 

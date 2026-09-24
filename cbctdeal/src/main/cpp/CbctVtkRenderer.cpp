@@ -759,7 +759,6 @@ void CbctVtkRenderer::ensureWindow() {
     }
     if (exts && strstr(exts, "GL_OES_texture_float_linear")) {
         LOGD("ensureWindow: %s | OES_texture_float_linear: yes -> Linear", renderer);
-        floatLinear_ = true;
     } else {
         LOGW("ensureWindow: %s | OES_texture_float_linear: NO -> Nearest", renderer);
         if (volProperty_) volProperty_->SetInterpolationTypeToNearest();
@@ -852,45 +851,10 @@ void CbctVtkRenderer::setWindowLevel(double ww, double wc) {
 
 void CbctVtkRenderer::resetCamera() {
     post([this] {
-        // 真机排障：复位按钮同时循环切换诊断假设（见头文件 diagMode_ 注释）
-        diagMode_ = (diagMode_ + 1) % 4;
-        switch (diagMode_) {
-            case 1:   // 全值域不透明红色：判别 3D 纹理采样是否有输出
-                if (colorTF_) {
-                    colorTF_->RemoveAllPoints();
-                    colorTF_->AddRGBPoint(-4000.0, 1.0, 0.05, 0.05);
-                    colorTF_->AddRGBPoint(5000.0, 1.0, 0.05, 0.05);
-                }
-                if (opacityTF_) {
-                    opacityTF_->RemoveAllPoints();
-                    opacityTF_->AddPoint(-4000.0, 0.85);
-                    opacityTF_->AddPoint(5000.0, 0.85);
-                }
-                if (volume_) volume_->Modified();
-                break;
-            case 2:   // CPU RayCast：判别 GPU 管线专属问题
-                if (volMapper_) volMapper_->SetRequestedRenderModeToRayCast();
-                applyWindowLevel();
-                break;
-            case 3:   // GPU + Linear 插值：判别 Nearest 降级副作用
-                if (volMapper_) volMapper_->SetRequestedRenderModeToDefault();
-                if (volProperty_) volProperty_->SetInterpolationTypeToLinear();
-                applyWindowLevel();
-                break;
-            case 0:   // 恢复基线：GPU 默认 + 按设备能力定插值 + 骨窗 TF
-            default:
-                if (volMapper_) volMapper_->SetRequestedRenderModeToDefault();
-                if (volProperty_) {
-                    if (floatLinear_) volProperty_->SetInterpolationTypeToLinear();
-                    else volProperty_->SetInterpolationTypeToNearest();
-                }
-                applyWindowLevel();
-                break;
-        }
-        LOGW("diagMode=%d (0=GPU基线 1=全不透明红GPU 2=CPU 3=GPULinear)",
-             diagMode_);
+        // 这里原本还顺带循环切换 4 组真机排障假设（diagMode_）：用户点一次「复位相机」
+        // 就可能把体绘制切成全不透明红色、CPU RayCast 或改掉插值方式，且界面上毫无提示。
+        // 排障假设只应在 init 阶段按设备能力确定，复位按钮只做复位相机这一件事。
         setupCameraForMode();
-        diagPending_ = true;
         markDirty();
     }, false);
 }

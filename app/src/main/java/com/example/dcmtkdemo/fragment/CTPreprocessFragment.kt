@@ -253,13 +253,14 @@ class CTPreprocessFragment : Fragment() {
                     true,
                     "Peak Area Auto"
                 )
-                binding.btnWriteDcm.isEnabled = true
             } catch (e: Exception) {
                 Log.e(TAG, "Optimal pipeline failed", e)
-                binding.tvInfo.text = "Error: ${e.message}"
+                _binding?.tvInfo?.text = "Error: ${e.message}"
             } finally {
-                binding.btnOptimalAdjustment.isEnabled = true
-                binding.btnCustomAdjustment.isEnabled = true
+                // View 可能已在协程执行期间销毁，这里必须用安全调用。
+                _binding?.btnOptimalAdjustment?.isEnabled = true
+                _binding?.btnCustomAdjustment?.isEnabled = true
+                _binding?.btnWriteDcm?.isEnabled = preprocessedBitmap != null
             }
         }
     }
@@ -345,10 +346,11 @@ class CTPreprocessFragment : Fragment() {
                 binding.btnWriteDcm.isEnabled = true
             } catch (e: Exception) {
                 Log.e(TAG, "Pipeline failed", e)
-                binding.tvInfo.text = "Error: ${e.message}"
+                _binding?.tvInfo?.text = "Error: ${e.message}"
             } finally {
-                binding.btnOptimalAdjustment.isEnabled = true
-                binding.btnCustomAdjustment.isEnabled = true
+                _binding?.btnOptimalAdjustment?.isEnabled = true
+                _binding?.btnCustomAdjustment?.isEnabled = true
+                _binding?.btnWriteDcm?.isEnabled = preprocessedBitmap != null
             }
         }
     }
@@ -413,9 +415,9 @@ class CTPreprocessFragment : Fragment() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Save DCM failed", e)
-                binding.tvInfo.text = "Error: ${e.message}"
+                _binding?.tvInfo?.text = "Error: ${e.message}"
             } finally {
-                binding.btnWriteDcm.isEnabled = true
+                _binding?.btnWriteDcm?.isEnabled = true
             }
         }
     }

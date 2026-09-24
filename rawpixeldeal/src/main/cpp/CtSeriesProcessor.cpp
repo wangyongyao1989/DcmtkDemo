@@ -59,7 +59,8 @@ namespace CtSeriesProcessor {
      */
     static cv::Rect autoCropBodyRoi(const cv::Mat &hu, float bodyThreshold,
                                     int morphSize, int minBodyAreaPx,
-                                    int marginPx) {
+                                    int marginPx, bool *foundOut) {
+        if (foundOut) *foundOut = false;
         if (hu.empty()) return cv::Rect();
 
         cv::Mat mask;
@@ -75,7 +76,7 @@ namespace CtSeriesProcessor {
 
         cv::Mat labels, stats, centroids;
         int n = cv::connectedComponentsWithStats(mask, labels, stats, centroids, 8, CV_32S);
-        if (n <= 1) return cv::Rect(0, 0, hu.cols, hu.rows);
+        if (n <= 1) return cv::Rect();
 
         int bestLabel = -1;
         int bestArea = 0;
@@ -87,7 +88,7 @@ namespace CtSeriesProcessor {
             }
         }
         if (bestLabel < 0 || bestArea < std::max(1, minBodyAreaPx)) {
-            return cv::Rect(0, 0, hu.cols, hu.rows);
+            return cv::Rect();
         }
         int x = stats.at<int>(bestLabel, cv::CC_STAT_LEFT);
         int y = stats.at<int>(bestLabel, cv::CC_STAT_TOP);
@@ -98,6 +99,7 @@ namespace CtSeriesProcessor {
         int y0 = std::max(0, y - marginPx);
         int x1 = std::min(hu.cols, x + w + marginPx);
         int y1 = std::min(hu.rows, y + h + marginPx);
+        if (foundOut) *foundOut = true;
         return cv::Rect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
     }
 
@@ -107,11 +109,13 @@ namespace CtSeriesProcessor {
         const float thresholds[3] = {bodyThreshold, -300.0f, -100.0f};
         const char *names[3] = {"primary", "loose(-300)", "very-loose(-100)"};
         for (int i = 0; i < 3; ++i) {
-            cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize, minBodyAreaPx, marginPx);
-            bool ok = (r.width < hu.cols) && (r.height < hu.rows);
+            bool found = false;
+            cv::Rect r = autoCropBodyRoi(hu, thresholds[i], morphSize, minBodyAreaPx,
+                                         marginPx, &found);
             LOGI("tryAutoCropBodyRoiEx: %s thr=%.0f -> rect=(%d,%d,%d,%d) %s",
-                 names[i], thresholds[i], r.x, r.y, r.width, r.height, ok ? "OK" : "FULL");
-            if (ok) return r;
+                 names[i], thresholds[i], r.x, r.y, r.width, r.height,
+                 found ? "OK" : "NONE");
+            if (found) return r;
         }
         LOGW("tryAutoCropBodyRoiEx: all thresholds failed, fallback to full image");
         return cv::Rect(0, 0, hu.cols, hu.rows);
@@ -435,8 +439,12 @@ namespace CtSeriesProcessor {
 
                 // 4) 寻找边缘：在选定波峰周围确定有效显示范围
                 double thE = smooth[bestPeakIdx] * 0.70;
-                int minIdx = 0, maxIdx = nBins - 1;
-                // ... (边缘寻找逻辑实现)
+                // -1 = 该侧边缘未收敛。不能直接初始化成 0 / nBins-1：那样一旦搜索失败，
+                // 窗口会静默退化成一整个数据跨度（实测 W≈51897），画面灰白且无从诊断。
+                int minIdx = -1, maxIdx = -1;
+                // 下降沿停止条件：坡度相对直方图量级足够小即视为到达分布底座。
+                // 绝对阈值在帧数/体素数变化时会失效（过大→立即停止，过小→永不停止）。
+                const double slopeStop = std::max(1.0, smooth[bestPeakIdx] * 0.02);
                 int leftStart = -1;
                 for (int i = bestPeakIdx - 1; i >= 0; i--) {
                     if (smooth[i] < thE) { leftStart = i; break; }
@@ -444,7 +452,7 @@ namespace CtSeriesProcessor {
                 if (leftStart != -1) {
                     for (int i = leftStart - 1; i > 0; i--) {
                         double slope = (smooth[i + 1] - smooth[i - 1]) / 2.0;
-                        if (slope < 10.0) { minIdx = i; break; }
+                        if (std::fabs(slope) < slopeStop) { minIdx = i; break; }
                     }
                 }
                 int rightStart = -1;
@@ -454,9 +462,42 @@ namespace CtSeriesProcessor {
                 if (rightStart != -1) {
                     for (int i = rightStart + 1; i < nBins - 1; i++) {
                         double slope = (smooth[i + 1] - smooth[i - 1]) / 2.0;
-                        if (slope > -10.0) { maxIdx = i; break; }
+                        if (std::fabs(slope) < slopeStop) { maxIdx = i; break; }
                     }
                 }
+
+                // 边缘搜索不收敛（直方图呈单调长尾，坡度始终大于阈值）时，
+                // 用累积分布百分位兜底：0.2%~99.8% 覆盖绝大多数体素，又能切掉离群值。
+                if (minIdx < 0 || maxIdx <= minIdx) {
+                    double total = 0.0;
+                    for (int i = 0; i < nBins; ++i) total += smooth[i];
+                    if (total > 0.0) {
+                        if (minIdx < 0) {
+                            const double lo = total * 0.002;
+                            double acc = 0.0;
+                            for (int i = 0; i < nBins; ++i) {
+                                acc += smooth[i];
+                                if (acc >= lo) { minIdx = i; break; }
+                            }
+                        }
+                        if (maxIdx <= minIdx) {
+                            const double hi = total * 0.998;
+                            double acc = 0.0;
+                            int pctMax = nBins - 1;
+                            for (int i = 0; i < nBins; ++i) {
+                                acc += smooth[i];
+                                if (acc >= hi) { pctMax = i; break; }
+                            }
+                            maxIdx = std::max(pctMax, minIdx + 1);
+                        }
+                        LOGW("pickWindowCenterWidth: edge inconclusive "
+                             "(leftStart=%d, rightStart=%d), percentile fallback -> "
+                             "bins [%d, %d] of %d, peak bin %d",
+                             leftStart, rightStart, minIdx, maxIdx, nBins, bestPeakIdx);
+                    }
+                }
+                if (minIdx < 0) minIdx = 0;
+                if (maxIdx <= minIdx) maxIdx = nBins - 1;
 
                 // 4) Map back to HU
                 const double hBin = span / static_cast<double>(nBins);
@@ -479,7 +520,8 @@ namespace CtSeriesProcessor {
                 break;
             }
         }
-        LOGI("pickWindowCenterWidth: method=%d -> C=%.1f, W=%.1f", method, cOut, wOut);
+        LOGI("pickWindowCenterWidth: method=%d data=[%.1f, %.1f] -> C=%.1f, W=%.1f",
+             method, minV, maxV, cOut, wOut);
     }
 
     cv::Mat applyWindow8u(const cv::Mat &hu, double c, double w,

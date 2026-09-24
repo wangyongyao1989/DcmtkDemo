@@ -115,6 +115,9 @@ class CbctParseFragment : Fragment() {
         binding.rgPlane.setOnCheckedChangeListener { _, _ -> onPlaneChanged() }
         binding.rgRenderer.setOnCheckedChangeListener { _, _ -> onRendererChanged() }
         binding.rgVtkMode.setOnCheckedChangeListener { _, _ -> onVtkModeChanged() }
+        // 与布局中默认选中的渲染方式同步状态，避免 useVtk 初值与 RadioButton 不一致
+        onRendererChanged()
+        onVtkModeChanged()
         binding.btnResetCam.setOnClickListener { binding.vtkView.resetCamera() }
 
         // 强力解决滑动冲突：在容器层截断 NestedScrollView 的拦截，并转发给 VTK 视图
@@ -198,6 +201,9 @@ class CbctParseFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             var handle: CbctVolumeHandle? = null
             val appCtx = context?.applicationContext
+            // 最后一个进度回调是在解析线程里 post 到主线程的，可能排在"解析完成"文案
+            // 之后执行，把完成状态覆盖成"解析中... 530 / 530"。用该标志丢弃迟到的回调。
+            var parseFinished = false
             try {
                 if (appCtx == null) {
                     handle?.release()
@@ -208,13 +214,14 @@ class CbctParseFragment : Fragment() {
                 val result = withContext(NonCancellable) {
                     val h = CbctParseEngine.parse(appCtx, dir) { cur, total ->
                         activity?.runOnUiThread {
-                            if (_binding != null && total > 0) {
+                            if (!parseFinished && _binding != null && total > 0) {
                                 binding.progressCbct.max = total
                                 binding.progressCbct.progress = cur
                                 binding.tvInfo.text = "解析中... $cur / $total"
                             }
                         }
                     }
+                    parseFinished = true
                     // 引擎返回后立即在本协程内接管句柄（不会被中途取消丢弃）
                     handle = h
                     h

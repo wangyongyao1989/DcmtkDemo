@@ -70,7 +70,23 @@ namespace CbctJniHelper {
             LOGE("createRgbaBitmap: lockPixels failed");
             return bitmap;
         }
-        memcpy(pixels, rgba.data(), rgba.size());
+        const size_t srcStride = (size_t) width * 4;
+        if (rgba.size() < srcStride * (size_t) height) {
+            LOGE("createRgbaBitmap: buffer too small: %zu < %zu",
+                 rgba.size(), srcStride * (size_t) height);
+            AndroidBitmap_unlockPixels(env, bitmap);
+            return nullptr;
+        }
+        // AndroidBitmapInfo.stride 可能带行末填充，必须按行写入，否则图像会整体错位。
+        if (info.stride == srcStride) {
+            memcpy(pixels, rgba.data(), srcStride * (size_t) height);
+        } else {
+            auto *dst = static_cast<uint8_t *>(pixels);
+            for (int y = 0; y < height; ++y) {
+                memcpy(dst + (size_t) y * info.stride,
+                       rgba.data() + (size_t) y * srcStride, srcStride);
+            }
+        }
         AndroidBitmap_unlockPixels(env, bitmap);
         return bitmap;
     }

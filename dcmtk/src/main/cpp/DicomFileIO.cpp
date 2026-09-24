@@ -46,8 +46,10 @@ std::map<std::string, std::string> DicomFileIO::loadFileInfo(const std::string &
     LOGD("native_loadDicomFileInfo: Dataset retrieved, loading all data into memory...");
     dataset->loadAllDataIntoMemory();
 
-    // Fix: Convert to UTF-8 to avoid JNI NewStringUTF crash with non-UTF8 characters
-    dataset->convertToUTF8();
+    // 注意：不要在这里调用 convertToUTF8()。本工程链接的是 DCMTK_WITH_ICONV=OFF
+    // 预编译的库，该调用对 GB18030/GBK 不做任何转换，却会把 (0008,0005) 改写成
+    // ISO_IR 192，使原始字节在 JNI 层被误按 UTF-8 解码成乱码。元素值保持原样
+    // 交给 Java，由 DcmtkJni 按 SpecificCharacterSet 解码。
 
     int elementCount = 0;
     DcmStack stack;
@@ -292,6 +294,15 @@ namespace {
         out.push_back(cur);
         return out;
     }
+
+// 读取 (0008,0005) 原始值并去掉尾部填充空格；JNI 层据此选择 Java 字符集解码
+    std::string getCharacterSet(DcmItem *item) {
+        std::string s = getStr(item, DCM_SpecificCharacterSet);
+        size_t end = s.find_last_not_of(' ');
+        if (end == std::string::npos) return std::string();
+        s.erase(end + 1);
+        return s;
+    }
 } // namespace
 
 std::map<std::string, std::string> DicomFileIO::loadFileInfoNamed(const std::string &filePath) {
@@ -306,8 +317,8 @@ std::map<std::string, std::string> DicomFileIO::loadFileInfoNamed(const std::str
     DcmDataset *ds = ff.getDataset();
     ds->loadAllDataIntoMemory();
 
-    // Fix: Convert to UTF-8
-    ds->convertToUTF8();
+    // 保持原始字符编码（见 loadFileInfo 中的说明），把字符集名一并返回给 JNI。
+    result["SpecificCharacterSet"] = getCharacterSet(ds);
 
     result["ExposureIndex"] = getStr(ds, DCM_ExposureIndex);
     result["PatientName"] = getStr(ds, DCM_PatientName);
@@ -351,12 +362,23 @@ std::map<std::string, std::string> DicomFileIO::readWindowSettings(const std::st
         return result;
     }
     DcmDataset *ds = ff.getDataset();
-    // Fix: Convert to UTF-8
-    ds->convertToUTF8();
+    // 保持原始字符编码（见 loadFileInfo 中的说明）：WindowCenterWidthExplanation
+    // 等文本可能是 GB18030，字符集名交给 JNI 解码。
+    result["SpecificCharacterSet"] = getCharacterSet(ds);
 
-    Uint16 smallest = 0, largest = 4095;
+    Uint16 smallest = 0, largest = 0;
     ds->findAndGetUint16(DCM_SmallestImagePixelValue, smallest);
     ds->findAndGetUint16(DCM_LargestImagePixelValue, largest);
+    // 不少设备把 (0028,0106)/(0028,0107) 写成 0/0：自动窗会退化成一个点，
+    // 上层 SeekBar 的窗位区间也随之塌缩为不可用。用 BitsStored 的可表示范围兜底。
+    if (largest <= smallest) {
+        Uint16 bitsStored = 12;
+        ds->findAndGetUint16(DCM_BitsStored, bitsStored);
+        if (bitsStored == 0 || bitsStored > 16) bitsStored = 12;
+        smallest = 0;
+        largest = (bitsStored >= 16) ? 65535 : (Uint16) ((1u << bitsStored) - 1u);
+        LOGW("readWindowSettings: pixel range missing/degenerate, fallback 0..%u", largest);
+    }
 
     result["smallestPixelValue"] = std::to_string(smallest);
     result["largestPixelValue"] = std::to_string(largest);

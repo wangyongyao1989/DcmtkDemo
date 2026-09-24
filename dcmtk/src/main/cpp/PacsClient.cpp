@@ -434,11 +434,14 @@ std::vector<std::string> PacsClient::cFind(const std::string &host, int port,
             if (presId > 0) {
                 OFList<QRResponse *> responses;
                 cond = scu.sendFINDRequest(presId, &query, &responses);
-                if (cond.good()) {
+                if (cond.bad() && !responses.empty()) {
+                    LOGW("native_cFind: aborted (%s), keeping %zu partial responses",
+                         cond.text(), responses.size());
+                }
+                if (!responses.empty()) {
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            ds->convertToUTF8();
                             OFString name, id, acc, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
@@ -508,11 +511,14 @@ std::vector<std::string> PacsClient::cFindByAccession(const std::string &host, i
             if (presId > 0) {
                 OFList<QRResponse *> responses;
                 cond = scu.sendFINDRequest(presId, &query, &responses);
-                if (cond.good()) {
+                if (cond.bad() && !responses.empty()) {
+                    LOGW("native_cFindByAccession: aborted (%s), keeping %zu partial responses",
+                         cond.text(), responses.size());
+                }
+                if (!responses.empty()) {
                     for (auto it = responses.begin(); it != responses.end(); ++it) {
                         DcmDataset *ds = (*it)->m_dataset;
                         if (ds) {
-                            ds->convertToUTF8();
                             OFString name, id, acc, sex, birth;
                             ds->findAndGetOFString(DCM_PatientName, name);
                             ds->findAndGetOFString(DCM_PatientID, id);
@@ -666,11 +672,14 @@ std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
     OFList<QRResponse *> responses;
     LOGD("native_cFindMWL: Sending C-FIND request...");
     cond = scu.sendFINDRequest(presId, &query, &responses);
-    if (cond.bad()) {
+    if (cond.bad() && responses.empty()) {
         LOGE("native_cFindMWL: C-FIND request failed: %s", cond.text());
-        for (auto it = responses.begin(); it != responses.end(); ++it) delete *it;
         scu.releaseAssociation();
         return results;
+    }
+    if (cond.bad()) {
+        LOGW("native_cFindMWL: C-FIND aborted (%s), keeping %zu partial responses",
+             cond.text(), responses.size());
     }
 
     LOGD("native_cFindMWL: Received %zu raw responses", responses.size());
@@ -678,7 +687,8 @@ std::vector<DcmDataset*> PacsClient::cFindMWL(const std::string &host, int port,
     for (auto it = responses.begin(); it != responses.end(); ++it) {
         DcmDataset *ds = (*it)->m_dataset;
         if (ds) {
-            ds->convertToUTF8();
+            // 不做 convertToUTF8()：预编译 DCMTK 无 iconv，该调用会改写 (0008,0005)
+            // 却不转换字节。原始字节交给 JNI 按 SpecificCharacterSet 解码。
             // Log key fields from each response for troubleshooting
             OFString name, id, acc, studyUID, refPhys;
             ds->findAndGetOFString(DCM_PatientName, name);
@@ -862,6 +872,7 @@ bool PacsClient::cGet(const std::string &host, int port,
                       const std::string &localAet, const std::string &remoteAet,
                       const std::string &patientId, const std::string &saveDir,
                       ProgressCallback callback) {
+    resetCancel();
     LOGD("native_cGet: Requesting GET of PatID=%s to %s", patientId.c_str(), saveDir.c_str());
 
     // 统计下载前 save_dir 中的文件数，用于后续计算实际接收的文件数
