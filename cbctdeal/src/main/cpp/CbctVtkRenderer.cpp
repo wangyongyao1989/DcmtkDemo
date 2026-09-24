@@ -77,6 +77,13 @@ VTK_MODULE_INIT(vtkRenderingVolumeOpenGL2)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// 真机排障用的 GL/FBO 自检块（renderLoop 内 诊断 1/1b/1c/1d/2/3/4）。
+// 它会编译一个 mini shader、重放十余次 FBO 绑定、并整屏 glReadPixels，
+// 首帧和每次模式切换各触发一次（实测单帧 ~290 ms）。排障时改为 1 重新编译。
+#ifndef CBCT_VTK_DIAG
+#define CBCT_VTK_DIAG 0
+#endif
+
 // =============================================================================
 // 构造 / 析构 / 创建
 // =============================================================================
@@ -301,12 +308,15 @@ void CbctVtkRenderer::renderLoop() {
                         GL_READ_FRAMEBUFFER, (unsigned) realRead);
                 while (glGetError() != GL_NO_ERROR) {}
             }
+#if CBCT_VTK_DIAG
             const auto t0 = std::chrono::steady_clock::now();
+#endif
             try {
                 renderWindow_->Render();
             } catch (...) {
                 LOGE("renderLoop: render exception");
             }
+#if CBCT_VTK_DIAG
             if (frameCount_ == 0 || diagPending_) {
                 diagPending_ = false;
                 const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -708,6 +718,7 @@ void CbctVtkRenderer::renderLoop() {
                     }
                 }
             }
+#endif
             frameCount_++;
             lock.lock();
         }
