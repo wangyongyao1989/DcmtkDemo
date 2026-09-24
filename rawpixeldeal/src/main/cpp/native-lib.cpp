@@ -1,6 +1,5 @@
 #include <jni.h>
 #include <vector>
-#include <climits>
 #include <android/log.h>
 #include <android/bitmap.h>
 
@@ -14,6 +13,7 @@
 #define TAG "RawPixelDealJni"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // =============================================================================
@@ -242,22 +242,34 @@ static cv::Mat applyDisplayOps(cv::Mat img8u, const std::vector<DisplayOp> &disp
 // =============================================================================
 
 /**
- * 校验原始缓冲区确实覆盖 w*h 个像素。
+ * 把请求的行数收敛到缓冲区真正装得下的行数；返回 0 表示完全不可用。
  *
- * 必须校验：W/H 来自 UI 的手工输入框，和所选 asset 的实际像素数没有任何联动
- * （默认值 1112x1740 就超过了 FT11.raw 的 1112x1700）。LoadRawPixelBuffer 直接
- * 用 (rows, cols) 包住这块内存，长度不足时 OpenCV 会越界读 Java 堆。
- * 每个像素固定 2 字节：LoadRawPixelBuffer 只按 isUint16 决定 16U/16S，从不按
- * bitDepth 走 8-bit 分支，所以选 8-bit 时同样会读超一倍，一并拦下。
+ * 为什么必须校验：W/H 来自 UI 的手工输入框，与所选 asset 的实际像素数没有任何联动
+ * （默认 1112x1740 就超过了 CR*.raw 的 1112x1700）。LoadRawPixelBuffer 直接用
+ * (rows, cols) 包住这块内存，长度不足时 OpenCV 会越界读 Java 堆。
+ *
+ * 为什么按行截断而不是直接报错：多出来的那几行本来就没有数据，旧实现读的是堆上的随机
+ * 字节（画面底部若干行是噪声，肉眼不易察觉）。直接 fail 会把原本能看的图变成整幅报错，
+ * 截断则只丢掉不存在的行，行为向后兼容。outInfo 回传的是截断后的真实尺寸。
+ *
+ * 每像素固定 2 字节：LoadRawPixelBuffer 只按 isUint16 决定 16U/16S，从不按 bitDepth
+ * 走 8-bit 分支，所以选 8-bit 时同样会读超一倍，一并收敛。
  */
-static bool checkRawBufferLen(JNIEnv *env, jbyteArray rawBuf, jint w, jint h) {
-    const long long need = static_cast<long long>(w) * static_cast<long long>(h) * 2;
-    const jsize have = env->GetArrayLength(rawBuf);
-    if (w > 0 && h > 0 && need <= static_cast<long long>(INT_MAX) && have >= need) {
-        return true;
+static jint fitRawBufferRows(JNIEnv *env, jbyteArray rawBuf, jint w, jint h) {
+    if (w <= 0 || h <= 0) return 0;
+    const long long rowBytes = static_cast<long long>(w) * 2;
+    const long long have = env->GetArrayLength(rawBuf);
+    const long long fit = have / rowBytes;
+    if (fit <= 0) {
+        LOGE("raw buffer too small: w=%d needs %lld bytes/row, got %lld bytes", w, rowBytes, have);
+        return 0;
     }
-    LOGE("raw buffer size mismatch: w=%d h=%d need=%lld bytes, got %d bytes", w, h, need, have);
-    return false;
+    if (fit < h) {
+        LOGW("raw buffer holds only %lld of %d rows (w=%d, %lld of %lld bytes), truncate to %lld rows",
+             fit, h, w, have, rowBytes * h, fit);
+        return static_cast<jint>(fit);
+    }
+    return h;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -276,7 +288,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
                                                                                  jdoubleArray outHuRange) {
     if (rawBuf == nullptr || ops == nullptr || params == nullptr || 
         windowMethods == nullptr || outDisplays == nullptr) return;
-    if (!checkRawBufferLen(env, rawBuf, w, h)) return;
+    const jint rows = fitRawBufferRows(env, rawBuf, w, h);
+    if (rows <= 0) return;
     jsize nMethods = env->GetArrayLength(windowMethods);
     jsize outDisplaysLen = env->GetArrayLength(outDisplays);
     if (nMethods <= 0 || outDisplaysLen <= 0) return;
@@ -288,7 +301,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
     jsize opsCount = env->GetArrayLength(ops);
     jsize paramsCount = env->GetArrayLength(params);
 
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, rows, w, isU16, 0, big);
     std::vector<DisplayOp> displayOps;
     mat = dispatchDataOps(mat, pOps, opsCount, pParams, paramsCount, displayOps);
 
@@ -335,7 +348,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
                                                                         jint windowMethod,
                                                                         jintArray info) {
     if (rawBuf == nullptr || ops == nullptr || params == nullptr) return nullptr;
-    if (!checkRawBufferLen(env, rawBuf, w, h)) return nullptr;
+    const jint rows = fitRawBufferRows(env, rawBuf, w, h);
+    if (rows <= 0) return nullptr;
     jbyte *pRaw = env->GetByteArrayElements(rawBuf, nullptr);
     jint *pOps = env->GetIntArrayElements(ops, nullptr);
     jdouble *pParams = env->GetDoubleArrayElements(params, nullptr);
@@ -343,7 +357,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
     const jsize paramsCount = env->GetArrayLength(params);
 
     // 1) 加载与处理
-    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, h, w, isU16, 0, big);
+    cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, rows, w, isU16, 0, big);
     mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     if (mat.empty()) {
