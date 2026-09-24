@@ -20,21 +20,9 @@
 // 辅助与核心逻辑
 // =============================================================================
 
-// 把已 lockPixels 的 Bitmap 内存包成 cv::Mat。必须显式传入 AndroidBitmapInfo.stride：
-// Android Bitmap 的行末可能有填充，用默认紧凑步长会导致整幅图像逐行错位。
-static bool wrapBitmapMat(const AndroidBitmapInfo &info, void *pixels, cv::Mat &out) {
-    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
-        out = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
-        return true;
-    }
-    if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
-        out = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
-        return true;
-    }
-    return false;
-}
-
-// 目标 Bitmap 同理；getInfo 失败时返回空 Mat，调用方据此放弃写入。
+// 目标 Bitmap 的 cv::Mat 封装：必须用它自己的 stride。Android Bitmap 行末可能有填充，
+// 用默认紧凑步长会让整幅图像逐行错位；源图那侧的 stride 也不能直接复用，所以重新取一次 info。
+// （源图侧的 6 处封装在同一文件里逐个显式传 info.stride，见各 lockPixels 之后。）
 static cv::Mat wrapBitmapDst(JNIEnv *env, jobject bitmap, void *pixels) {
     AndroidBitmapInfo info;
     if (AndroidBitmap_getInfo(env, bitmap, &info) < 0) return cv::Mat();
@@ -42,215 +30,12 @@ static cv::Mat wrapBitmapDst(JNIEnv *env, jobject bitmap, void *pixels) {
 }
 
 /**
- * 统计/调窗用的数据横轴范围。
+ * 把请求的行数收敛到原始缓冲区真正装得下的行数；返回 0 表示完全不可用。
  *
- * 32F HU 域必须用百分位而不是绝对 min/max：后处理（尤其是不锐化掩模）会在 float HU
- * 上制造 ±30 万量级的过冲离群点，绝对跨度会让 500 个 bin 每个宽达 1400 HU，
- * 全部组织挤进 1~2 个 bin，波峰检测彻底失效，窗宽退化成一整段跨度（实测 W≈51897），
- * 显示效果就是灰白一片。
- */
-static void histogramRange(const cv::Mat &mat, const cv::Rect &roi,
-                           double &minV, double &maxV) {
-    cv::minMaxLoc(mat, &minV, &maxV);
-    if (mat.depth() != CV_32F || roi.area() <= 0) return;
-    std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
-    float pMin = 0.0f, pMax = 0.0f;
-    CtSeriesProcessor::computePercentileHu(slices, roi, 8, 0.5, 99.5, pMin, pMax);
-    if (pMax > pMin) {
-        minV = pMin;
-        maxV = pMax;
-    }
-}
-
-static cv::Mat normalizeTo8u(const cv::Mat &mat) {
-    cv::Mat out8u;
-    double mn = 0.0, mx = 0.0;
-    histogramRange(mat, cv::Rect(0, 0, mat.cols, mat.rows), mn, mx);
-    const double span = std::max(1e-7, mx - mn);
-    mat.convertTo(out8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
-    return out8u;
-}
-
-/**
- * 调窗映射逻辑：将高动态范围的原始数据(HU)线性映射到 8-bit 可视化空间。
- */
-static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
-    const int nBins = (windowMethod == 6) ? 500 : 256;
-    std::vector<int> hist;
-    const std::vector<int> *histPtr = nullptr;
-
-    // 为了让直方图统计更准确，先进行自动人体 ROI 裁剪
-    cv::Rect roi(0, 0, mat.cols, mat.rows);
-    if (mat.depth() == CV_32F) {
-        roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
-    }
-
-    double minV = 0.0, maxV = 0.0;
-    histogramRange(mat, roi, minV, maxV);
-
-    // 统计 ROI 区域内的直方图
-    std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
-    CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, minV, maxV, nBins, 1, hist);
-    histPtr = &hist;
-
-    // 调用核心算法计算窗宽窗位
-    double c = 127.5, w = 255.0;
-    CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
-    if (w < 1.0) w = 1.0;
-
-    // 执行最终的线性映射转换
-    return CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
-}
-
-/**
- * 算子执行器：所有分发路径共用一份实现。
- * params 指向该算子在平铺参数数组中的起始位置，个数见 opParamCount。
- */
-static cv::Mat runOp(cv::Mat mat, int opId, const jdouble *params) {
-    switch (static_cast<CTPreprocess::Op>(opId)) {
-        case CTPreprocess::Op::BILATERAL: {
-            const int d = (int) params[0];
-            const double sigmaColor = params[1];
-            const double sigmaSpace = params[2];
-            return CTPreprocess::DenoiseBilateral(mat, d, sigmaColor, sigmaSpace);
-        }
-        case CTPreprocess::Op::CLAHE: {
-            const double c = params[0];
-            const int tx = (int) params[1];
-            const int ty = (int) params[2];
-            if (mat.depth() == CV_32F) {
-                double mn, mx;
-                cv::minMaxLoc(mat, &mn, &mx);
-                const double span = std::max(1e-7, mx - mn);
-                cv::Mat tmp8u;
-                mat.convertTo(tmp8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
-                tmp8u = CTPreprocess::EnhanceCLAHE(tmp8u, c, cv::Size(tx, ty));
-                tmp8u.convertTo(mat, CV_32F, span / 255.0, mn);
-                return mat;
-            }
-            return CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
-        }
-        case CTPreprocess::Op::HU_CONVERT: {
-            const float slope = (float) params[0];
-            const float intercept = (float) params[1];
-            return CTPreprocess::ConvertRawToHU(mat, slope, intercept);
-        }
-        case CTPreprocess::Op::TAILOR: {
-            const int minArea = (int) params[0];
-            // params[1] 是 XrayProcessor 用的 sobel，params[3] 是 otsu，此处占位消费
-            const int morph = (int) params[2];
-            if (mat.depth() == CV_32F) {
-                cv::Rect roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, morph,
-                                                                       minArea, 20);
-                if (roi.width > 0 && roi.height > 0) mat = mat(roi).clone();
-            }
-            return mat;
-        }
-        case CTPreprocess::Op::INVERT_LUT:
-            return CTPreprocess::EnhanceInvertLut(mat);
-        case CTPreprocess::Op::FEATURE_SHARPEN: {
-            const double sigma = params[0];
-            const double strength = params[1];
-            return CTPreprocess::SharpenUSM(mat, sigma, strength);
-        }
-        default:
-            return mat;
-    }
-}
-
-/** Kotlin 按算子出现顺序把参数平铺成一个数组，任何分发路径都必须原样消费。 */
-static int opParamCount(int opId) {
-    switch (static_cast<CTPreprocess::Op>(opId)) {
-        case CTPreprocess::Op::BILATERAL: return 3;
-        case CTPreprocess::Op::CLAHE: return 3;
-        case CTPreprocess::Op::HU_CONVERT: return 2;
-        case CTPreprocess::Op::TAILOR: return 4;
-        case CTPreprocess::Op::FEATURE_SHARPEN: return 2;
-        case CTPreprocess::Op::INVERT_LUT: return 0;
-        default: return 0;
-    }
-}
-
-/** 显示域算子：只能在 8-bit 调窗结果上执行。 */
-static bool isDisplayOp(int opId) {
-    switch (static_cast<CTPreprocess::Op>(opId)) {
-        case CTPreprocess::Op::CLAHE:
-        case CTPreprocess::Op::FEATURE_SHARPEN:
-        case CTPreprocess::Op::INVERT_LUT:
-            return true;
-        default:
-            return false;
-    }
-}
-
-struct DisplayOp {
-    int opId;
-    std::vector<double> params;
-};
-
-/** 顺序执行全部算子（写入 DICOM 的路径沿用此语义：像素数据里带处理后效果）。 */
-static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
-                           const jdouble *pParams, jsize paramsCount) {
-    int pIdx = 0;
-    for (int i = 0; i < opsCount; ++i) {
-        const int opId = pOps[i];
-        const int n = opParamCount(opId);
-        if (pIdx + n > paramsCount) continue;   // 参数不足：跳过该算子且不消费
-        mat = runOp(mat, opId, pParams + pIdx);
-        pIdx += n;
-    }
-    return mat;
-}
-
-/**
- * 只执行数据域算子（HU 校正 / 裁剪 / 双边去噪），显示域算子按原顺序记录下来，
- * 留到调窗之后再套用到 8-bit 图上。
- *
- * CLAHE 是直方图均衡，只能在显示域做：以前它在 HU 域执行时要先把 65535 的跨度
- * 压进 256 级（每级 257 HU），均衡的对象其实是量化噪声，均衡完再乘回 HU 跨度，
- * 低频信息被整体抹掉——左右两图都变成"浮雕/高频"图就是这个原因。
- */
-static cv::Mat dispatchDataOps(cv::Mat mat, const jint *pOps, jsize opsCount,
-                               const jdouble *pParams, jsize paramsCount,
-                               std::vector<DisplayOp> &displayOps) {
-    displayOps.clear();
-    int pIdx = 0;
-    for (int i = 0; i < opsCount; ++i) {
-        const int opId = pOps[i];
-        const int n = opParamCount(opId);
-        if (pIdx + n > paramsCount) continue;
-        if (isDisplayOp(opId)) {
-            displayOps.push_back({opId, std::vector<double>(pParams + pIdx,
-                                                            pParams + pIdx + n)});
-        } else {
-            mat = runOp(mat, opId, pParams + pIdx);
-        }
-        pIdx += n;
-    }
-    return mat;
-}
-
-static cv::Mat applyDisplayOps(cv::Mat img8u, const std::vector<DisplayOp> &displayOps) {
-    for (const DisplayOp &op: displayOps) {
-        img8u = runOp(img8u, op.opId, op.params.data());
-    }
-    return img8u;
-}
-
-// =============================================================================
-// JNI 方法实现
-// =============================================================================
-
-/**
- * 把请求的行数收敛到缓冲区真正装得下的行数；返回 0 表示完全不可用。
- *
- * 为什么必须校验：W/H 来自 UI 的手工输入框，与所选 asset 的实际像素数没有任何联动
- * （默认 1112x1740 就超过了 CR*.raw 的 1112x1700）。LoadRawPixelBuffer 直接用
- * (rows, cols) 包住这块内存，长度不足时 OpenCV 会越界读 Java 堆。
- *
- * 为什么按行截断而不是直接报错：多出来的那几行本来就没有数据，旧实现读的是堆上的随机
- * 字节（画面底部若干行是噪声，肉眼不易察觉）。直接 fail 会把原本能看的图变成整幅报错，
- * 截断则只丢掉不存在的行，行为向后兼容。outInfo 回传的是截断后的真实尺寸。
+ * W/H 来自 UI 的手工输入框，与所选 asset 的实际像素数没有联动（默认 1112x1740 就超过
+ * 了 1112x1700 的 CR*.raw）。LoadRawPixelBuffer 直接用 (rows, cols) 包住这块内存，
+ * 长度不足时 OpenCV 会越界读 Java 堆。这里按行截断而不是报错：多出来的行本来就没有
+ * 数据，旧实现读的是堆上的随机字节；截断只丢掉不存在的行，outInfo 回传截断后的真实尺寸。
  *
  * 每像素固定 2 字节：LoadRawPixelBuffer 只按 isUint16 决定 16U/16S，从不按 bitDepth
  * 走 8-bit 分支，所以选 8-bit 时同样会读超一倍，一并收敛。
@@ -271,6 +56,129 @@ static jint fitRawBufferRows(JNIEnv *env, jbyteArray rawBuf, jint w, jint h) {
     }
     return h;
 }
+
+static cv::Mat normalizeTo8u(const cv::Mat &mat) {
+    cv::Mat out8u;
+    double mn = 0.0, mx = 0.0;
+    cv::minMaxLoc(mat, &mn, &mx);
+    const double span = std::max(1e-7, mx - mn);
+    mat.convertTo(out8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
+    return out8u;
+}
+
+/**
+ * 调窗映射逻辑：将高动态范围的原始数据(HU)线性映射到 8-bit 可视化空间。
+ */
+static cv::Mat windowTo8u(const cv::Mat &mat, int windowMethod) {
+    double minV = 0.0, maxV = 0.0;
+    cv::minMaxLoc(mat, &minV, &maxV);
+
+    int nBins = (windowMethod == 6) ? 500 : 256;
+    std::vector<int> hist;
+    const std::vector<int> *histPtr = nullptr;
+
+    // 为了让直方图统计更准确，先进行自动人体 ROI 裁剪
+    cv::Rect roi(0, 0, mat.cols, mat.rows);
+    if (mat.depth() == CV_32F) {
+        roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
+    }
+
+    // 统计 ROI 区域内的直方图
+    std::vector<cv::Mat> slices = {const_cast<cv::Mat &>(mat)};
+    CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, minV, maxV, nBins, 1, hist);
+    histPtr = &hist;
+
+    // 调用核心算法计算窗宽窗位
+    double c = 127.5, w = 255.0;
+    CtSeriesProcessor::pickWindowCenterWidth(windowMethod, minV, maxV, histPtr, nBins, c, w);
+    if (w < 1.0) w = 1.0;
+
+    // 执行最终的线性映射转换
+    return CtSeriesProcessor::applyWindow8u(mat, c, w, 0);
+}
+
+/**
+ * 算子分发中心：根据 Kotlin 传来的操作 ID 列表，依次执行对应的 OpenCV 图像处理。
+ */
+static cv::Mat dispatchOps(cv::Mat mat, const jint *pOps, jsize opsCount,
+                           const jdouble *pParams, jsize paramsCount) {
+    int pIdx = 0;
+    for (int i = 0; i < opsCount; ++i) {
+        const int opId = pOps[i];
+        auto need = [&](int n) -> bool {
+            return (pIdx + n <= paramsCount);
+        };
+
+        switch (static_cast<CTPreprocess::Op>(opId)) {
+            case CTPreprocess::Op::BILATERAL: {
+                if (!need(3)) break;
+                const int d = (int) pParams[pIdx++];
+                const double sigmaColor = pParams[pIdx++];
+                const double sigmaSpace = pParams[pIdx++];
+                mat = CTPreprocess::DenoiseBilateral(mat, d, sigmaColor, sigmaSpace);
+                break;
+            }
+            case CTPreprocess::Op::CLAHE: {
+                if (!need(3)) break;
+                const double c = pParams[pIdx++];
+                const int tx = (int) pParams[pIdx++];
+                const int ty = (int) pParams[pIdx++];
+                if (mat.depth() == CV_32F) {
+                    double mn, mx;
+                    cv::minMaxLoc(mat, &mn, &mx);
+                    const double span = std::max(1e-7, mx - mn);
+                    cv::Mat tmp8u;
+                    mat.convertTo(tmp8u, CV_8U, 255.0 / span, -mn * 255.0 / span);
+                    tmp8u = CTPreprocess::EnhanceCLAHE(tmp8u, c, cv::Size(tx, ty));
+                    tmp8u.convertTo(mat, CV_32F, span / 255.0, mn);
+                } else {
+                    mat = CTPreprocess::EnhanceCLAHE(mat, c, cv::Size(tx, ty));
+                }
+                break;
+            }
+            case CTPreprocess::Op::HU_CONVERT: {
+                if (!need(2)) break;
+                const float slope = (float) pParams[pIdx++];
+                const float intercept = (float) pParams[pIdx++];
+                mat = CTPreprocess::ConvertRawToHU(mat, slope, intercept);
+                break;
+            }
+            case CTPreprocess::Op::TAILOR: {
+                if (!need(4)) break;
+                const int minArea = (int) pParams[pIdx++];
+                // skip sobel (pParams[pIdx++]) as it's for XrayProcessor
+                pIdx++;
+                const int morph = (int) pParams[pIdx++];
+                // skip otsu (pParams[pIdx++])
+                pIdx++;
+
+                if (mat.depth() == CV_32F) {
+                    cv::Rect roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, morph,
+                                                                           minArea, 20);
+                    if (roi.width > 0 && roi.height > 0) mat = mat(roi).clone();
+                }
+                break;
+            }
+            case CTPreprocess::Op::INVERT_LUT:
+                mat = CTPreprocess::EnhanceInvertLut(mat);
+                break;
+            case CTPreprocess::Op::FEATURE_SHARPEN: {
+                if (!need(2)) break;
+                const double sigma = pParams[pIdx++];
+                const double strength = pParams[pIdx++];
+                mat = CTPreprocess::SharpenUSM(mat, sigma, strength);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return mat;
+}
+
+// =============================================================================
+// JNI 方法实现
+// =============================================================================
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows(JNIEnv *env,
@@ -302,14 +210,12 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processMedicalCTCompareWindows
     jsize paramsCount = env->GetArrayLength(params);
 
     cv::Mat mat = CTPreprocess::LoadRawPixelBuffer(pRaw, rows, w, isU16, 0, big);
-    std::vector<DisplayOp> displayOps;
-    mat = dispatchDataOps(mat, pOps, opsCount, pParams, paramsCount, displayOps);
+    mat = dispatchOps(mat, pOps, opsCount, pParams, paramsCount);
 
     int maxCount = std::min(static_cast<int>(nMethods), static_cast<int>(outDisplaysLen));
     for (int mi = 0; mi < maxCount; ++mi) {
         const int method = pMethods[mi];
         cv::Mat out8u = (method == -1) ? normalizeTo8u(mat) : windowTo8u(mat, method);
-        out8u = applyDisplayOps(out8u, displayOps);
         jbyteArray rgba;
         JniHelper::gray8uToRgbaJBytes(env, out8u, rgba);
         env->SetObjectArrayElement(outDisplays, mi, rgba);
@@ -407,6 +313,8 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
 
         double c = 0, winW = 0;
         if (windowMethod >= 0) {
+            double hMin, hMax;
+            cv::minMaxLoc(mat, &hMin, &hMax);
             int nBins = (windowMethod == 6) ? 500 : 256;
             std::vector<int> hist;
             const std::vector<int> *histPtr = nullptr;
@@ -415,8 +323,6 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_getProcessedRawPixels(JNIEnv *
             if (mat.depth() == CV_32F) {
                 roi = CtSeriesProcessor::tryAutoCropBodyRoiEx(mat, -600.0f, 5, 1000, 10);
             }
-            double hMin, hMax;
-            histogramRange(mat, roi, hMin, hMax);
             std::vector<cv::Mat> slices = {mat};
             CtSeriesProcessor::aggregateSeriesHistogram(slices, roi, hMin, hMax, nBins, 1, hist);
             histPtr = &hist;
@@ -455,7 +361,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_processImage(JNIEnv *env, jcla
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return nullptr;
 
     cv::Mat src;
-    if (!wrapBitmapMat(info, pixels, src)) {
+    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
+    } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
     }
@@ -516,7 +426,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_applyRotation(JNIEnv *env, jcl
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return nullptr;
 
     cv::Mat src;
-    if (!wrapBitmapMat(info, pixels, src)) {
+    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
+    } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return nullptr;
     }
@@ -578,7 +492,11 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertToGrayScale(JNIEnv *env
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) return 0;
 
     cv::Mat src;
-    if (!wrapBitmapMat(info, pixels, src)) {
+    if (info.format == ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        src = cv::Mat(info.height, info.width, CV_8UC4, pixels, info.stride);
+    } else if (info.format == ANDROID_BITMAP_FORMAT_RGB_565) {
+        src = cv::Mat(info.height, info.width, CV_8UC2, pixels, info.stride);
+    } else {
         AndroidBitmap_unlockPixels(env, bitmap);
         return 0;
     }
@@ -681,7 +599,7 @@ Java_com_example_rawpixeldeal_jni_RawPixelDealJni_convertMatToBitmap(JNIEnv *env
     if (AndroidBitmap_lockPixels(env, newBitmap, &newPixels) < 0) return nullptr;
 
     cv::Mat dst = wrapBitmapDst(env, newBitmap, newPixels);
-    if (dst.empty() || dst.size() != mat->size()) {
+    if (dst.empty()) {
         AndroidBitmap_unlockPixels(env, newBitmap);
         return nullptr;
     }

@@ -5,13 +5,9 @@
 #define TAG "MedicalCTPreprocess"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 namespace CTPreprocess {
-
-    // 显示域 USM 的强度上限，见 SharpenUSM
-    static const double kDisplayMaxStrength = 2.0;
 
     /**
      * 加载原始像素缓冲区到 OpenCV Mat。
@@ -97,30 +93,12 @@ namespace CTPreprocess {
     /**
      * 简单的锐化算子：USM (Unsharp Mask) 增强。
      * 公式: dst = src * 1.0 + (src - blurred) * strength
-     *
-     * 输出必须夹回 src 的原始范围：USM 的过冲量与数据跨度成正比，而不是与 8-bit 的
-     * 0~255 成正比。在 HU 域（跨度约 6.5 万）用 strength=6 时，骨/空气边缘的过冲达到
-     * ±39 万，直接毁掉后续直方图的分辨率（500 个 bin 每个宽 1400 HU），
-     * 最优调窗因此退化成一整段跨度。夹紧只削峰，不改变平坦区域的锐化效果。
      */
     cv::Mat SharpenUSM(const cv::Mat &src, double sigma, double strength) {
-        // 显示域（整型图像）的强度上限：USM 是"局部反差 × strength"的乘性放大，
-        // 在 0~255 上 strength=6 会让骨/空气边缘的过冲直接冲出量程并被饱和截断
-        // （实测 19% 像素变全黑、20% 变全白，整图退化成边缘检测图）。
-        // 本算子头文件声明的默认强度是 0.6，2.0 已属强烈锐化。
-        if (src.depth() != CV_32F && src.depth() != CV_64F && strength > kDisplayMaxStrength) {
-            LOGW("SharpenUSM: strength %.2f clamped to %.2f for display-domain depth %d",
-                 strength, kDisplayMaxStrength, src.depth());
-            strength = kDisplayMaxStrength;
-        }
         cv::Mat blurred, sharp, dst;
         cv::GaussianBlur(src, blurred, cv::Size(0, 0), sigma, sigma);
         cv::addWeighted(src, 1.0, blurred, -1.0, 0, sharp);
         cv::addWeighted(src, 1.0, sharp, strength, 0, dst);
-        double mn = 0.0, mx = 0.0;
-        cv::minMaxLoc(src, &mn, &mx);
-        cv::threshold(dst, dst, mx, mx, cv::THRESH_TRUNC);
-        cv::max(dst, cv::Scalar(mn), dst);
         return dst;
     }
 
