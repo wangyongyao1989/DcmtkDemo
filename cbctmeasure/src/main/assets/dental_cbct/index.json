@@ -1,0 +1,43 @@
+{
+  "root": "dental_cbct",
+  "provenance": "公开 DentVoxel 牙科 CBCT 数据集（专家逐牙标注）的临床采集体数据；主机侧转成本工程解析器直接消费的 192x192x128 @0.60mm 符号 int16 DICOM 序列（Explicit VR LE，PixelRepresentation=1，RescaleIntercept=0，Slope=1）",
+  "whyBundled": "AI-01 的真机验收要求输入完全确定（AC-08 主机/真机奇偶校验）。病例内置后，特征张量、概率图、连通域编号在两端可逐元素比对；如果让用户临时找 DICOM，比对就没有基线。",
+  "cases": [
+    {
+      "id": "dentvoxel_0101",
+      "assetDir": "dental_cbct/dentvoxel_0101",
+      "title": "牙科 CBCT 0101（未见过的测试例）",
+      "note": "训练未使用过这一例。主机侧整块网格 Dice 0.5828 / 精确率 0.6452 / 召回 0.5315（阈值 0.49）。真机 feat/prob 与 parity_ref 夹具的比对基准就是这一例。",
+      "role": "test",
+      "rows": 192,
+      "columns": 192,
+      "slices": 128,
+      "pixelSpacingMm": [0.6, 0.6],
+      "sliceThicknessMm": 0.6,
+      "expertGroundTruth": "src/host/ai/gt/dentvoxel_0101_gt.nii.gz"
+    },
+    {
+      "id": "dentvoxel_0021",
+      "assetDir": "dental_cbct/dentvoxel_0021",
+      "title": "牙科 CBCT 0021（训练例，分割最干净）",
+      "note": "参与过训练，整块网格 Dice 0.6789（阈值 0.49）。用它演示掩膜叠加与逐牙自动测量的观感最好；但也正因为见过，不能拿它的分数当泛化指标。",
+      "role": "train",
+      "rows": 192,
+      "columns": 192,
+      "slices": 128,
+      "pixelSpacingMm": [0.6, 0.6],
+      "sliceThicknessMm": 0.6,
+      "expertGroundTruth": "src/host/ai/gt/dentvoxel_0021_gt.nii.gz"
+    }
+  ],
+  "notShipped": [
+    {
+      "id": "dentvoxel_0047",
+      "reason": "训练例，与 0021 同类；为控制 APK 体积（每例约 9.5MB）不出包，数据与脚本在主机侧流水线里可复现"
+    },
+    {
+      "id": "dentvoxel_0074",
+      "reason": "验证例，阈值标定用它。同样不出包：把'选阈值用的那一批'打进 APK 会让真机演示看起来像在见过的数据上测精度"
+    }
+  ]
+}
