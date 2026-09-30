@@ -113,6 +113,12 @@ data class RoiItem(
     val polygon: List<WorldPoint> = emptyList(),
     val plane: Int = MeasurePlane.AXIAL,
     val planePosition: Int = 0,
+    /**
+     * R-06 AI 掩膜 ROI 引用的分割实例编号（0 = 未引用）。
+     * 掩膜本体不在 ROI 里存副本，只在 Native 侧的 AiResult 里有一份，
+     * 因此 ROI 可以持久化、可以进组合 ROI，但"重推理一次"会覆盖它。
+     */
+    val aiLabel: Int = 0,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -137,6 +143,7 @@ data class RoiItem(
         put("polygon", WorldPoint.jsonArray(polygon))
         put("plane", plane)
         put("planePosition", planePosition)
+        put("aiLabel", aiLabel)
     }
 
     /** 只带需要修改的字段的浅合并请求（配合 RoiJni.roiPatch） */
@@ -166,6 +173,8 @@ data class RoiItem(
             polygon = WorldPoint.list(j.optJSONArray("polygon")),
             plane = j.optInt("plane", MeasurePlane.AXIAL),
             planePosition = j.optInt("planePosition"),
+            // 旧存档没有这个键 -> 0；0 号实例不存在，统计会给出"未引用有效实例"
+            aiLabel = j.optInt("aiLabel"),
         )
 
         fun list(root: JSONObject?): List<RoiItem> {

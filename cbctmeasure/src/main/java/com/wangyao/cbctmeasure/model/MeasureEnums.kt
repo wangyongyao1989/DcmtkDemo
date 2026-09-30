@@ -61,12 +61,19 @@ object RoiType {
     const val SPHERE = 3            // R-04 球面 ROI
     const val COMPOSITE = 4         // R-05 组合 ROI（子 ROI 交/并/差）
 
+    /**
+     * R-06 AI 掩膜 ROI（PRD 5.6 AI-01 的扩展项，不在 5.2.2 表内）。
+     * 几何 = 推理结果的连通域体素集合，参数只有 aiLabel（实例编号）。
+     */
+    const val AI_MASK = 5
+
     fun label(type: Int): String = when (type) {
         HU_THRESHOLD -> "HU 阈值"
         BOX -> "裁剪盒"
         PLANE -> "平面裁剪"
         SPHERE -> "球面 ROI"
         COMPOSITE -> "组合 ROI"
+        AI_MASK -> "AI 掩膜"
         else -> "未知 ROI"
     }
 }
@@ -173,6 +180,17 @@ object OverlayOwner {
     const val NERVE = 3
     const val IMPLANT = 4
     const val ANNOTATION = 5
+
+    /**
+     * AI 掩膜轮廓（AI-01）。
+     *
+     * 注意：一旦这个实例被 aiAutoMeasure 建成了 R-06 ROI，Native 侧就会把
+     * 同一批轮廓图元的归属改写成 (ROI, roiId)，于是列表选中/高亮/显隐删除
+     * 全部沿用一期已有的 ROI 通道；只有"还没建 ROI 的裸掩膜"才是 AI 归属。
+     */
+    const val AI = 6
+
+    fun label(kind: Int): String = if (kind == AI) "AI 掩膜" else "图元"
 }
 
 /** 种植体安全等级（S-02 颜色语义） */
