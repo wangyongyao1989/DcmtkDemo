@@ -1615,6 +1615,147 @@ static void group10Orthodontics() {
 }
 
 // ============================================================================
+// 组 11：R-06 AI 掩膜 ROI 落库（AI-01）+ 恢复归档后重跑推理的去重
+//
+// 真机取证发现的坑：归档只存 ROI 定义（含 aiLabel）与测量行，**掩膜网格不入档**。
+// measuresFromJson 载入后一律按当前体数据重算，于是 R-06 的两类行（M-04 体积 /
+// M-08 骨密度）必然失败 -> UI 与 PDF 显示"待重算"。用户此时的自然操作是重新
+// 装载模型 + 分割 + 逐牙自动测量，旧实现会给同一颗牙再建一个 ROI、再写一套行，
+// 报告里出现双份条目且一半是空的。这里锁住修复后的契约。
+// ============================================================================
+
+static int countAiMaskRois(const MeasurementManager &m) {
+    int n = 0;
+    for (size_t i = 0; i < m.rois().size(); ++i)
+        if (m.rois()[i].type == ROI_AI_MASK) ++n;
+    return n;
+}
+
+static int countFailedRecords(const MeasurementManager &m) {
+    int n = 0;
+    for (size_t i = 0; i < m.measures().size(); ++i) {
+        // 约定见 core/MeasurementManager.cpp 的 compute()：失败原因写在 detailJson.error
+        if (m.measures()[i].detailJson.find("\"error\"") != std::string::npos) ++n;
+    }
+    return n;
+}
+
+/** 两颗"牙"的合成推理结果：抽稀网格 == 体数据网格（factor 1，体素 1 mm³） */
+static void buildTwoToothAi(AiResult &ai) {
+    ai.ok = true;
+    ai.grid.appDim[0] = ai.grid.appDim[1] = ai.grid.appDim[2] = 32;
+    ai.grid.appSpacing[0] = ai.grid.appSpacing[1] = ai.grid.appSpacing[2] = 1.0;
+    ai.grid.factor[0] = ai.grid.factor[1] = ai.grid.factor[2] = 1;
+    ai.grid.redDim[0] = ai.grid.redDim[1] = ai.grid.redDim[2] = 32;
+    ai.grid.modelDim[0] = ai.grid.modelDim[1] = ai.grid.modelDim[2] = 32;
+    ai.grid.spacing[0] = ai.grid.spacing[1] = ai.grid.spacing[2] = 1.0;
+    ai.label.assign((size_t) 32 * 32 * 32, 0);
+    ai.inst.assign((size_t) 32 * 32 * 32, 0);
+    ai.hu.assign((size_t) 32 * 32 * 32, 0.0f);
+
+    // A：i/j/k 4..13 共 1000 体素，1500 HU；B：i/j 20..27、k 6..13 共 512 体素，900 HU
+    for (int k = 4; k <= 13; ++k)
+        for (int j = 4; j <= 13; ++j)
+            for (int i = 4; i <= 13; ++i) {
+                const long long t = ai.grid.redIndex(i, j, k);
+                ai.label[(size_t) t] = 1; ai.inst[(size_t) t] = 1; ai.hu[(size_t) t] = 1500.0f;
+            }
+    for (int k = 6; k <= 13; ++k)
+        for (int j = 20; j <= 27; j++)
+            for (int i = 20; i <= 27; ++i) {
+                const long long t = ai.grid.redIndex(i, j, k);
+                ai.label[(size_t) t] = 1; ai.inst[(size_t) t] = 2; ai.hu[(size_t) t] = 900.0f;
+            }
+    ai.toothVoxels = 1512;
+
+    AiInstance a;
+    a.id = 1; a.voxels = 1000; a.volumeMm3 = 1000.0;
+    a.centroid = Vec3(9.5, 9.5, 9.5);
+    a.bboxMin = Vec3(4, 4, 4); a.bboxMax = Vec3(14, 14, 14);
+    a.meanHu = 1500.0; a.arch = 0; a.toothCountHint = 1;
+    AiInstance b;
+    b.id = 2; b.voxels = 512; b.volumeMm3 = 512.0;
+    b.centroid = Vec3(24.5, 24.5, 10.5);
+    b.bboxMin = Vec3(20, 20, 6); b.bboxMax = Vec3(28, 28, 14);
+    b.meanHu = 900.0; b.arch = 1; b.toothCountHint = 1;
+    ai.instances.push_back(a);
+    ai.instances.push_back(b);
+}
+
+static void group11AiMaskReuse() {
+    beginGroup("组 11 · R-06 掩膜 ROI 落库与恢复归档去重（AI-01）");
+
+    Synth sy;
+    sy.build(32, 32, 32, 1.0, 1.0, 1.0, -1000.0f);
+    sy.fillBox(4, 4, 4, 13, 13, 13, 1500.0f);
+    sy.fillBox(20, 20, 6, 27, 27, 13, 900.0f);
+
+    AiResult ai;
+    buildTwoToothAi(ai);
+
+    MeasurementManager mgr;
+    mgr.bindVolume(&sy.cv);
+    mgr.adoptAiResult(ai);
+
+    checkEqInt("首次落库：2 实例 -> 4 条测量", mgr.aiAutoMeasure(true), 4);
+    checkEqInt("首次落库：2 个 R-06 掩膜 ROI", countAiMaskRois(mgr), 2);
+    checkEqInt("首次落库：4 条测量全部成功", countFailedRecords(mgr), 0);
+    // M-04 掩膜 ROI 体积按 app 网格计数：1000 体素 × 1 mm³ = 1.0 cm³
+    const MeasureRecord *volA = nullptr;
+    for (size_t i = 0; i < mgr.measures().size(); ++i) {
+        if (mgr.measures()[i].type == MT_ROI_VOLUME &&
+                mgr.measures()[i].roiId == mgr.rois()[0].id) volA = &mgr.measures()[i];
+    }
+    checkTrue("找到牙 A 的 M-04 体积行", volA != nullptr);
+    if (volA) checkAbs("M-04 体积 = 1000 mm³ = 1.0 cm³", volA->value, 1.0, 1e-9);
+
+    // ---- 恢复归档：只带 JSON，不带掩膜网格 ----
+    bool pok = false;
+    const Json dump = Json::parse(mgr.measuresJson().dump(false), &pok);
+    checkTrue("measuresJson 可再解析", pok);
+    MeasurementManager mgr2;
+    mgr2.bindVolume(&sy.cv);
+    checkTrue("恢复归档成功", mgr2.measuresFromJson(dump));
+    checkEqInt("恢复后测量行数不变", (long long) mgr2.measures().size(), 4);
+    checkEqInt("恢复后 ROI 数不变", countAiMaskRois(mgr2), 2);
+    checkEqInt("R-06 ROI 的 aiLabel 随归档往返保留（#1）", mgr2.rois()[0].aiLabel, 1);
+    checkEqInt("R-06 ROI 的 aiLabel 随归档往返保留（#2）", mgr2.rois()[1].aiLabel, 2);
+    checkEqInt("掩膜不入档 -> 载入重算后 4 行全为\"待重算\"", countFailedRecords(mgr2), 4);
+
+    // ---- 重新推理 + 再落库：必须认领旧 ROI、清理旧行，而不是再加一套 ----
+    const int oldRoiId = mgr2.rois()[0].id;
+    AiResult ai2;
+    buildTwoToothAi(ai2);
+    mgr2.adoptAiResult(ai2);
+    checkEqInt("重跑落库：仍新增 4 条", mgr2.aiAutoMeasure(true), 4);
+    checkEqInt("重跑后 ROI 不翻倍", countAiMaskRois(mgr2), 2);
+    checkEqInt("重跑后行号不翻倍（旧待重算行被清理）", (long long) mgr2.measures().size(), 4);
+    checkEqInt("重跑后无\"待重算\"残留", countFailedRecords(mgr2), 0);
+    checkEqInt("复用的是原 ROI id", mgr2.rois()[0].id, oldRoiId);
+    // 回填写在管理器自己的副本上（adoptAiResult 按值拷贝，调用方的 ai2 不受影响）
+    checkTrue("重跑后管理器内的实例回填了 roiId",
+              !mgr2.ai().instances.empty() && mgr2.ai().instances[0].roiId == oldRoiId);
+
+    // ---- 手工挂在同一掩膜 ROI 上的测量不能被清理 ----
+    const int roiForManual = mgr2.rois()[0].id;
+    const MeasureRecord manual = mgr2.addMeasure(MT_ROI_VOLUME, std::vector<Vec3>(),
+                                                 roiForManual, "手工体积", 0, "手工备注");
+    checkTrue("手工行有值", manual.value > 0.0);
+    AiResult ai3;
+    buildTwoToothAi(ai3);
+    mgr2.adoptAiResult(ai3);
+    mgr2.aiAutoMeasure(true);
+    checkEqInt("第三次重跑：自动行仍 4 条 + 手工 1 条", (long long) mgr2.measures().size(), 5);
+    bool manualAlive = false;
+    for (size_t i = 0; i < mgr2.measures().size(); ++i) {
+        if (mgr2.measures()[i].id == manual.id) manualAlive = true;
+    }
+    checkTrue("手工行不被 AI 清理误删", manualAlive);
+    // 清理判据只认 note 标记，标记值被 Kotlin/报告引用，改动要同步
+    checkEqStr("AUTO_NOTE 标记字面量", std::string(AiConst::AUTO_NOTE), std::string("AI-01 自动分割"));
+}
+
+// ============================================================================
 // 入口
 // ============================================================================
 
@@ -1633,6 +1774,7 @@ int main() {
     group8AnnotationAndProtocol();
     group9Picker();
     group10Orthodontics();
+    group11AiMaskReuse();
 
     printf("\n================ PRD §6 精度实测汇总 ================\n");
     printf("  AC-01 距离  最坏绝对误差 = %.3e mm（要求 <= 0.1 mm）%s\n",

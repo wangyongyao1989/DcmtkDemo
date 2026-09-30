@@ -1,0 +1,1194 @@
+{
+ "case": "dentvoxel_0101",
+ "generated_utc": "2026-09-30T12:18:21Z",
+ "purpose": "AC-08 host-side parity fixtures in DEVICE axis order (axis0=DICOM Column, axis1=DICOM Row, axis2=z), mirroring :cbctdeal CbctSeriesParser + cbctmeasure AiCore/AiEngine semantics",
+ "axis_order_verdict": {
+  "canonical_host": "prep.py arrays: axis0=Rows, axis1=Columns, axis2=z",
+  "device": "AiCore/AiEngine + CbctSeriesParser: axis0=width=Columns, axis1=height=Rows, axis2=z; layout [depth][height][width]",
+  "conversion": "feat: transpose(0,2,1,3); volumes/masks/GT: transpose(1,0,2); exact bitwise in-plane permutation of the shipped canonical fixtures (see gates); the device-ordered conv output is NOT the transposed canonical output (3x3x3 kernels are not permutation-equivariant) -- hence this script feeds feat_dev itself to ORT",
+  "evidence": [
+   "cbctdeal/src/main/cpp/CbctSeriesParser.cpp:436-441 vol->width=cols, vol->height=rows",
+   "cbctmeasure/src/main/cpp/include/VolumeRef.h:24-27 world=index*spacing, layout [depth][height][width]",
+   "cbctmeasure/src/main/cpp/core/AiEngine.cpp:73 appDim={width,height,depth}",
+   "cbctmeasure/src/main/cpp/core/AiCore.cpp:107-140 vol[z*sliceSize + y*width + x]",
+   "/tmp/ai_build/train2.py header + work/train2_full.json axis_order=DEVICE"
+  ]
+ },
+ "model": {
+  "path": "/tmp/ai_build/model/teeth_cnn.onnx",
+  "sha256": "3092730fc286607447bbc8dadb678530535711aadd75429cf047e499ac3b767f",
+  "bytes": 14477,
+  "input": "feat [1,6,96,96,64] float32",
+  "output": "prob [1,2,96,96,64] float32",
+  "ops": "Conv3d 6->8->8->2 k3 p1 + Relu + Softmax(axis=1), opset 17",
+  "parameters": 3474
+ },
+ "environment": {
+  "python": "3.13.0",
+  "onnxruntime": "1.23.2",
+  "onnxruntime_providers": "CPUExecutionProvider",
+  "numpy": "2.5.1",
+  "scipy": "1.18.1",
+  "ort_version_in_android_app": "ONNX Runtime 1.17 (ORT_API_VERSION 17, third_party/onnxruntime)"
+ },
+ "threshold": {
+  "value": 0.49,
+  "source": "work/train2_full.json threshold_calibration.chosen_threshold (max val Dice on case dentvoxel_0074)",
+  "comparison_semantics": "float32 prob promoted to double, strict >",
+  "device_note": "device passes threshold via nativeRunSegment(handle, threshold, keepParity); must be configured with 0.49 for parity"
+ },
+ "rules": {
+  "features": "prep.build_features(canonical int16 (192,192,128)) then transpose(0,2,1,3); equals device AiCore::buildFeatures(vol) up to <=1 float32 ulp in the box-mean channels (summation order; c0 bitwise equal) -- parity judged by max-abs-diff per AiCore.cpp:142-149",
+  "label": "label[i,j,k] = 1 iff double(prob_dev[1,i,j,k]) > 0.49 (AiCore::thresholdMask; strict >, ties->background; NOT np.argmax)",
+  "inst": "AiCore::connectedComponents replica: scan linear index t C-order (i slowest, then j, then k); LIFO stack flood over the 26 neighbour offsets in Neighbor26 table order (a = axis0 offset outermost -1..1, b = axis1 middle, c = axis2 inner, skipping (0,0,0)); drop components with RAW flood-fill count < AiConst::MIN_INSTANCE_VOXELS=8; renumber 1..N by DESCENDING CLIPPED voxel count (voxels counted only inside redDim via the C++ `if (i>=redDim[0]...) continue;`); std::sort is unstable in C++ -> for equal sizes only the multiset of sizes is guaranteed; here stable sort = first-discovery order, ambiguity flagged",
+  "hu": "mean raw HU of each 2x2x2 app block in device order (AiCore::buildReducedHu on vol.transpose(1,0,2)); exact because HU integers / 8 are dyadic",
+  "gt": "prep.gt_tooth_at_app_grid + prep.downsample_gt_to_red (canonical), then transpose(1,0,2)",
+  "centroid_world": "mean of AiGrid::redToWorld(i,j,k) = ((i+0.5)*1.2, (j+0.5)*1.2, (k+0.5)*1.2) mm, device-order red indices; NOTE: +0.5*spacing voxel-center offset per AiTypes.h:130-134, NOT index*spacing",
+  "bbox": "per-voxel [center - 0.5*spacing, center + 0.5*spacing] union (AiCore.cpp:398-405)",
+  "volumeMm3": "clipped voxels * spacing product = voxels * 1.2^3 = voxels * 1.728",
+  "hu_stats": "double accumulation; sdHu = sqrt(max(E[x^2]-E[x]^2, 0)) population sd",
+  "pca": "cov = E[xx^T] - mean*mean^T from origin moments (parallel-axis), Jacobi sweeps exactly as AiCore::pcaPrincipalAxis; sign convention z>=0; compare |axis| up to sign"
+ },
+ "neighbor26_table_order": [
+  [
+   -1,
+   -1,
+   -1
+  ],
+  [
+   -1,
+   -1,
+   0
+  ],
+  [
+   -1,
+   -1,
+   1
+  ],
+  [
+   -1,
+   0,
+   -1
+  ],
+  [
+   -1,
+   0,
+   0
+  ],
+  [
+   -1,
+   0,
+   1
+  ],
+  [
+   -1,
+   1,
+   -1
+  ],
+  [
+   -1,
+   1,
+   0
+  ],
+  [
+   -1,
+   1,
+   1
+  ],
+  [
+   0,
+   -1,
+   -1
+  ],
+  [
+   0,
+   -1,
+   0
+  ],
+  [
+   0,
+   -1,
+   1
+  ],
+  [
+   0,
+   0,
+   -1
+  ],
+  [
+   0,
+   0,
+   1
+  ],
+  [
+   0,
+   1,
+   -1
+  ],
+  [
+   0,
+   1,
+   0
+  ],
+  [
+   0,
+   1,
+   1
+  ],
+  [
+   1,
+   -1,
+   -1
+  ],
+  [
+   1,
+   -1,
+   0
+  ],
+  [
+   1,
+   -1,
+   1
+  ],
+  [
+   1,
+   0,
+   -1
+  ],
+  [
+   1,
+   0,
+   0
+  ],
+  [
+   1,
+   0,
+   1
+  ],
+  [
+   1,
+   1,
+   -1
+  ],
+  [
+   1,
+   1,
+   0
+  ],
+  [
+   1,
+   1,
+   1
+  ]
+ ],
+ "grid": {
+  "appDim": [
+   192,
+   192,
+   128
+  ],
+  "modelDim": [
+   96,
+   96,
+   64
+  ],
+  "factor": [
+   2,
+   2,
+   2
+  ],
+  "redDim": [
+   96,
+   96,
+   64
+  ],
+  "spacing": [
+   1.2,
+   1.2,
+   1.2
+  ],
+  "appSpacing": [
+   0.6,
+   0.6,
+   0.6
+  ]
+ },
+ "notes": [
+  "device_hu_0101.raw is float32 over the (96,96,64) reduced grid = 589,824 elements = 2,359,296 BYTES (AiResult.hu is float)",
+  "ONNX 'prob' output is declared [1,2,96,96,64]; the device prob buffer and this fixture are the same 4,718,592-byte flat C-order float32 payload"
+ ],
+ "files": {
+  "device_feat_0101.raw": {
+   "bytes": 14155776,
+   "sha256": "c753054acb2353aab8fd6e10432fb7e6ec604b54324720e2c625dea5a712d948",
+   "dtype": "float32",
+   "shape": [
+    6,
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  },
+  "device_prob_0101.raw": {
+   "bytes": 4718592,
+   "sha256": "aee31b44a714820d4db307c40df7ae6d42bdb9962d182f3560f27176053a7c70",
+   "dtype": "float32",
+   "shape": [
+    2,
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  },
+  "device_label_0101.raw": {
+   "bytes": 589824,
+   "sha256": "b773556b2cd1941f10edaa725489e835068e09018cd0fa12ff590f2f59651d91",
+   "dtype": "uint8",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  },
+  "device_inst_0101.raw": {
+   "bytes": 1179648,
+   "sha256": "4ad1abce2a7c9fa7532307f686acd17075e45a1e353131223dec749be95f440f",
+   "dtype": "int16 (signed LE, C++ short)",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  },
+  "device_hu_0101.raw": {
+   "bytes": 2359296,
+   "sha256": "d6cd3fe3786567eba6f0bfe9913258a9b7f7227875275c6a5ff996e00c26a3e4",
+   "dtype": "float32",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  },
+  "device_gt_0101.raw": {
+   "bytes": 589824,
+   "sha256": "eaef76b42b74821de4afec149f8de77fa909d7c35dd63d4b03d0d794cf0da643",
+   "dtype": "uint8",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "order": "C-contiguous, little-endian"
+  }
+ },
+ "instances": [
+  {
+   "id": 1,
+   "voxels": 4927,
+   "volumeMm3": 8513.856,
+   "centroidWorldMm": [
+    35.18859346458296,
+    74.88138826872341,
+    19.54524051146741
+   ],
+   "bboxMinWorldMm": [
+    2.4,
+    17.999999999999996,
+    0.0
+   ],
+   "bboxMaxWorldMm": [
+    62.4,
+    100.8,
+    45.6
+   ],
+   "meanHu": 2193.8809366754617,
+   "minHu": 36.625,
+   "maxHu": 4375.25,
+   "sdHu": 561.443671974132,
+   "pcaAxisDeviceOrder": [
+    0.48998074866580194,
+    0.8351175306462247,
+    0.24999515184149518
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 2,
+   "voxels": 2855,
+   "volumeMm3": 4933.44,
+   "centroidWorldMm": [
+    20.066479859894862,
+    71.48112084063058,
+    44.37793345008764
+   ],
+   "bboxMinWorldMm": [
+    0.0,
+    38.4,
+    34.8
+   ],
+   "bboxMaxWorldMm": [
+    52.8,
+    88.8,
+    58.8
+   ],
+   "meanHu": 2298.4915499124345,
+   "minHu": -432.5,
+   "maxHu": 4493.875,
+   "sdHu": 667.7869828102844,
+   "pcaAxisDeviceOrder": [
+    0.8134445193469817,
+    0.5806577536502442,
+    0.033831746484780004
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 3,
+   "voxels": 586,
+   "volumeMm3": 1012.608,
+   "centroidWorldMm": [
+    48.07372013651874,
+    23.635494880546073,
+    26.178839590443687
+   ],
+   "bboxMinWorldMm": [
+    37.199999999999996,
+    14.4,
+    8.4
+   ],
+   "bboxMaxWorldMm": [
+    56.4,
+    32.4,
+    38.4
+   ],
+   "meanHu": 2104.6734215017063,
+   "minHu": 402.25,
+   "maxHu": 3116.875,
+   "sdHu": 447.70618965976684,
+   "pcaAxisDeviceOrder": [
+    0.3241345267882554,
+    -0.2648144919149825,
+    0.9081905600784251
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 4,
+   "voxels": 479,
+   "volumeMm3": 827.712,
+   "centroidWorldMm": [
+    35.58538622129441,
+    34.25762004175367,
+    29.527766179540706
+   ],
+   "bboxMinWorldMm": [
+    20.4,
+    27.599999999999998,
+    23.999999999999996
+   ],
+   "bboxMaxWorldMm": [
+    45.6,
+    43.2,
+    34.8
+   ],
+   "meanHu": 2235.17875782881,
+   "minHu": 397.625,
+   "maxHu": 3825.5,
+   "sdHu": 625.503927310508,
+   "pcaAxisDeviceOrder": [
+    0.9248654289300968,
+    -0.3146963626626051,
+    0.21351847155895978
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 5,
+   "voxels": 407,
+   "volumeMm3": 703.2959999999999,
+   "centroidWorldMm": [
+    37.05110565110566,
+    31.74692874692874,
+    41.910073710073746
+   ],
+   "bboxMinWorldMm": [
+    25.2,
+    23.999999999999996,
+    37.199999999999996
+   ],
+   "bboxMaxWorldMm": [
+    46.8,
+    39.6,
+    50.4
+   ],
+   "meanHu": 2277.9907862407863,
+   "minHu": 500.875,
+   "maxHu": 3822.25,
+   "sdHu": 529.9034856966279,
+   "pcaAxisDeviceOrder": [
+    0.8805746977073874,
+    -0.31127530298945744,
+    0.3573456135261282
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 6,
+   "voxels": 207,
+   "volumeMm3": 357.69599999999997,
+   "centroidWorldMm": [
+    98.54782608695648,
+    26.402898550724636,
+    75.19130434782623
+   ],
+   "bboxMinWorldMm": [
+    91.2,
+    16.799999999999997,
+    72.0
+   ],
+   "bboxMaxWorldMm": [
+    105.6,
+    34.8,
+    76.8
+   ],
+   "meanHu": 1853.5271739130435,
+   "minHu": 387.25,
+   "maxHu": 2500.625,
+   "sdHu": 332.2236839523166,
+   "pcaAxisDeviceOrder": [
+    0.8425782579804469,
+    -0.5364358850648674,
+    0.0479418438663742
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 7,
+   "voxels": 123,
+   "volumeMm3": 212.544,
+   "centroidWorldMm": [
+    98.1219512195122,
+    88.60975609756098,
+    75.64390243902439
+   ],
+   "bboxMinWorldMm": [
+    91.2,
+    81.60000000000001,
+    73.2
+   ],
+   "bboxMaxWorldMm": [
+    104.39999999999999,
+    95.99999999999999,
+    76.8
+   ],
+   "meanHu": 1889.966463414634,
+   "minHu": 554.875,
+   "maxHu": 2288.125,
+   "sdHu": 269.3446432695874,
+   "pcaAxisDeviceOrder": [
+    -0.024912222115949362,
+    0.9984651274799262,
+    0.049464839995095836
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 8,
+   "voxels": 47,
+   "volumeMm3": 81.216,
+   "centroidWorldMm": [
+    11.374468085106376,
+    40.608510638297886,
+    53.19574468085106
+   ],
+   "bboxMinWorldMm": [
+    8.4,
+    38.4,
+    49.199999999999996
+   ],
+   "bboxMaxWorldMm": [
+    13.2,
+    43.2,
+    57.6
+   ],
+   "meanHu": 2075.1329787234044,
+   "minHu": 1669.375,
+   "maxHu": 2350.25,
+   "sdHu": 156.26631915684214,
+   "pcaAxisDeviceOrder": [
+    0.32512381556539577,
+    0.03954458791418858,
+    0.9448442888216532
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 9,
+   "voxels": 44,
+   "volumeMm3": 76.032,
+   "centroidWorldMm": [
+    25.336363636363647,
+    76.69090909090909,
+    18.95454545454545
+   ],
+   "bboxMinWorldMm": [
+    22.799999999999997,
+    74.4,
+    14.4
+   ],
+   "bboxMaxWorldMm": [
+    27.6,
+    79.19999999999999,
+    22.8
+   ],
+   "meanHu": 1895.2073863636363,
+   "minHu": 1485.5,
+   "maxHu": 2128.5,
+   "sdHu": 165.8727262791655,
+   "pcaAxisDeviceOrder": [
+    -0.3112007175670137,
+    -0.2545881344337133,
+    0.9156085381817588
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 10,
+   "voxels": 41,
+   "volumeMm3": 70.848,
+   "centroidWorldMm": [
+    33.23414634146341,
+    7.4195121951219525,
+    75.32195121951217
+   ],
+   "bboxMinWorldMm": [
+    27.599999999999998,
+    3.6,
+    72.0
+   ],
+   "bboxMaxWorldMm": [
+    37.2,
+    10.799999999999999,
+    76.8
+   ],
+   "meanHu": 2183.3384146341464,
+   "minHu": 1380.5,
+   "maxHu": 2418.375,
+   "sdHu": 181.80612169869562,
+   "pcaAxisDeviceOrder": [
+    -0.7933062172045194,
+    0.5907905880376408,
+    0.14707728183099686
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 11,
+   "voxels": 35,
+   "volumeMm3": 60.48,
+   "centroidWorldMm": [
+    21.72,
+    78.60000000000001,
+    49.388571428571424
+   ],
+   "bboxMinWorldMm": [
+    19.2,
+    75.60000000000001,
+    44.4
+   ],
+   "bboxMaxWorldMm": [
+    24.0,
+    80.39999999999999,
+    54.0
+   ],
+   "meanHu": 1859.4178571428572,
+   "minHu": 1407.5,
+   "maxHu": 2175.5,
+   "sdHu": 181.18725254469098,
+   "pcaAxisDeviceOrder": [
+    0.35403911365973983,
+    -0.19245148908187631,
+    0.9152151279066547
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 12,
+   "voxels": 23,
+   "volumeMm3": 39.744,
+   "centroidWorldMm": [
+    13.017391304347825,
+    36.28695652173913,
+    40.513043478260876
+   ],
+   "bboxMinWorldMm": [
+    10.8,
+    34.8,
+    36.0
+   ],
+   "bboxMaxWorldMm": [
+    14.399999999999999,
+    38.4,
+    44.4
+   ],
+   "meanHu": 2497.6902173913045,
+   "minHu": 1724.75,
+   "maxHu": 3456.0,
+   "sdHu": 546.0311730499855,
+   "pcaAxisDeviceOrder": [
+    0.08224497281131032,
+    0.025330998607745365,
+    0.9962901710630298
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 13,
+   "voxels": 21,
+   "volumeMm3": 36.288,
+   "centroidWorldMm": [
+    15.97142857142857,
+    41.114285714285714,
+    39.57142857142857
+   ],
+   "bboxMinWorldMm": [
+    13.2,
+    38.4,
+    37.199999999999996
+   ],
+   "bboxMaxWorldMm": [
+    18.0,
+    43.2,
+    42.0
+   ],
+   "meanHu": 2615.1666666666665,
+   "minHu": 1670.5,
+   "maxHu": 3467.125,
+   "sdHu": 499.5212728044,
+   "pcaAxisDeviceOrder": [
+    0.7287051563825439,
+    -0.5169724947026135,
+    0.44914166449178233
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 14,
+   "voxels": 21,
+   "volumeMm3": 36.288,
+   "centroidWorldMm": [
+    56.485714285714266,
+    22.542857142857137,
+    31.457142857142863
+   ],
+   "bboxMinWorldMm": [
+    52.8,
+    20.4,
+    29.999999999999996
+   ],
+   "bboxMaxWorldMm": [
+    60.0,
+    24.0,
+    33.6
+   ],
+   "meanHu": 1762.095238095238,
+   "minHu": 1500.0,
+   "maxHu": 1973.625,
+   "sdHu": 147.28202166556466,
+   "pcaAxisDeviceOrder": [
+    0.9541015726965286,
+    -0.09370222957763547,
+    0.2844469742327924
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 15,
+   "voxels": 19,
+   "volumeMm3": 32.832,
+   "centroidWorldMm": [
+    19.92631578947369,
+    33.126315789473686,
+    39.37894736842105
+   ],
+   "bboxMinWorldMm": [
+    17.999999999999996,
+    31.199999999999996,
+    37.199999999999996
+   ],
+   "bboxMaxWorldMm": [
+    21.6,
+    34.8,
+    43.2
+   ],
+   "meanHu": 2611.2565789473683,
+   "minHu": 1690.0,
+   "maxHu": 3690.125,
+   "sdHu": 525.117318460844,
+   "pcaAxisDeviceOrder": [
+    -0.06734935250519693,
+    0.05461614449546799,
+    0.9962334773925142
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 16,
+   "voxels": 18,
+   "volumeMm3": 31.104,
+   "centroidWorldMm": [
+    23.466666666666654,
+    37.86666666666667,
+    38.79999999999999
+   ],
+   "bboxMinWorldMm": [
+    21.599999999999998,
+    36.0,
+    37.199999999999996
+   ],
+   "bboxMaxWorldMm": [
+    25.2,
+    39.6,
+    40.8
+   ],
+   "meanHu": 2628.277777777778,
+   "minHu": 1807.0,
+   "maxHu": 3710.125,
+   "sdHu": 582.6332876170959,
+   "pcaAxisDeviceOrder": [
+    0.7071067811865784,
+    -0.7071067811865167,
+    3.202555687347635e-13
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 17,
+   "voxels": 13,
+   "volumeMm3": 22.464,
+   "centroidWorldMm": [
+    33.09230769230769,
+    108.3230769230769,
+    75.92307692307693
+   ],
+   "bboxMinWorldMm": [
+    29.999999999999996,
+    104.4,
+    74.4
+   ],
+   "bboxMaxWorldMm": [
+    36.0,
+    110.39999999999999,
+    76.8
+   ],
+   "meanHu": 2388.076923076923,
+   "minHu": 2291.75,
+   "maxHu": 2497.875,
+   "sdHu": 71.62317151750587,
+   "pcaAxisDeviceOrder": [
+    -0.6587218677207803,
+    -0.7473132172077982,
+    0.08722646601219652
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 18,
+   "voxels": 12,
+   "volumeMm3": 20.736,
+   "centroidWorldMm": [
+    48.00000000000001,
+    0.5999999999999999,
+    75.39999999999999
+   ],
+   "bboxMinWorldMm": [
+    44.4,
+    0.0,
+    73.2
+   ],
+   "bboxMaxWorldMm": [
+    51.6,
+    1.2,
+    76.8
+   ],
+   "meanHu": 1805.5416666666667,
+   "minHu": 1342.125,
+   "maxHu": 2012.25,
+   "sdHu": 176.7836361009002,
+   "pcaAxisDeviceOrder": [
+    -1.0,
+    -0.0,
+    4.640279090686732e-13
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 19,
+   "voxels": 11,
+   "volumeMm3": 19.008,
+   "centroidWorldMm": [
+    50.127272727272725,
+    28.745454545454546,
+    48.81818181818182
+   ],
+   "bboxMinWorldMm": [
+    48.0,
+    26.4,
+    46.8
+   ],
+   "bboxMaxWorldMm": [
+    51.6,
+    31.2,
+    50.4
+   ],
+   "meanHu": 2548.590909090909,
+   "minHu": 2005.0,
+   "maxHu": 3026.25,
+   "sdHu": 304.51376616007457,
+   "pcaAxisDeviceOrder": [
+    -0.4245319633644507,
+    -0.7985110526607112,
+    0.42679352251481967
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 20,
+   "voxels": 11,
+   "volumeMm3": 19.008,
+   "centroidWorldMm": [
+    58.09090909090909,
+    101.83636363636364,
+    33.87272727272727
+   ],
+   "bboxMinWorldMm": [
+    55.199999999999996,
+    100.8,
+    29.999999999999996
+   ],
+   "bboxMaxWorldMm": [
+    61.199999999999996,
+    103.19999999999999,
+    36.0
+   ],
+   "meanHu": 2288.409090909091,
+   "minHu": 2160.75,
+   "maxHu": 2410.375,
+   "sdHu": 70.55705885110471,
+   "pcaAxisDeviceOrder": [
+    -0.41770905284559257,
+    0.03243349937156315,
+    0.9080017705320583
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 21,
+   "voxels": 10,
+   "volumeMm3": 17.28,
+   "centroidWorldMm": [
+    35.04,
+    32.88,
+    18.240000000000002
+   ],
+   "bboxMinWorldMm": [
+    33.599999999999994,
+    31.199999999999996,
+    15.6
+   ],
+   "bboxMaxWorldMm": [
+    36.0,
+    34.8,
+    20.400000000000002
+   ],
+   "meanHu": 1733.8125,
+   "minHu": 1638.125,
+   "maxHu": 1874.5,
+   "sdHu": 82.88222536376598,
+   "pcaAxisDeviceOrder": [
+    -0.2770497900767981,
+    0.5448869697809442,
+    0.7914174650469513
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 22,
+   "voxels": 9,
+   "volumeMm3": 15.552,
+   "centroidWorldMm": [
+    25.0,
+    37.93333333333334,
+    15.799999999999999
+   ],
+   "bboxMinWorldMm": [
+    23.999999999999996,
+    36.0,
+    13.2
+   ],
+   "bboxMaxWorldMm": [
+    26.400000000000002,
+    39.6,
+    18.0
+   ],
+   "meanHu": 1919.625,
+   "minHu": 1580.0,
+   "maxHu": 2089.875,
+   "sdHu": 155.99089627994968,
+   "pcaAxisDeviceOrder": [
+    -0.258633663260995,
+    0.33591770910016994,
+    0.9056864363239034
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 23,
+   "voxels": 8,
+   "volumeMm3": 13.824,
+   "centroidWorldMm": [
+    30.15,
+    10.500000000000002,
+    69.15
+   ],
+   "bboxMinWorldMm": [
+    28.799999999999997,
+    9.6,
+    67.2
+   ],
+   "bboxMaxWorldMm": [
+    31.2,
+    12.0,
+    70.8
+   ],
+   "meanHu": 2274.53125,
+   "minHu": 1951.0,
+   "maxHu": 2572.125,
+   "sdHu": 196.124957676063,
+   "pcaAxisDeviceOrder": [
+    0.1644644243861355,
+    0.23258781949429208,
+    0.9585689121467625
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  },
+  {
+   "id": 24,
+   "voxels": 8,
+   "volumeMm3": 13.824,
+   "centroidWorldMm": [
+    30.15,
+    35.699999999999996,
+    18.0
+   ],
+   "bboxMinWorldMm": [
+    28.799999999999997,
+    33.599999999999994,
+    15.6
+   ],
+   "bboxMaxWorldMm": [
+    31.2,
+    37.2,
+    20.400000000000002
+   ],
+   "meanHu": 1804.953125,
+   "minHu": 1616.75,
+   "maxHu": 1906.375,
+   "sdHu": 95.7412475091555,
+   "pcaAxisDeviceOrder": [
+    -0.3097143220058617,
+    0.31579956338444876,
+    0.8968543217884615
+   ],
+   "pcaNote": "axis in device order (x=col,y=row,z); comparison tolerance is on |axis| up to sign; device uses the same Jacobi port replicated here"
+  }
+ ],
+ "instance_census": {
+  "n_raw_components": 47,
+  "n_raw_components_note": "C++-faithful seed count: AiCore::connectedComponents zeroes the inst of sub-MIN_INSTANCE_VOXELS components, so the linear scan RE-SEEDS those same voxels (|A|-1 extra floods per dropped component of size |A|). Unique 26-components is the scipy-equivalent count below; BOTH give the identical kept-instance census (sizes/ids), identical to train2_full.json cc_26conn_min8_at_chosen",
+  "min_size_filter": 8,
+  "n_kept": 24,
+  "scipy_unique_26_components": 34,
+  "component_size_ties_detected": [
+   8,
+   11,
+   21
+  ],
+  "tie_ambiguity_note": "C++ std::sort is not stable; if ties exist only the multiset of component sizes is guaranteed identical across implementations"
+ },
+ "tooth_voxels_total": 9958,
+ "dice_block": {
+  "dice": 0.5828457386492494,
+  "precision": 0.6452098815023097,
+  "recall": 0.5314748945322194,
+  "tp": 6425,
+  "fp": 3533,
+  "fn": 5664,
+  "threshold": 0.49,
+  "grid": "device-order reduced (96,96,64)"
+ },
+ "device_dump_format": {
+  "producer": "AiEngine::dumpParity (cbctmeasure/src/main/cpp/core/AiEngine.cpp:143-177)",
+  "header_bytes": 64,
+  "header": "8 x int64 little-endian: featCount, probCount, labelBytes, modelDim0, modelDim1, modelDim2, redDim0, redDim1",
+  "payload_order": [
+   "float32 feat[featCount]",
+   "float32 prob[probCount]",
+   "uint8 label[labelBytes]",
+   "int16 inst[labelBytes]"
+  ],
+  "expected_counts": {
+   "featCount": 3538944,
+   "probCount": 1179648,
+   "labelBytes": 589824,
+   "modelDim": [
+    96,
+    96,
+    64
+   ],
+   "redDim0": 96,
+   "redDim1": 96
+  },
+  "expected_total_bytes": 20643904,
+  "note": "inst element count == label count (both modelDim volume); dump does NOT carry the threshold or the HU/GT arrays"
+ },
+ "gates": {
+  "canonical_feat_is_exactly_transpose_of_device_feat": {
+   "pass": true,
+   "max_abs_diff_transpose_identity": 0.0,
+   "device_feat_equals_shipped_feat_0101_raw_bitwise": true
+  },
+  "independent_device_order_rebuild": {
+   "pass": true,
+   "max_abs_diff": 2.9802322387695312e-08,
+   "n_float32_elements_differing": 947,
+   "n_total_elements": 3538944,
+   "note": "addition-order-only divergence at the last float32 bit; not a contract violation"
+  },
+  "ort_determinism_two_runs_bit_identical": {
+   "pass": true
+  },
+  "prob_shape": {
+   "pass": true,
+   "shape": [
+    2,
+    96,
+    96,
+    64
+   ],
+   "dtype": "float32 little-endian C-order"
+  },
+  "label_vs_argmax_diff_count": {
+   "pass": true,
+   "count": 133,
+   "note": "device rule is prob[1] > 0.49 (thresholdMask), NOT np.argmax(prob) (== prob[1] > 0.5); voxels with prob[1] in (0.49, 0.5] differ"
+  },
+  "shipped_1955_fixtures_already_device_order_bit_equal": {
+   "pass": true,
+   "feat": true,
+   "prob": true,
+   "label": true,
+   "gt": true,
+   "note": "independent rebuild from raw DICOM + frozen ONNX is bit-identical to the shipped feat/prob/label/gt fixtures => those were already device order; this script adds the missing inst + hu fixtures and the per-instance table"
+  },
+  "kept_instances_match_train2_full_json_cc": {
+   "pass": true,
+   "my_kept_sizes_desc": [
+    4927,
+    2855,
+    586,
+    479,
+    407,
+    207,
+    123,
+    47,
+    44,
+    41,
+    35,
+    23,
+    21,
+    21,
+    19,
+    18,
+    13,
+    12,
+    11,
+    11,
+    10,
+    9,
+    8,
+    8
+   ],
+   "json_kept_sizes_desc": [
+    4927,
+    2855,
+    586,
+    479,
+    407,
+    207,
+    123,
+    47,
+    44,
+    41,
+    35,
+    23,
+    21,
+    21,
+    19,
+    18,
+    13,
+    12,
+    11,
+    11,
+    10,
+    9,
+    8,
+    8
+   ],
+   "scipy_unique_26_components": 34
+  },
+  "dice_agrees_with_train2_full_json": {
+   "pass": true,
+   "computed": {
+    "dice": 0.5828457386492494,
+    "precision": 0.6452098815023097,
+    "recall": 0.5314748945322194,
+    "tp": 6425,
+    "fp": 3533,
+    "fn": 5664,
+    "pred_voxels": 9958,
+    "gt_voxels": 12089
+   },
+   "json_reference": {
+    "dice": 0.5828457386492494,
+    "precision": 0.6452098815023097,
+    "recall": 0.5314748945322194,
+    "f1": 0.5828457386492494,
+    "tp": 6425,
+    "fp": 3533,
+    "fn": 5664,
+    "pred_voxels": 9958,
+    "gt_voxels": 12089,
+    "total_voxels": 589824
+   },
+   "note": "Dice/precision/recall are axis-order invariant aggregate counts, so device-order fixtures must reproduce the json exactly (same prob, same GT). If this fails, the prob or GT arrays differ and the json stays as authority."
+  }
+ },
+ "old_canonical_fixtures_kept": [
+  "METRICS.md",
+  "archive_stale_metrics",
+  "archive_v1_pointwise",
+  "feat_0101.raw",
+  "gt_0101.raw",
+  "label_0101.raw",
+  "metrics_0101.json",
+  "parity_0101.json",
+  "prob_0101.raw"
+ ]
+}

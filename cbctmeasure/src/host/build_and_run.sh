@@ -11,6 +11,10 @@
 # 输出：每条 case 一行 PASS/FAIL；结尾打印 AC-01~AC-04 最坏实测误差。
 # 退出码：0 = 全过；非 0 = 有 FAIL（或有 crash）。
 #
+# 说明：AI 层里主机侧只编译 core/AiCore.cpp + core/AiEngine.cpp + core/AiPlanner.cpp
+# （"预处理/argmax/连通域/轮廓/统计/推荐"这条确定性路径）；ai/OrtEngine.cpp 依赖
+# libonnxruntime.so 与 NDK 的 dlfcn，主机侧刻意排除，测试用假 AiBackend 顶替。
+#
 # 说明：core/SrReport.cpp 是唯一引用 DCMTK 的翻译单元，主机侧刻意排除，
 # 因此本套用例不覆盖 SR 导出（那部分需要真机/DCMTK 环境）。
 # ============================================================================
@@ -45,6 +49,9 @@ c++ -std=$STD -Wall -Wno-unused-function $EXTRA \
     "$CORE/AnnotationStore.cpp" \
     "$CORE/MeasurePicker.cpp" \
     "$CORE/MeasurementManager.cpp" \
+    "$CORE/AiCore.cpp" \
+    "$CORE/AiEngine.cpp" \
+    "$CORE/AiPlanner.cpp" \
     -o "$OUT"
 
 echo "built: $OUT"

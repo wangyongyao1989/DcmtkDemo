@@ -1,0 +1,84 @@
+{
+ "case": "dentvoxel_0101",
+ "generated_utc": "2026-09-30T11:55:09Z",
+ "axis_convention": "DEVICE order, verified against the Android CbctSeriesParser.cpp contract: the parser sets width=Columns, height=Rows and lays data as [depth][height][width] with slices sorted by ascending ImagePositionPatient z; PixelData is signed int16 LE (PixelRepresentation=1, RescaleIntercept=0, Slope=1). The model/label tensors are feat_dev[c][i][j][k] with i=device axis0=DICOM COLUMN (=host canonical axis1), j=device axis1=DICOM ROW (=host canonical axis0), k=z. Host canonical arrays are converted by transpose(0,2,1,3) (features) and transpose(1,0,2) (labels).",
+ "files": {
+  "feat_0101.raw": {
+   "dtype": "float32",
+   "byteorder": "little",
+   "order": "C-contiguous",
+   "shape": [
+    6,
+    96,
+    96,
+    64
+   ],
+   "bytes": 14155776,
+   "content": "6-channel features rebuilt from the DICOM series exactly as AiCore::buildFeatures does (channel defs: SPEC.md)"
+  },
+  "prob_0101.raw": {
+   "dtype": "float32",
+   "byteorder": "little",
+   "order": "C-contiguous",
+   "shape": [
+    2,
+    96,
+    96,
+    64
+   ],
+   "bytes": 4718592,
+   "content": "onnxruntime output of teeth_cnn.onnx on feat_0101.raw"
+  },
+  "label_0101.raw": {
+   "dtype": "uint8",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "bytes": 589824,
+   "rule": "label[i,j,k] = 1 iff prob[1,i,j,k] > 0.4900 else 0 (plain calibrated-threshold argmax of the 2-channel softmax; NO connected-component filtering, NO min-size filter -- the C++ side must reproduce this exact rule)"
+  },
+  "gt_0101.raw": {
+   "dtype": "uint8",
+   "shape": [
+    96,
+    96,
+    64
+   ],
+   "bytes": 589824,
+   "content": "expert GT voted to reduced grid (canonical transpose(1,0,2))"
+  }
+ },
+ "threshold": 0.49000000953674316,
+ "numpy_forward_from_weights_npz": "/tmp/ai_build/model/teeth_cnn_weights.npz",
+ "ort_vs_numpy_max_abs_diff": 1.2516975402832031e-06,
+ "onnx_opset_import_version": 17,
+ "axis_verification": {
+  "ok": true,
+  "max_abs_diff_feat": 0.0,
+  "cases": {
+   "dentvoxel_0101": {
+    "feat_max_abs_diff": 0.0,
+    "volume_bitexact_to_hu_raw": true,
+    "width": 192,
+    "height": 192,
+    "depth": 128,
+    "ipp_z_first": null,
+    "n_slices": 128
+   }
+  }
+ },
+ "metrics_recap": {
+  "chosen_threshold": 0.49,
+  "dice_at_chosen": 0.5828457386492494,
+  "precision_at_chosen": 0.6452098815023097,
+  "recall_at_chosen": 0.5314748945322194,
+  "f1_at_chosen": 0.5828457386492494,
+  "f1_beta0p5_at_chosen": 0.6187284528418174,
+  "iou_at_chosen": 0.41127896556138777,
+  "dice_at_0p5": 0.5814547777676371,
+  "fixture_label_dice_vs_gt": 0.5828457386492494
+ },
+ "note_on_task_byte_count": "task brief quoted prob_0101.raw as 294,912 B; the true size of (2,96,96,64) float32 is 4,718,592 B"
+}
