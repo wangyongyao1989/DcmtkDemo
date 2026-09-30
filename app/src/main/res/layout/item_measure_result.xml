@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  结果列表行：测量 / ROI / 种植体 / 神经管 / 标注共用一种行式，
+  与 item_dcm_upload.xml 同样的"标题 + 次要信息"排版，只是把缩略图换成色块。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="6dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="6dp">
+
+    <View
+        android:id="@+id/v_swatch"
+        android:layout_width="10dp"
+        android:layout_height="26dp"
+        android:layout_marginEnd="8dp"
+        android:background="#FF00E5FF" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_row_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="距离"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_row_value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="0.00 mm"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_row_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#FF666666"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <CheckBox
+        android:id="@+id/cb_visible"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:button="@android:drawable/checkbox_on_background"
+        android:contentDescription="显示/隐藏" />
+
+    <ImageButton
+        android:id="@+id/btn_delete"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="删除"
+        android:padding="4dp"
+        android:scaleType="fitCenter"
+        android:src="@android:drawable/ic_menu_delete" />
+</LinearLayout>
