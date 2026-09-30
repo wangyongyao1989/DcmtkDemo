@@ -43,6 +43,7 @@ VTK_MODULE_INIT(vtkRenderingVolumeOpenGL2)
 
 #include "vtkCamera.h"
 #include "vtkColorTransferFunction.h"
+#include "vtkCoordinate.h"
 #include "vtkFloatArray.h"
 #include "vtkImageData.h"
 #include "vtkImageActor.h"
@@ -58,6 +59,8 @@ VTK_MODULE_INIT(vtkRenderingVolumeOpenGL2)
 #include "vtkSmartVolumeMapper.h"
 #include "vtkVolume.h"
 #include "vtkVolumeProperty.h"
+#include "vtkDataArray.h"
+#include "vtkWindowToImageFilter.h"
 #include "vtkEGLRenderWindow.h"
 #include "vtkAndroidOutputWindow.h"
 #include "vtkOutputWindow.h"
@@ -921,6 +924,7 @@ void CbctVtkRenderer::applyRenderMode() {
              bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]);
     }
     setupCameraForMode();
+    applyVisibility();   // 重放叠加层可见性（Prop 刚被重新挂载）
 }
 
 void CbctVtkRenderer::applyPlane() {
@@ -987,15 +991,7 @@ void CbctVtkRenderer::applyWindowLevel() {
         colorTF_->AddRGBPoint(mid, 0.68, 0.64, 0.58);
         colorTF_->AddRGBPoint(hi, 1.00, 0.99, 0.96);
     }
-    if (opacityTF_) {
-        // 不透明度：HU<200 全透明（PDF 骨骼阈值过滤软组织），
-        // 200->1300 HU 渐升（高密度骨骼渲染权重调高），高位饱和
-        opacityTF_->RemoveAllPoints();
-        opacityTF_->AddPoint(-1024.0, 0.00);
-        opacityTF_->AddPoint(200.0, 0.00);
-        opacityTF_->AddPoint(1300.0, 0.85);
-        opacityTF_->AddPoint(4000.0, 0.90);
-    }
+    if (opacityTF_) applyOpacity();
     if (volume_) volume_->Modified();   // 触发 Mapper 重建纹理查找表
 
     // ---- MPR：灰阶 LUT 区间 = 窗宽窗位（切面实时同步 WW/WC） ----
@@ -1004,6 +1000,46 @@ void CbctVtkRenderer::applyWindowLevel() {
         lut_->Build();
     }
     if (mapColors_) mapColors_->Modified();   // 触发切面重新映射
+}
+
+void CbctVtkRenderer::applyOpacity() {
+    // 不透明度曲线二选一（均在渲染线程内调用）：
+    //  - 默认骨窗曲线：HU<200 全透明（PDF 骨骼阈值过滤软组织），200->1300 渐升；
+    //  - 分割区间曲线：仅 [segMin_, segMax_] 内不透明，两侧按 feather 渐变。
+    // 未调用 setSegmentHuRange() 时走默认分支，与模块原有行为逐点一致。
+    if (!opacityTF_) return;
+    opacityTF_->RemoveAllPoints();
+    if (!segActive_) {
+        opacityTF_->AddPoint(-1024.0, 0.00);
+        opacityTF_->AddPoint(200.0, 0.00);
+        opacityTF_->AddPoint(1300.0, 0.85);
+        opacityTF_->AddPoint(4000.0, 0.90);
+        return;
+    }
+    const double f = segFeather_ > 0.0 ? segFeather_ : 1.0;
+    const double alphaIn = 0.90;
+    opacityTF_->RemoveAllPoints();
+    opacityTF_->AddPoint(segMin_ - f, 0.00);
+    opacityTF_->AddPoint(segMin_, alphaIn);
+    opacityTF_->AddPoint(segMax_, alphaIn);
+    opacityTF_->AddPoint(segMax_ + f, 0.00);
+    // 区间外两端兜底，避免 VTK 在曲线端点之外沿用最后一个控制点的值
+    opacityTF_->AddPoint(segMin_ - 4.0 * f, 0.00, 1.0, 0.0);
+    opacityTF_->AddPoint(segMax_ + 4.0 * f, 0.00, 1.0, 1.0);
+    if (volume_) volume_->Modified();
+}
+
+void CbctVtkRenderer::applyVisibility() {
+    // 叠加层单独显示（隔离显示 ROI 子集）时隐藏体数据/切面 Prop。
+    // 模式切换会重建 Prop 挂载，因此 applyRenderMode() 末尾也需重放本状态。
+    //
+    // 关键约束：HU 阈值分割（setSegmentHuRange）没有独立 Actor，它是把 volume_ 的
+    // 不透明度曲线改成"区间内不透明、区间外全透明"。此时 volume_ 本身就是 ROI 子集，
+    // 再按 volumeVisible_=false 隐藏它会把分割结果一起抹掉（真机表现为纯白屏）。
+    // 因此分割生效期间强制保留体数据可见，调用方只应通过 TF 区间控制显隐。
+    const bool volumeShown = volumeVisible_ || segActive_;
+    if (volume_) volume_->SetVisibility(volumeShown ? 1 : 0);
+    if (imageActor_) imageActor_->SetVisibility(volumeVisible_ ? 1 : 0);
 }
 
 void CbctVtkRenderer::setupCameraForMode() {
@@ -1111,4 +1147,276 @@ void CbctVtkRenderer::applyZoom(double factor) {
         LOGD("applyZoom (Perspective): factor=%.4f dist %.1f -> %.1f",
              factor, oldDist, cam->GetDistance());
     }
+}
+
+// =============================================================================
+// 坐标内省与取图（只读能力，供上层扩展模块叠加测量/标注图形）
+//
+// 全部通过 post(task, synchronous=true) 在渲染线程执行：
+//  1) 与相机/管线状态的写入严格串行，读到的就是"屏幕上那一帧"的状态；
+//  2) GL 相关调用（回读帧缓冲）必须落在 EGL 上下文所在线程。
+// 世界<->屏幕换算交给 vtkCoordinate（VTK 自己的投影逆运算），因此叠加层与
+// 体绘制/切面使用同一套投影矩阵，不会因为扩展模块另写一份相机模型而错位。
+// =============================================================================
+
+bool CbctVtkRenderer::projectToDisplay(const double *xyz, int count, double *xy) {
+    if (!xyz || !xy || count <= 0) return false;
+    bool ok = false;
+    post([this, xyz, count, xy, &ok] {
+        if (!renderer_ || !renderWindow_) return;
+        const int *winSize = renderWindow_->GetSize();
+        if (!winSize || winSize[0] <= 0 || winSize[1] <= 0) return;
+        vtkNew<vtkCoordinate> co;
+        co->SetCoordinateSystemToWorld();
+        // MPR 下切面 actor 摆在世界 XY 平面上（真机实测冠状面 bounds=[0 359.3][0 660][0 0]）：
+        // 冠状面的"纵向屏幕轴"装的是体数据 z，矢状面的"横向屏幕轴"装的是体数据 y。
+        // 所以叠加层必须做 displayToSliceWorld 的同一套面内轴变换（含 actor 原点偏移），
+        // 否则拾取到的冠状面点画回屏幕会塌成一条水平线（世界 y 恒等于层位）。
+        // 轴位是恒等映射，与旧路径逐位一致。
+        // 前提：MPR 只做平移不做旋转（applyRotate 在非 VR 模式退化为 applyPan），
+        // 相机视线恒为 -Z，故屏幕坐标只取传入点的 x/y，z 不参与。
+        const bool slice = (mode_ == MODE_MPR);
+        const int plane = plane_;
+        double ox = 0.0, oy = 0.0, oz = 0.0;
+        if (slice && imageActor_) {
+            const double *ab = imageActor_->GetBounds();
+            if (ab && ab[1] > ab[0] && ab[3] > ab[2]) {
+                ox = ab[0];
+                oy = ab[2];
+                oz = ab[4];
+            }
+        }
+        for (int i = 0; i < count; ++i) {
+            const double wx = xyz[i * 3 + 0], wy = xyz[i * 3 + 1], wz = xyz[i * 3 + 2];
+            if (!slice) {
+                co->SetValue(wx, wy, wz);
+            } else {
+                double px = wx, py = wy;
+                if (plane == PLANE_CORONAL) { px = wx; py = wz; }
+                else if (plane == PLANE_SAGITTAL) { px = wy; py = wz; }
+                co->SetValue(px + ox, py + oy, oz);
+            }
+            double *d = co->GetComputedDoubleDisplayValue(renderer_);
+            // VTK display 原点在左下、Y 向上；Android 视图原点在左上、Y 向下
+            xy[i * 2 + 0] = d[0];
+            xy[i * 2 + 1] = winSize[1] - d[1];
+        }
+        ok = true;
+    }, true);
+    return ok;
+}
+
+bool CbctVtkRenderer::displayToRay(double x, double y, double origin[3], double dir[3]) {
+    if (!origin || !dir) return false;
+    bool ok = false;
+    post([this, x, y, origin, dir, &ok] {
+        if (!renderer_ || !renderWindow_) return;
+        vtkCamera *cam = renderer_->GetActiveCamera();
+        if (!cam) return;
+        const int *winSize = renderWindow_->GetSize();
+        if (!winSize || winSize[0] <= 0 || winSize[1] <= 0) return;
+
+        const double *clip = cam->GetClippingRange();
+        const double nearZ = clip[0], farZ = clip[1];
+        if (!(farZ > nearZ)) return;
+
+        vtkNew<vtkCoordinate> co;
+        co->SetCoordinateSystemToDisplay();
+        // 显示 Y 翻回 VTK 的左下原点，再分别取近/远裁剪面上的世界点
+        const double vy = winSize[1] - y;
+        co->SetValue(x, vy, nearZ);
+        double *p0 = co->GetComputedWorldValue(renderer_);
+        const double o[3] = {p0[0], p0[1], p0[2]};
+        co->SetValue(x, vy, farZ);
+        double *p1 = co->GetComputedWorldValue(renderer_);
+
+        double d[3] = {p1[0] - o[0], p1[1] - o[1], p1[2] - o[2]};
+        const double len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (len < 1e-9) return;
+        origin[0] = o[0]; origin[1] = o[1]; origin[2] = o[2];
+        dir[0] = d[0] / len; dir[1] = d[1] / len; dir[2] = d[2] / len;
+        ok = true;
+    }, true);
+    return ok;
+}
+
+/**
+ * 显示坐标 -> 当前 MPR 切面上的世界点（只读内省，测量层用）。
+ *
+ * 为什么不能沿用"射线 ∩ 世界平面"：
+ *  1) MPR 相机固定沿 -Z 正交俯视切面（见 setupCameraForMode），而冠状/矢状切面的
+ *     世界平面法线是 Y / X，射线与它们平行，永远求不出交点——MeasurePicker::pickPlane
+ *     对这两类面只会返回 "ray parallel to plane"。
+ *  2) 就算求交也不能靠裁剪面参数 t：切面是退化的 2D Prop（z 厚度为 0），
+ *     ResetCameraClippingRange 给在近裁剪面上。真机日志显示 dir=(0,0,-1) 时射线的
+ *     世界起点 z 已经是负数（"slice plane behind camera"），即近裁剪面落到了切面之后。
+ *     平行投影下射线的 x/y 沿程不变，所以直接取起点分量即可，完全不看 t。
+ *
+ * 屏幕点真正对应的是"切面图像的面内物理坐标"，按 applyPlane() 里每个面的
+ * ResliceAxesDirectionCosines 反算：
+ *   轴位  面内(i,j) = 世界(x, y)，平面 z = pos*sz
+ *   冠状  面内(i,j) = 世界(x, z)，平面 y = pos*sy
+ *   矢状  面内(i,j) = 世界(y, z)，平面 x = pos*sx
+ * 面内坐标以 imageActor_ 实际 bounds 的左下角为基准：Reslice 输出图像的原点不必落在
+ * 世界 0，而三个面的方向余弦都把体数据原点放在面内 (0,0)，所以"相对 actor 左下"才是
+ * 对应体数据索引的那个量。轴位路径与旧的射线-平面求交结果一致（同一条 -Z 射线、同一个
+ * x/y、同一个 z=pos*sz），因此这一改动对已验证的轴面拾取等价，只是把冠状/矢状从
+ * "拾取不到"变成可用。
+ */
+bool CbctVtkRenderer::displayToSliceWorld(double x, double y, double out[3]) {
+    if (!out) return false;
+    double o[3] = {0, 0, 0}, d[3] = {0, 0, 0};
+    if (!displayToRay(x, y, o, d)) {
+        LOGW("displayToSliceWorld: displayToRay failed at disp(%.0f,%.0f)", x, y);
+        return false;
+    }
+    const double ray[6] = {o[0], o[1], o[2], d[0], d[1], d[2]};
+    bool ok = false;
+    post([this, ray, out, &ok] {
+        const double *o = ray, *d = ray + 3;
+        const char *why = nullptr;
+        double a = 0.0, b = 0.0, lim0 = 0.0, lim1 = 0.0;
+        double bnd[6] = {0, 0, 0, 0, 0, 0};
+        do {
+            if (mode_ != MODE_MPR) { why = "not MPR"; break; }
+            if (!vol_) { why = "no volume"; break; }
+            // 视线的 x/y 分量非零说明被旋转过，面内坐标不再等于世界分量
+            if (std::fabs(d[0]) > 1e-6 || std::fabs(d[1]) > 1e-6 ||
+                std::fabs(d[2]) < 1e-6) { why = "view not along Z"; break; }
+            if (!imageActor_) { why = "no slice actor"; break; }
+            const double *ab = imageActor_->GetBounds();
+            if (!ab) { why = "no actor bounds"; break; }
+            for (int i = 0; i < 6; ++i) bnd[i] = ab[i];
+            lim0 = bnd[1] - bnd[0];
+            lim1 = bnd[3] - bnd[2];
+            if (lim0 <= 1e-9 || lim1 <= 1e-9) { why = "actor bounds empty"; break; }
+            a = o[0] - bnd[0];                  // 切面图像横向物理坐标（mm，从面内原点起）
+            b = o[1] - bnd[2];                  // 切面图像纵向物理坐标（mm）
+            // 与 MeasurePicker::pickPlane 一致：允许一个体素的越界，容忍指尖误差
+            const double slack = std::max(vol_->spacingX, std::max(vol_->spacingY, vol_->spacingZ));
+            if (a < -slack || a > lim0 + slack || b < -slack || b > lim1 + slack) {
+                why = "point outside slice"; break;
+            }
+            const double sx = vol_->spacingX, sy = vol_->spacingY, sz = vol_->spacingZ;
+            double wx, wy, wz;
+            switch (plane_) {
+                case PLANE_CORONAL:
+                    wx = a; wy = position_ * sy; wz = b;
+                    break;
+                case PLANE_SAGITTAL:
+                    wx = position_ * sx; wy = a; wz = b;
+                    break;
+                default:   // PLANE_AXIAL
+                    wx = a; wy = b; wz = position_ * sz;
+                    break;
+            }
+            out[0] = wx; out[1] = wy; out[2] = wz;
+            ok = true;
+        } while (false);
+        // 真机上"点不上切面"必须能一眼分清是相机、越界还是模式问题
+        LOGD("displayToSliceWorld: mode=%d plane=%d pos=%d o=(%.2f,%.2f,%.2f) "
+             "dir=(%.3f,%.3f,%.3f) actor=[%.1f %.1f][%.1f %.1f][%.1f %.1f] "
+             "in=(%.2f,%.2f) lim=(%.1f,%.1f) -> %s",
+             (int) mode_, (int) plane_, position_, o[0], o[1], o[2], d[0], d[1], d[2],
+             bnd[0], bnd[1], bnd[2], bnd[3], bnd[4], bnd[5], a, b, lim0, lim1,
+             why ? why : "ok");
+    }, true);
+    return ok;
+}
+
+bool CbctVtkRenderer::getRenderSnapshot(double out[8]) {
+    if (!out) return false;
+    bool ok = false;
+    post([this, out, &ok] {
+        int w = surfW_, h = surfH_;
+        if (renderWindow_) {
+            const int *sz = renderWindow_->GetSize();
+            if (sz) {
+                w = sz[0];
+                h = sz[1];
+            }
+        }
+        out[0] = mode_;
+        out[1] = plane_;
+        out[2] = position_;
+        out[3] = w;
+        out[4] = h;
+        out[5] = ww_;
+        out[6] = wc_;
+        out[7] = (renderer_ && renderer_->GetActiveCamera() &&
+                  renderer_->GetActiveCamera()->GetParallelProjection()) ? 1.0 : 0.0;
+        ok = true;
+    }, true);
+    return ok;
+}
+
+void CbctVtkRenderer::setVolumeVisible(bool visible) {
+    post([this, visible] {
+        volumeVisible_ = visible;
+        applyVisibility();
+        markDirty();
+    }, false);
+}
+
+void CbctVtkRenderer::setSegmentHuRange(double huMin, double huMax, double feather) {
+    post([this, huMin, huMax, feather] {
+        segMin_ = huMin;
+        segMax_ = std::max(huMin + 1.0, huMax);
+        segFeather_ = std::max(1.0, feather);
+        segActive_ = true;
+        applyOpacity();
+        applyVisibility();   // 分割生效 => 体数据 Actor 必须保持可见（见函数内注释）
+        if (volume_) volume_->Modified();
+        markDirty();
+    }, false);
+}
+
+void CbctVtkRenderer::resetSegmentHuRange() {
+    post([this] {
+        segActive_ = false;
+        applyOpacity();
+        applyVisibility();   // 分割关闭后回落到调用方设置的 volumeVisible_
+        if (volume_) volume_->Modified();
+        markDirty();
+    }, false);
+}
+
+bool CbctVtkRenderer::captureFrame(std::vector<uint8_t> &rgba, int &w, int &h) {
+    w = 0;
+    h = 0;
+    rgba.clear();
+    bool ok = false;
+    post([this, &rgba, &w, &h, &ok] {
+        if (!renderWindow_ || !window_) return;
+        // vtkWindowToImageFilter 内部会 InvokeEvent(RenderStart/End) 触发一次
+        // Render() 并按渲染窗口像素格式回读，是 VTK 官方的截图路径；
+        // 必须在渲染线程调用（EGL 上下文绑定线程）。
+        vtkNew<vtkWindowToImageFilter> winToImg;
+        winToImg->SetInput(renderWindow_);
+        winToImg->SetInputBufferTypeToRGBA();
+        winToImg->ReadFrontBufferOff();   // 直接取后台缓冲（刚渲染完那一帧）
+        winToImg->Update();
+        vtkImageData *img = winToImg->GetOutput();
+        if (!img || !img->GetPointData()->GetScalars()) {
+            LOGW("captureFrame: window-to-image output empty");
+            return;
+        }
+        const int *ext = img->GetExtent();
+        const int iw = ext[1] - ext[0] + 1;
+        const int ih = ext[3] - ext[2] + 1;
+        unsigned char *src = static_cast<unsigned char *>(img->GetScalarPointer());
+        if (iw <= 0 || ih <= 0 || !src) return;
+        rgba.assign((size_t) iw * ih * 4, 0);
+        // VTK 图像第 0 行在底部，Android Bitmap 第 0 行在顶部：逐行翻转拷贝
+        for (int row = 0; row < ih; ++row) {
+            const unsigned char *s = src + (size_t)(ih - 1 - row) * iw * 4;
+            uint8_t *d = rgba.data() + (size_t) row * iw * 4;
+            memcpy(d, s, (size_t) iw * 4);
+        }
+        w = iw;
+        h = ih;
+        ok = true;
+        LOGD("captureFrame: %dx%d RGBA", w, h);
+    }, true);
+    return ok;
 }

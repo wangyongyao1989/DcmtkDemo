@@ -2,10 +2,12 @@
 #define DCMTKDEMO_CBCTVTKRENDERER_H
 
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "vtkSmartPointer.h"
 
@@ -89,6 +91,74 @@ public:
     void pan(double dx, double dy);      // 双指平移：位置偏移
     void zoom(double factor);            // 双指捏合：相机远近 / 平行缩放
 
+    // =========================================================================
+    // 坐标内省与取图（只读能力，供上层扩展模块叠加测量/标注图形使用）
+    //
+    // 设计约束：本组接口不新增任何 VTK 对象跨模块传递——出入参全部是 double /
+    // 字节缓冲等 POD，世界坐标一律为 mm（与 init() 里 imageData_ 的
+    // origin=0、index*spacing 世界域对齐约定一致）。这样扩展模块即使各自静态
+    // 链接了一份 VTK，也不会出现两套 VTK 单例/信息键互相污染的问题；
+    // 而投影与共线（世界<->屏幕）换算由本模块内的 vtkCoordinate 完成，
+    // 与实际渲染使用的相机严格一致，不会因两套相机模型漂移而错位。
+    // 这些方法都在渲染线程内同步执行（post(task, true)），因此拿到的永远是
+    // 队列中已排队的全部手势/参数任务落地之后的状态——即"当前屏幕上那一帧"。
+    // =========================================================================
+
+    /**
+     * 世界坐标(mm) -> 显示坐标(像素，原点左上、Y 轴向下，已按 Android 视图翻转)。
+     * @param xyz 输入 3*count 个 double
+     * @param xy  输出 2*count 个 double
+     * @return 渲染窗口/相机未就绪时 false（out 不写入）
+     */
+    bool projectToDisplay(const double *xyz, int count, double *xy);
+
+    /**
+     * 显示坐标(像素，原点左上) -> 世界空间拾取射线（近裁剪面点 + 单位方向）。
+     * 调用方再与体包围盒 / 当前切面平面求交即可得到被测点（见扩展层 MeasurePicker）。
+     */
+    bool displayToRay(double x, double y, double origin[3], double dir[3]);
+
+    /**
+     * 显示坐标(像素，原点左上) -> 当前 MPR 切面上的世界点(mm)。
+     *
+     * 冠状/矢状切面的世界平面法线与 MPR 相机视线（固定 -Z）平行，射线-平面求交
+     * 无解，所以这两类面必须走"切面图像行列 -> 世界"的反算，不能复用 displayToRay。
+     * 正交俯视下射线的 x/y 沿射线不变，因此直接取射线起点分量即可，
+     * 不依赖裁剪面位置（ResetCameraClippingRange 对退化 2D bounds 会把近裁剪面推到切面之后）。
+     * 非 MPR 模式、或点落在切面图像之外时返回 false（out 不写入）。
+     */
+    bool displayToSliceWorld(double x, double y, double out[3]);
+
+    /**
+     * 渲染状态快照：[0]mode [1]plane [2]position [3]surfW [4]surfH
+     *               [5]ww [6]wc [7]parallelProjection(0/1)
+     */
+    bool getRenderSnapshot(double out[8]);
+
+    /**
+     * 体数据/切面 Prop 可见性（叠加层单独显示时隐藏 Volume）。
+     * 默认可见；与 setRenderMode/setPlane 互不干扰（模式切换后仍然生效）。
+     */
+    void setVolumeVisible(bool visible);
+    bool isVolumeVisible() const { return volumeVisible_; }
+
+    /**
+     * HU 阈值分割显示：把 [huMin, huMax] 之外的体素不透明度置 0（区间内保持
+     * 骨窗曲线的高不透明度），feather 为区间边沿的渐变宽度（HU）。
+     * 复用不透明度传递函数机制，不新建 Mapper，因此参数调节按帧生效。
+     * 调用 resetSegmentHuRange() 可恢复模块默认的骨窗曲线（HU<200 全透明）。
+     */
+    void setSegmentHuRange(double huMin, double huMax, double feather);
+    void resetSegmentHuRange();
+    bool isSegmentActive() const { return segActive_; }
+
+    /**
+     * 抓取当前帧（vtkWindowToImageFilter 回读，RGBA8888，已翻转为 Bitmap 行序）。
+     * @param rgba 输出 4*w*h 字节
+     * @return 未就绪/回读失败为 false
+     */
+    bool captureFrame(std::vector<uint8_t> &rgba, int &w, int &h);
+
 private:
     CbctVtkRenderer();
     ~CbctVtkRenderer();
@@ -111,6 +181,8 @@ private:
     void applyRotate(double dx, double dy);
     void applyPan(double dx, double dy);
     void applyZoom(double factor);
+    void applyOpacity();            // 不透明度曲线：默认骨窗 / 分割区间二选一（渲染线程）
+    void applyVisibility();         // 体数据/切面 Prop 可见性落地（渲染线程）
 
     // ---------- 输入与窗口 ----------
     CbctVolume *vol_ = nullptr;        // 非拥有：destroy() 必须先于 Volume release
@@ -144,6 +216,12 @@ private:
     double wc_ = 600.0;
     double initDist_ = 1.0;    // ResetCamera 后的相机距离（zoom 钳制基准）
     bool cameraReady_ = false; // 首帧自动复位相机
+    // 叠加层扩展支撑（默认值即模块原有行为：Volume 可见、不透明度为骨窗曲线）
+    bool volumeVisible_ = true;
+    bool segActive_ = false;       // true 时不透明度曲线改为 HU 分割区间
+    double segMin_ = 200.0;        // 分割区间下限（HU）
+    double segMax_ = 3000.0;       // 分割区间上限（HU）
+    double segFeather_ = 120.0;    // 区间边沿渐变宽度（HU）
 
     // ---------- 渲染线程 ----------
     std::thread thread_;
