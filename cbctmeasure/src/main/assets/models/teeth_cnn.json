@@ -1,0 +1,51 @@
+{
+  "name": "teeth_cnn",
+  "version": "v2-device-order",
+  "task": "AI-01 牙齿自动分割（二分类：牙 vs 非牙）",
+  "file": "teeth_cnn.onnx",
+  "sha256": "3092730fc286607447bbc8dadb678530535711aadd75429cf047e499ac3b767f",
+  "bytes": 14477,
+  "opset": 17,
+  "runtime": "ONNX Runtime Android 1.17.0（AAR 内的 libonnxruntime.so，C++ 侧 dlopen + OrtApi）",
+  "threshold": 0.49,
+  "threshold_how": "在验证集 dentvoxel_0074 的整块网格上扫 0.05..0.95（步长 0.01），取 Dice 最大点；不是拍脑袋的 0.5",
+  "input": {
+    "name": "feat",
+    "shape": [1, 6, 96, 96, 64],
+    "dtype": "float32",
+    "axis_order": "DEVICE：轴0=DICOM 列，轴1=DICOM 行，轴2=z。3x3x3 卷积对该平面转置不等价，所以模型按设备轴序训练与导出",
+    "channels": "c0=抽稀归一化 HU；c1..c4=盒均值 r=1,2,4,8；c5=盒(r=4)-盒(r=8) 带通"
+  },
+  "output": {
+    "name": "prob",
+    "shape": [1, 2, 96, 96, 64],
+    "dtype": "float32",
+    "semantics": "Softmax(axis=1)；prob[1]>threshold 记为牙齿体素"
+  },
+  "volume_contract": {
+    "appDim": [192, 192, 128],
+    "appSpacingMm": [0.6, 0.6, 0.6],
+    "factor": [2, 2, 2],
+    "redDim": [96, 96, 64],
+    "redVoxelMm": [1.2, 1.2, 1.2],
+    "redVoxelMm3": 1.728,
+    "huNorm": "clip[-1024,4095] -> (h+1024)/5120 - 0.5"
+  },
+  "architecture": "Conv3d(6->8,k3,p1)+Relu+Conv3d(8->8,k3,p1)+Relu+Conv3d(8->2,k3,p1)+Softmax，3474 参数",
+  "training": {
+    "framework": "纯 numpy 手写前向/反向 + 有限差分梯度校验（本机装不上 torch/tf，见模块 README 的'为什么不是 nnU-Net'）",
+    "optimizer": "Adam lr=0.02, l2=1e-4, 16^3 patch, 每更新 8 patch",
+    "trainCases": ["dentvoxel_0021", "dentvoxel_0047"],
+    "valCase": "dentvoxel_0074",
+    "testCase": "dentvoxel_0101",
+    "adamUpdates": 2048,
+    "seed": 20260101
+  },
+  "metrics": {
+    "val_0074_at_chosen": {"dice": 0.6224610530467364, "precision": 0.5409133750321309, "recall": 0.7329618019273192},
+    "test_0101_at_chosen": {"dice": 0.5828457386492494, "precision": 0.6452098815023097, "recall": 0.5314748945322194},
+    "prd_ai01_target": "F1 >= 0.85",
+    "prd_ai01_met": false,
+    "note": "PRD 的 0.85 是 nnU-Net 级架构 + 数百例训练数据的量级；本模型 3474 参数、2 例训练，达不到是预期内的。推理链路与取证口径是按 PRD 实现的，精度缺口见 doc/AI_ONNX_TEST_REPORT.md"
+  }
+}
