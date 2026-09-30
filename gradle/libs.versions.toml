@@ -12,6 +12,9 @@ coreKtx = "1.19.0"
 lifecycle = "2.8.7"
 leakcanary = "2.14"
 documentfile = "1.0.1"
+# ONNX Runtime Android：1.17.0 与设备端 libonnxruntime.so 的 ORT_API_VERSION 17 对齐
+# （cbctmeasure 的 C++ 侧用 dlopen + OrtApi 跳转表调用它，见 ai/OrtEngine.h）
+onnxruntime = "1.17.0"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -27,6 +30,8 @@ glide = { group = "com.github.bumptech.glide", name = "glide", version.ref = "gl
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+# 只取其 jni/<abi>/libonnxruntime.so 交付物（推理走 C++ 侧 dlopen，Kotlin 不用 ORT 的 Java API）
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
