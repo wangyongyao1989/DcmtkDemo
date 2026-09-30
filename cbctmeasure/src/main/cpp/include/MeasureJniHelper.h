@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "ai/OrtEngine.h"
 #include "include/AnnotationStore.h"
 #include "include/MeasurementManager.h"
 // SrReport.h 不含 DCMTK 类型（只声明 POD 结构体与 bool 接口），因此 JNI 层可以
@@ -76,6 +77,23 @@ namespace MeasureJniHelper {
         MeasurementManager mgr;
         AnnotationStore annos;
 
+        /**
+         * AI 运行时（PRD 5.6 / 8.6）。放在会话里而不是全局，切序列时不会把上一
+         * 序列的模型状态带过来；它只在 ai-native-lib.cpp 里被调用，头文件不含
+         * ORT 类型（OrtEngine 用 pimpl），所以本头依然能被非 Android 环境包含。
+         */
+        OrtEngine ort;
+        /**
+         * 奇偶校验（AC-08）用的中间量。只有 nativeRunSegment(keepParity=true) 才留，
+         * 平时为空 —— 一份 feat 是 14MB，不该常驻。
+         */
+        std::vector<float> parityFeat;
+        std::vector<float> parityProb;
+        /** nativeLoadModel 传入的模型标识，写进 AiResult 供报告与状态栏引用 */
+        std::string aiModelName;
+        /** nativeLoadModel 是否成功（Kotlin 侧按钮可用性据此决定，不必再解析 JSON） */
+        bool aiReady = false;
+
         bool dirty = true;
         int cachePlane = -999;
         int cachePosition = -999999;
@@ -102,6 +120,12 @@ namespace MeasureJniHelper {
     void serializeOverlay(const std::vector<OverlayPrim> &prims,
                           std::string &outJson,
                           std::vector<double> &outPoints);
+
+    /**
+     * AiResult -> JSON（PRD 5.6 的取证字段：耗时分段、实例表、阈值、运行时信息）。
+     * 掩膜体本身不进 JSON（那是几十万个字节），只给统计与实例列表。
+     */
+    Json aiResultToJson(const AiResult &r);
 
     /** RoiStats -> JSON（字段名与 RoiExtractor::RoiStats 一一对应） */
     Json roiStatsToJson(const RoiStats &s);

@@ -33,11 +33,20 @@
 
 using namespace MeasureJniHelper;
 
-static const char *const kMeasureClass = "com/wangyao/cbctmeasure/jni/MeasureJni";
-static const char *const kRoiClass = "com/wangyao/cbctmeasure/jni/RoiJni";
+static const char *const kMeasureClass = "com/wangyao/cbctmeasure/jni/MeasureJni";static const char *const kRoiClass = "com/wangyao/cbctmeasure/jni/RoiJni";
 static const char *const kPlanClass = "com/wangyao/cbctmeasure/jni/SurgeryPlanJni";
 static const char *const kAnnoClass = "com/wangyao/cbctmeasure/jni/AnnotationJni";
 static const char *const kReportClass = "com/wangyao/cbctmeasure/jni/ReportJni";
+
+/**
+ * AI-01 / AI-03 的原生方法注册入口（实现在 ai-native-lib.cpp）。
+ *
+ * 单独成一个编译单元、由这里调用，是为了让 AI 层的 JNI 面自包含：
+ * 删除 AI 功能时只需要去掉 ai-native-lib.cpp 与下面一行调用。
+ * 返回 <0 只告警不让 JNI_OnLoad 失败 —— Phase 2 能力缺失不应让
+ * 一期已有的测量功能加载不起来。
+ */
+extern "C" int CbctMeasureRegisterAiNatives(JNIEnv *env);
 
 namespace {
 
@@ -997,8 +1006,7 @@ static const JNINativeMethod kReportMethods[] = {
 };
 
 static int registerClass(JNIEnv *env, const char *name,
-                         const JNINativeMethod *methods, size_t count) {
-    jclass clazz = env->FindClass(name);
+                         const JNINativeMethod *methods, size_t count) {    jclass clazz = env->FindClass(name);
     if (!clazz) {
         LOGE("FindClass failed: %s（Kotlin 类名或包名与注册表不一致）", name);
         env->ExceptionClear();
@@ -1029,7 +1037,12 @@ extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     if (registerClass(env, kReportClass, kReportMethods,
                       sizeof(kReportMethods) / sizeof(kReportMethods[0])) < 0) return JNI_ERR;
 
-    LOGD("cbct_measure JNI loaded（5 类 %zu 个原生方法）",
+    // AI 层（Phase 2）：注册失败只降级，不影响上面五个类已经注册成功的方法
+    if (CbctMeasureRegisterAiNatives(env) < 0) {
+        LOGW("AI natives 未注册：AiJni 不可用，测量/ROI/规划/报告功能不受影响");
+    }
+
+    LOGD("cbct_measure JNI loaded（5 类 %zu 个原生方法 + AI 层）",
          sizeof(kMeasureMethods) / sizeof(kMeasureMethods[0]) +
          sizeof(kRoiMethods) / sizeof(kRoiMethods[0]) +
          sizeof(kPlanMethods) / sizeof(kPlanMethods[0]) +

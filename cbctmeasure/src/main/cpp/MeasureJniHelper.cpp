@@ -1,5 +1,7 @@
 #include "include/MeasureJniHelper.h"
 
+#include "include/AiCore.h"   // aiResultToJson 里的 summaryText
+
 #include <android/log.h>
 
 #include <cstring>
@@ -114,6 +116,9 @@ namespace MeasureJniHelper {
                                  || includePixel != cacheIncludePixel;
         if (dirty || argsChanged) {
             std::vector<OverlayPrim> prims;
+            // AI 掩膜轮廓只画当前 MPR 层（层位由 buildOverlay 消费），
+            // 所以每次重建缓存前先把层位同步给 manager。
+            mgr.setAiOverlaySlice(plane, position);
             mgr.buildOverlay(prims);
             // 种植体/神经计划在 buildPlanOverlay 里（PRD 5.3）：不调用它就画不出植入体，
             // 这是"叠加层只显示测量线"那类问题的根因，务必三个来源都构建。
@@ -138,6 +143,79 @@ namespace MeasureJniHelper {
     // -------------------------------------------------------------------------
     // 结果对象 -> JSON
     // -------------------------------------------------------------------------
+
+    Json aiResultToJson(const AiResult &r) {
+        Json j = Json::makeObject();
+        j.set("ok", Json::makeBool(r.ok));
+        j.set("error", Json::makeString(r.error));
+        j.set("modelName", Json::makeString(r.modelName));
+        j.set("runtimeInfo", Json::makeString(r.runtimeInfo));
+        j.set("threshold", Json::makeNumber(r.thresholdUsed));
+        j.set("prepMs", Json::makeNumber(r.prepMs));
+        j.set("inferMs", Json::makeNumber(r.inferMs));
+        j.set("postMs", Json::makeNumber(r.postMs));
+        j.set("totalMs", Json::makeNumber(r.totalMs));
+        j.set("allocBytes", Json::makeNumber((double) r.allocBytes));
+        j.set("toothVoxels", Json::makeNumber((double) r.toothVoxels));
+        j.set("overlayVisible", Json::makeBool(r.overlayVisible));
+        Json dims = Json::makeArray();
+        for (int a = 0; a < 3; ++a) dims.push(Json::makeNumber(r.grid.modelDim[a]));
+        j.set("modelDim", dims);
+        Json factor = Json::makeArray();
+        for (int a = 0; a < 3; ++a) factor.push(Json::makeNumber(r.grid.factor[a]));
+        j.set("factor", factor);
+        Json red = Json::makeArray();
+        for (int a = 0; a < 3; ++a) red.push(Json::makeNumber(r.grid.redDim[a]));
+        j.set("redDim", red);
+        Json spacing = Json::makeArray();
+        for (int a = 0; a < 3; ++a) spacing.push(Json::makeNumber(r.grid.spacing[a]));
+        j.set("modelSpacing", spacing);
+        // 体素边长：AI 体积口径的最小单位，报告里"分割体素数 × 该值 = 体积"要能对上
+        j.set("redVoxelMm3",
+              Json::makeNumber(r.grid.spacing[0] * r.grid.spacing[1] * r.grid.spacing[2]));
+
+        Json arr = Json::makeArray();
+        for (size_t t = 0; t < r.instances.size(); ++t) {
+            const AiInstance &ins = r.instances[t];
+            Json o = Json::makeObject();
+            o.set("id", Json::makeNumber(ins.id));
+            o.set("voxels", Json::makeNumber((double) ins.voxels));
+            o.set("volumeCm3", Json::makeNumber(ins.volumeMm3 / 1000.0));
+            Json c = Json::makeArray();
+            c.push(Json::makeNumber(ins.centroid.x));
+            c.push(Json::makeNumber(ins.centroid.y));
+            c.push(Json::makeNumber(ins.centroid.z));
+            o.set("centroid", c);
+            Json ax = Json::makeArray();
+            ax.push(Json::makeNumber(ins.axis.x));
+            ax.push(Json::makeNumber(ins.axis.y));
+            ax.push(Json::makeNumber(ins.axis.z));
+            o.set("axis", ax);
+            o.set("meanHu", Json::makeNumber(ins.meanHu));
+            o.set("minHu", Json::makeNumber(ins.minHu));
+            o.set("maxHu", Json::makeNumber(ins.maxHu));
+            o.set("sdHu", Json::makeNumber(ins.sdHu));
+            o.set("arch", Json::makeNumber(ins.arch));
+            o.set("toothIndex", Json::makeNumber(ins.toothCountHint));
+            o.set("archAngle", Json::makeNumber(ins.archAngleDeg));
+            o.set("crownZ", Json::makeNumber(ins.crownZ));
+            o.set("rootZ", Json::makeNumber(ins.rootZ));
+            Json bb = Json::makeArray();
+            bb.push(Json::makeNumber(ins.bboxMin.x));
+            bb.push(Json::makeNumber(ins.bboxMin.y));
+            bb.push(Json::makeNumber(ins.bboxMin.z));
+            bb.push(Json::makeNumber(ins.bboxMax.x));
+            bb.push(Json::makeNumber(ins.bboxMax.y));
+            bb.push(Json::makeNumber(ins.bboxMax.z));
+            o.set("bbox", bb);
+            o.set("roiId", Json::makeNumber(ins.roiId));
+            o.set("measureId", Json::makeNumber(ins.measureId));
+            arr.push(o);
+        }
+        j.set("instances", arr);
+        j.set("summary", Json::makeString(AiCore::summaryText(r)));
+        return j;
+    }
 
     Json roiStatsToJson(const RoiStats &s) {
         Json j = Json::makeObject();

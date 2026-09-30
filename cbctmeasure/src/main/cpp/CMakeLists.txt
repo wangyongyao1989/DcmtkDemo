@@ -50,6 +50,11 @@ include_directories(${DCMTK_CPP_ROOT})
 # 相对路径会落到 core/include/，因此必须把 cpp/ 本身加入搜索路径。
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
+# ONNX Runtime C API 头文件：从 AAR 的 headers/ 目录 vendor 进来（仅 4 个头，
+# 约 240KB；AAR 本身没有 prefab 元数据，无法由 CMake 自动发现）。
+# 注意只 include 不链接：运行时经 dlopen 获得，见 ai/OrtEngine.cpp。
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/include)
+
 file(GLOB DCMTK_STATIC_LIBS
         "${DCMTK_CPP_ROOT}/lib/${ANDROID_ABI}/*.a"
         "${DCMTK_CPP_ROOT}/lib/arm64-v8/*.a"   # 兼容旧路径名（与 :cbctdeal 一致）
@@ -72,6 +77,19 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         core/AnnotationStore.cpp
         core/MeasurePicker.cpp
         core/MeasurementManager.cpp
+        # ---- AI 层（PRD 5.6 / 8.6）----
+        # core/AiCore.cpp 与 core/AiEngine.cpp、core/AiPlanner.cpp 是纯 C++：
+        # 预处理、阈值掩膜、连通域、轮廓、统计、种植位推荐全部可在主机侧编译单测
+        # （见 src/host/build_and_run.sh），真机与主机共用同一份数值路径。
+        core/AiCore.cpp
+        core/AiEngine.cpp
+        core/AiPlanner.cpp
+        # ai/OrtEngine.cpp 是全工程唯一 include ONNX Runtime 头文件、唯一 dlopen
+        # libonnxruntime.so 的翻译单元（理由见 ai/OrtEngine.h 顶部：1.17.0 的 AAR
+        # 没有 prefab 模块，CMake 侧 find_package 走不通）。
+        ai/OrtEngine.cpp
+        # ---- JNI 桥接层（AI）：只做参数搬运与 JSON 序列化，不做计算 ----
+        ai-native-lib.cpp
         # ---- 数据层：DICOM SR（仅此处依赖 DCMTK）----
         core/SrReport.cpp)
 
@@ -104,4 +122,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         z
         m
         atomic
+        # dlopen/dlsym：ONNX Runtime 经运行时装载（Android 上 libdl 是自 API 24
+        # 起就存在的空 stub，符号实际在 libc 里，写上只为语义明确与低版本兼容）。
+        dl
 )
