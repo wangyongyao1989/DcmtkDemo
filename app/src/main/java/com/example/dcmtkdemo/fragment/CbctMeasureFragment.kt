@@ -23,13 +23,20 @@ import com.wangyao.cbctdeal.engine.CbctParseEngine
 import com.wangyao.cbctdeal.jni.CbctVtkJni
 import com.wangyao.cbctdeal.model.CbctVolumeHandle
 import com.wangyao.cbctdeal.transfer.CbctFileTransfer
+import com.wangyao.cbctmeasure.ai.AiEngine
+import com.wangyao.cbctmeasure.ai.DentalDataAssets
 import com.wangyao.cbctmeasure.jni.AnnotationJni
+import com.wangyao.cbctmeasure.jni.AiJni
 import com.wangyao.cbctmeasure.jni.MeasureJni
 import com.wangyao.cbctmeasure.jni.RoiJni
 import com.wangyao.cbctmeasure.jni.SurgeryPlanJni
 import com.wangyao.cbctmeasure.model.AnnotationItem
 import com.wangyao.cbctmeasure.model.AnnotationType
+import com.wangyao.cbctmeasure.model.AiArch
+import com.wangyao.cbctmeasure.model.AiCandidateInfo
+import com.wangyao.cbctmeasure.model.AiResultInfo
 import com.wangyao.cbctmeasure.model.CombineOp
+import com.wangyao.cbctmeasure.model.ImplantItem
 import com.wangyao.cbctmeasure.model.MeasurePlane
 import com.wangyao.cbctmeasure.model.MeasureType
 import com.wangyao.cbctmeasure.model.OverlayOwner
@@ -85,6 +92,19 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
 
     /** 隔离显示（只保留阈值区间体素）是否开启 */
     private var isolating = false
+
+    /**
+     * AI 层状态（PRD 5.6）。
+     *
+     * aiModel 为空表示运行时/模型还没装载成功；aiInfo 是"最近一次推理的回执"，
+     * 状态栏文字与取证导出都引用它，页面不自己算任何数。
+     * parityKept 记录最近一次推理是否用了 keepParity（导出取证数据要先有缓冲）。
+     */
+    private var aiModel: AiEngine.LoadResult? = null
+
+    private var aiInfo: AiResultInfo = AiResultInfo.EMPTY
+
+    private var parityKept = false
 
     /** RadioGroup 程序化设值时的防重入标志（避免 listener <-> controller 互相回调） */
     private var syncingToolRadio = false
@@ -143,6 +163,22 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         binding.btnSelectDir.setOnClickListener { dirPicker.launch(null) }
         binding.btnParse.setOnClickListener { runParse() }
         binding.btnLoadAssets.setOnClickListener { loadNeckCtAssets() }
+        binding.btnDentalData.setOnClickListener { pickDentalCase() }
+
+        // AI（PRD 5.6）：按钮可用性由 updateAiButtons() 统一管，见下面的会话生命周期
+        binding.btnAiLoad.setOnClickListener { loadAiModel() }
+        binding.btnAiSegment.setOnClickListener { runAiSegment(keepParity = false) }
+        binding.btnAiMeasure.setOnClickListener { aiAutoMeasure() }
+        binding.btnAiRecommend.setOnClickListener { aiRecommend() }
+        binding.btnAiParity.setOnClickListener { runAiSegment(keepParity = true) }
+        binding.btnAiClear.setOnClickListener { clearAi() }
+        binding.cbAiOverlay.setOnCheckedChangeListener { _, checked ->
+            if (sessionHandle != 0L) {
+                AiEngine.setOverlayVisible(sessionHandle, checked)
+                controller?.syncOverlay()
+            }
+        }
+        updateAiButtons()
 
         binding.rgTool.setOnCheckedChangeListener { _, _ -> onToolChanged() }
         binding.rgMeasureType.setOnCheckedChangeListener { _, _ -> onMeasureTypeChanged() }
@@ -324,6 +360,13 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         }
         sessionHandle = h
         volumeInfo = MeasureJni.volumeInfo(h)
+        // 新会话 = 新的 MeasureSession 对象，旧会话里的 OrtEngine 已随它销毁，
+        // 所以 AI 必须重新装载；沿用 aiModel 会让按钮"看着可点"却报句柄无效
+        aiModel = null
+        aiInfo = AiResultInfo.EMPTY
+        parityKept = false
+        binding.tvAiStatus.text = aiStatusText()
+        updateAiButtons()
 
         binding.measureView.setVolume(handle)
         setupViewerRanges()
@@ -1108,6 +1151,306 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
     // 生命周期
     // =========================================================================
 
+    // =========================================================================
+    // AI 辅助分析（PRD 5.6：AI-01 牙齿自动分割 / AI-03 种植位点推荐）
+    //
+    // 页面在这层只做三件事：选病例、点按钮、显示 Native 回传的数。
+    // 阈值不在这里定（来自 assets/models/teeth_cnn.json 的标定值），
+    // 掩膜/连通域/逐牙统计也都不在这里算 —— 否则"屏幕上的体积"与
+    // "PDF/SR 里的体积"就可能不是同一个数（PRD 6 精度项的前提）。
+    // =========================================================================
+
+    /** 病例选择：公开 DentVoxel 数据转成的内置牙科 CBCT 序列 */
+    private fun pickDentalCase() {
+        val ctx = context ?: return
+        val cases = DentalDataAssets.listCases(ctx)
+        if (cases.isEmpty()) {
+            toast("assets/dental_cbct 里没有病例")
+            return
+        }
+        val labels = cases.map { c ->
+            "${c.title}\n${c.note}（${c.sliceCount} 张）"
+        }.toTypedArray()
+        AlertDialog.Builder(ctx)
+            .setTitle("选择加载牙科 CBCT 数据")
+            .setItems(labels) { _, which -> loadDentalCase(cases[which]) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun loadDentalCase(case: DentalDataAssets.Case) {
+        val appCtx = context?.applicationContext ?: return
+        binding.btnDentalData.isEnabled = false
+        binding.tvInfo.text = "正在释放牙科 CBCT ${case.id} 到私有存储..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val dir = DentalDataAssets.release(appCtx, case)
+                if (_binding == null) return@launch
+                binding.etPath.setText(dir.absolutePath)
+                binding.tvInfo.text =
+                    "牙科 CBCT ${case.id}（${case.sliceCount} 张 @0.6mm）就绪，开始解析..."
+                runParse()
+            } catch (e: Exception) {
+                Log.e(TAG, "release dental case failed", e)
+                if (_binding != null) binding.tvInfo.text = "释放牙科 CBCT 失败: ${e.message}"
+            } finally {
+                if (_binding != null) binding.btnDentalData.isEnabled = true
+            }
+        }
+    }
+
+    /** 装载 ONNX Runtime + 模型（dlopen 失败也只影响 AI，不影响测量功能） */
+    @SuppressLint("SetTextI18n")
+    private fun loadAiModel() {
+        val appCtx = context?.applicationContext ?: return
+        if (sessionHandle == 0L) {
+            toast("请先解析一个 CBCT 序列")
+            return
+        }
+        binding.btnAiLoad.isEnabled = false
+        binding.tvAiStatus.text = "正在装载 ONNX Runtime 与模型..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            val r = try {
+                withContext(Dispatchers.Default) { AiEngine.loadModel(appCtx, sessionHandle) }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadModel threw", e)
+                AiEngine.LoadResult(false, "装载异常: ${e.message}")
+            }
+            if (_binding == null) return@launch
+            aiModel = r
+            binding.tvAiStatus.text = aiStatusText()
+            updateAiButtons()
+            binding.btnAiLoad.isEnabled = true
+        }
+    }
+
+    /**
+     * 一次完整推理。keepParity=true 是 AC-08 取证入口：
+     * 让 Native 把 feat/prob 留在会话里，随后落盘给主机脚本逐元素比对。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun runAiSegment(keepParity: Boolean) {
+        val h = sessionHandle
+        val model = aiModel
+        if (h == 0L || model == null || !model.ok) {
+            toast("请先装载模型")
+            return
+        }
+        aiBusy(true, if (keepParity) "AI 推理中（保留取证缓冲）..." else "AI 推理中...")
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val res = AiEngine.segment(
+                    h, model.threshold,
+                    keepParity = keepParity, autoMeasure = false,
+                )
+                if (_binding == null) return@launch
+                aiInfo = res.info
+                parityKept = keepParity
+                binding.tvAiStatus.text = aiStatusText()
+                updateAiButtons()
+                controller?.syncOverlay()
+                if (!res.info.ok) {
+                    toast("分割失败：${res.info.error}")
+                } else if (keepParity) {
+                    dumpAiParity()
+                } else {
+                    toast(res.info.summary)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "ai segment failed", e)
+                if (_binding != null) binding.tvAiStatus.text = "推理异常: ${e.message}"
+            } finally {
+                if (_binding != null) aiBusy(false, null)
+            }
+        }
+    }
+
+    /** 每个分割实例 -> R-06 掩膜 ROI + M-04 体积（+M-08 骨密度），进既有的列表/报告/SR 链路 */
+    private fun aiAutoMeasure() {
+        val h = sessionHandle
+        if (h == 0L || !aiInfo.ok) {
+            toast("请先做一次自动分割")
+            return
+        }
+        aiBusy(true, "正在按分割结果逐牙建 ROI 并测量...")
+        viewLifecycleOwner.lifecycleScope.launch {
+            val n = withContext(Dispatchers.Default) {
+                AiJni.nativeAiAutoMeasure(h, true)
+            }
+            if (_binding == null) return@launch
+            aiBusy(false, null)
+            aiInfo = AiEngine.status(h)
+            binding.tvAiStatus.text = aiStatusText()
+            controller?.syncOverlay()
+            refreshResults()
+            toast(if (n > 0) "已为 $n 颗牙建立掩膜 ROI 与体积/骨密度测量"
+            else "没有可建的测量（先做分割）")
+        }
+    }
+
+    /** AI-03：缺牙间隙候选 -> 对话框 -> 选中即落成一颗按建议姿态的种植体 */
+    private fun aiRecommend() {
+        val h = sessionHandle
+        if (h == 0L || !aiInfo.ok) {
+            toast("AI-03 需要先有分割结果（牙弓与咬合平面来自它）")
+            return
+        }
+        aiBusy(true, "正在评估候选位点...")
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (list, summary) = AiEngine.recommend(h, AI_MIN_GAP_MM, AI_MAX_CANDIDATES)
+            if (_binding == null) return@launch
+            aiBusy(false, null)
+            if (list.isEmpty()) {
+                toast(summary.ifEmpty { "没有可用的缺牙间隙（牙数不足或间隙过小）" })
+                return@launch
+            }
+            val labels = list.map { c ->
+                "${c.title()} · 评分 ${String.format("%.0f", c.score)} · " +
+                        "Ø${String.format("%.1f", c.diaMm)}x${String.format("%.1f", c.lengthMm)}mm · " +
+                        "${SafetyLevel.label(c.level)}${if (c.reason.isEmpty()) "" else "\n${c.reason}"}"
+            }.toTypedArray()
+            AlertDialog.Builder(requireContext())
+                .setTitle("种植位点推荐（${list.size} 个候选）\n$summary")
+                .setItems(labels) { _, which -> placeRecommended(list[which]) }
+                .setNegativeButton("关闭", null)
+                .show()
+        }
+    }
+
+    /** 把建议位点变成一颗真正的种植体：走既有的 S-02~S-06 安全评估通道 */
+    private fun placeRecommended(c: AiCandidateInfo) {
+        val h = sessionHandle
+        if (h == 0L) return
+        val implant = ImplantItem(
+            name = "AI推荐 ${AiArch.label(c.arch)}" +
+                    "${c.beforeId}-${c.afterId}",
+            entry = c.entry,
+            pitchDeg = c.pitchDeg,
+            yawDeg = c.yawDeg,
+            diaMm = c.diaMm,
+            lengthMm = c.lengthMm,
+            depthMm = c.depthMm,
+        )
+        val id = SurgeryPlanJni.addImplant(h, implant.toJson().toString())
+        if (id <= 0) {
+            toast("落库失败（Native addImplant 返回 $id）")
+            return
+        }
+        SurgeryPlanJni.recomputePlan(h)
+        controller?.syncOverlay()
+        refreshResults()
+        toast("已放置推荐种植体 #$id（骨高 ${String.format("%.1f", c.boneHeightMm)}mm，" +
+                "骨宽 ${String.format("%.1f", c.boneWidthMm)}mm）")
+    }
+
+    /** AC-08 取证导出：真机 feat/prob/label/inst 落到 filesDir/ai_parity */
+    @SuppressLint("SetTextI18n")
+    private fun dumpAiParity() {
+        val ctx = context?.applicationContext ?: return
+        val h = sessionHandle
+        if (h == 0L || !parityKept) {
+            toast("取证导出要用带缓冲的推理（直接按「导出取证数据」即可）")
+            return
+        }
+        val caseId = when {
+            !volumeInfo.valid -> "unknown"
+            volumeInfo.seriesDescription.isNotEmpty() -> volumeInfo.seriesDescription
+            else -> volumeInfo.seriesInstanceUID.ifEmpty { "unknown" }
+        }
+        // 文件名要能被 adb / shell 直接引用，所以先把描述里的空格与中文换掉
+        val safeCase = caseId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val json = AiEngine.dumpParity(ctx, h, "device_$safeCase.parity.bin")
+        val o = try {
+            JSONObject(json)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val ok = o.optBoolean("ok")
+        val msg = if (ok) {
+            "取证数据已写出：${o.optLong("bytes")} 字节（feat ${o.optLong("featCount")} / prob ${o.optLong("probCount")} float）\n" +
+                    "拉取：adb shell run-as ${ctx.packageName} cat ${o.optString("path")}"
+        } else {
+            "取证导出失败：${o.optString("error").ifEmpty { json }}"
+        }
+        Log.d(TAG, msg)
+        binding.tvAiStatus.text = "${aiStatusText()}\n$msg"
+        toast(if (ok) "取证数据已导出" else "取证导出失败")
+    }
+
+    private fun clearAi() {
+        val h = sessionHandle
+        if (h == 0L) return
+        AiJni.nativeAiClear(h)
+        parityKept = false
+        aiInfo = AiResultInfo.EMPTY
+        if (_binding != null) {
+            binding.tvAiStatus.text = aiStatusText()
+            updateAiButtons()
+            controller?.syncOverlay()
+            refreshResults()
+        }
+    }
+
+    /** 状态栏：模型/阈值/耗时/实例数/内存，报告里的 PC-05 数字就取自这里 */
+    private fun aiStatusText(): String {
+        val model = aiModel
+        val sb = StringBuilder()
+        if (model == null || !model.ok) {
+            sb.append("AI 未装载")
+            if (model != null) sb.append("：${model.error}")
+            sb.append("\nlibonnxruntime 候选: ")
+            context?.applicationContext?.let { sb.append(AiEngine.ortSoCandidates(it).joinToString(" | ")) }
+            return sb.toString()
+        }
+        sb.append("运行时 ${model.runtimeInfo}；阈值 ${model.threshold}")
+        sb.append("\ndlopen 命中：${model.usedSoPath}")
+        if (!model.channelsMatch()) {
+            sb.append("（通道不匹配：模型 ${model.inChannels} vs 特征 ${model.expectChannels}）")
+        }
+        if (aiInfo.ok) {
+            sb.append("\n分割 ${aiInfo.instances.size} 颗 · 牙齿体素 ${aiInfo.toothVoxels}")
+            sb.append(
+                "\n耗时 预处理 %.0f + 推理 %.0f + 后处理 %.0f = %.0f ms（推理占 %.1f%%）".format(
+                    aiInfo.prepMs, aiInfo.inferMs, aiInfo.postMs, aiInfo.totalMs,
+                    aiInfo.inferSharePercent()
+                )
+            )
+            sb.append("\n新增 Native 内存约 %.1f MB；PC-05<=5s：%s".format(
+                aiInfo.allocBytes / 1048576.0,
+                if (aiInfo.pc05Within5s()) "达标" else "未达标"
+            ))
+            sb.append("\n掩膜网格 ${aiInfo.redDim.joinToString("x")}，体素 ${String.format("%.3f", aiInfo.redVoxelMm3)} mm³")
+        } else if (aiInfo.error.isNotEmpty()) {
+            sb.append("\n最近一次推理：${aiInfo.error}")
+        }
+        return sb.toString()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun aiBusy(busy: Boolean, hint: String?) {
+        if (_binding == null) return
+        binding.btnAiLoad.isEnabled = !busy
+        binding.btnAiSegment.isEnabled = !busy && aiCanRun()
+        binding.btnAiMeasure.isEnabled = !busy && aiInfo.ok
+        binding.btnAiRecommend.isEnabled = !busy && aiInfo.ok
+        binding.btnAiParity.isEnabled = !busy && aiCanRun()
+        binding.progressMeasure.visibility = if (busy) View.VISIBLE else View.GONE
+        if (hint != null) binding.tvAiStatus.text = hint
+    }
+
+    private fun aiCanRun(): Boolean =
+        sessionHandle != 0L && aiModel != null && aiModel!!.ok
+
+    private fun updateAiButtons() {
+        if (_binding == null) return
+        val can = aiCanRun()
+        binding.btnAiSegment.isEnabled = can
+        binding.btnAiParity.isEnabled = can
+        binding.btnAiMeasure.isEnabled = aiInfo.ok
+        binding.btnAiRecommend.isEnabled = aiInfo.ok
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         releaseSessionAndVolume()
@@ -1118,13 +1461,23 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         _binding = null
     }
 
-    /** 渲染器 -> 会话 -> 体数据，顺序不可颠倒（Native 侧会话与渲染器都只持引用） */
+    /**
+     * 渲染器 -> ORT/AI -> 会话 -> 体数据，顺序不可颠倒。
+     *
+     * AI 必须在 destroySession 之前释放：OrtEngine 是 MeasureSession 的成员，
+     * 会话析构时它也会析构，但"先显式释放"能让 16MB 运行时内存与 ORT 会话
+     * 在体数据 munmap 之前就还给你，避免三个大对象同时挂在堆上。
+     */
     private fun releaseSessionAndVolume() {
         _binding?.measureView?.vtkView?.release()
         if (sessionHandle != 0L) {
+            if (aiModel?.ok == true) AiEngine.release(sessionHandle)
             MeasureJni.destroySession(sessionHandle)
             sessionHandle = 0L
         }
+        aiModel = null
+        aiInfo = AiResultInfo.EMPTY
+        parityKept = false
         val handle = volumeHandle
         volumeHandle = null
         if (handle != null && !handle.isReleased) {
@@ -1146,5 +1499,11 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
 
         /** 隔离显示时区间边界的羽化宽度（HU） */
         private const val SEGMENT_FEATHER_HU = 60.0
+
+        /** AI-03 的间隙下限（mm）：小于它的邻牙间隙不作为种植位点 */
+        private const val AI_MIN_GAP_MM = 5.0
+
+        /** 候选表最多列几条（对话框可读性上限，不影响 Native 侧的全量评估） */
+        private const val AI_MAX_CANDIDATES = 12
     }
 }

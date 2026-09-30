@@ -14,6 +14,14 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 本工程所有自研 .so（native-lib / cbctdeal / cbct_measure / rawpixeldeal）只编
+        // arm64-v8a；而 onnxruntime-android AAR 自带 4 个 ABI，会在 APK 里多带约 57MB
+        // 真机永远用不到的库。PRD 5.6 的 PC-05 限制"模型 + 运行时 <= 80MB"，因此这里
+        // 显式把打包 ABI 收到 arm64-v8a（真机 AGM3-W09HN 即该 ABI）。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {

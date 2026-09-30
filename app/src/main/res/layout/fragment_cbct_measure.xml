@@ -62,6 +62,18 @@
             android:layout_marginTop="4dp"
             android:text="加载 assets/neck_ct" />
 
+        <!--
+            内置牙科 CBCT：AI-01 的验证数据（公开 DentVoxel 临床采集，转成
+            本解析器直接消费的 192x192x128 @0.6mm 符号 int16 序列）。
+            与 neck_ct 不同，它是"模型见过的解剖域"，分割才有意义。
+        -->
+        <Button
+            android:id="@+id/btn_dental_data"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="选择加载牙科 CBCT (assets/dental_cbct)" />
+
         <TextView
             android:id="@+id/tv_info"
             android:layout_width="match_parent"
@@ -595,12 +607,107 @@
             android:layout_marginTop="4dp"
             android:background="#08000000" />
 
-        <!-- 6) 归档与报告 -->
+        <!--
+            6) AI 辅助分析（PRD 5.6 Phase 2）：
+               AI-01 牙齿自动分割（ONNX Runtime Android 推理）+ AI-03 种植位点推荐。
+               按钮顺序 = 使用顺序：装载模型 -> 推理 -> 自动测量 -> 推荐 -> 取证导出。
+        -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="6) Archive &amp; Report"
+            android:text="6) AI 辅助分析 (Phase 2)"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_ai_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="AI 未装载（模型未加载）"
+            android:textColor="#FF666666"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_ai_load"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="装载模型" />
+
+            <Button
+                android:id="@+id/btn_ai_segment"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="牙齿自动分割" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_ai_measure"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="逐牙自动测量" />
+
+            <Button
+                android:id="@+id/btn_ai_recommend"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="种植位点推荐" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cb_ai_overlay"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="显示 AI 掩膜" />
+
+            <Button
+                android:id="@+id/btn_ai_parity"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="导出取证数据" />
+
+            <Button
+                android:id="@+id/btn_ai_clear"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="清除 AI 结果" />
+        </LinearLayout>
+
+        <!-- 7) 归档与报告 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="7) Archive &amp; Report"
             android:textStyle="bold" />
 
         <LinearLayout
