@@ -29,6 +29,10 @@ data class CbctSeriesMeta(
     val windowCenter: Double,     // 默认窗位（HU）
     val zMin: Double,
     val zMax: Double,
+    val studyInstanceUID: String,     // 测量数据归档键 / DICOM SR Study 引用
+    val seriesInstanceUID: String,
+    val seriesDescription: String,
+    val firstSlicePath: String,       // 首个有效切片文件（SR 证据引用原始图像）
 ) {
     companion object {
         fun fromMap(m: Map<String, String>): CbctSeriesMeta = CbctSeriesMeta(
@@ -55,6 +59,10 @@ data class CbctSeriesMeta(
             windowCenter = m["windowCenter"]?.toDoubleOrNull() ?: 600.0,
             zMin = m["zMin"]?.toDoubleOrNull() ?: 0.0,
             zMax = m["zMax"]?.toDoubleOrNull() ?: 0.0,
+            studyInstanceUID = m["studyInstanceUID"].orEmpty(),
+            seriesInstanceUID = m["seriesInstanceUID"].orEmpty(),
+            seriesDescription = m["seriesDescription"].orEmpty(),
+            firstSlicePath = m["firstSlicePath"].orEmpty(),
         )
     }
 }

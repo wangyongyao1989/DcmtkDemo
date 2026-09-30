@@ -8,6 +8,7 @@
 #include <android/native_window_jni.h>
 
 #include <string>
+#include <chrono>
 #include <vector>
 
 // JNI 桥接层：仅做 JNI 类型 <-> C++ 类型转换，业务全部在
@@ -247,6 +248,133 @@ Java_com_wangyao_cbctdeal_jni_CbctVtkJni_destroyRenderer(JNIEnv *env, jclass cla
     }
 }
 
+
+// =============================================================================
+// 坐标内省与取图（供上层扩展模块叠加测量/标注图形；全部只读，不改渲染管线）
+// =============================================================================
+
+/**
+ * CbctVtkJni.projectPoints(rendererPtr, DoubleArray xyz): DoubleArray?
+ * 世界坐标(mm, 3*n) -> 显示坐标(像素、左上原点, 2*n)；渲染器未就绪返回 null。
+ */
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_projectPoints(JNIEnv *env, jclass clazz,
+                                                       jlong renderer_ptr,
+                                                       jdoubleArray xyz) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (!renderer || !xyz) return nullptr;
+    const jsize n = env->GetArrayLength(xyz);
+    if (n < 3 || n % 3 != 0) return nullptr;
+    jdouble *in = env->GetDoubleArrayElements(xyz, nullptr);
+    if (!in) return nullptr;
+    std::vector<double> out((size_t) n / 3 * 2, 0.0);
+    const bool ok = renderer->projectToDisplay(in, (int) (n / 3), out.data());
+    env->ReleaseDoubleArrayElements(xyz, in, JNI_ABORT);
+    if (!ok) return nullptr;
+    jdoubleArray ret = env->NewDoubleArray((jsize) out.size());
+    if (ret) env->SetDoubleArrayRegion(ret, 0, (jsize) out.size(), out.data());
+    return ret;
+}
+
+/**
+ * CbctVtkJni.displayToRay(rendererPtr, x, y): DoubleArray?
+ * 显示坐标(像素、左上原点) -> 世界拾取射线 [ox,oy,oz,dx,dy,dz]（方向已单位化）。
+ */
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_displayToRay(JNIEnv *env, jclass clazz,
+                                                      jlong renderer_ptr,
+                                                      jdouble x, jdouble y) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (!renderer) return nullptr;
+    double o[3] = {0, 0, 0}, d[3] = {0, 0, 0};
+    if (!renderer->displayToRay(x, y, o, d)) return nullptr;
+    const double out[6] = {o[0], o[1], o[2], d[0], d[1], d[2]};
+    jdoubleArray ret = env->NewDoubleArray(6);
+    if (ret) env->SetDoubleArrayRegion(ret, 0, 6, out);
+    return ret;
+}
+
+/**
+ * CbctVtkJni.displayToSliceWorld(rendererPtr, x, y): DoubleArray?
+ * 显示坐标(像素、左上原点) -> 当前 MPR 切面上的世界点 [x,y,z]（mm）。
+ * 非 MPR 模式或点落在切面之外返回 null（冠状/矢状面无法用射线-平面求交，见渲染器注释）。
+ */
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_displayToSliceWorld(JNIEnv *env, jclass clazz,
+                                                             jlong renderer_ptr,
+                                                             jdouble x, jdouble y) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (!renderer) return nullptr;
+    double p[3] = {0, 0, 0};
+    if (!renderer->displayToSliceWorld(x, y, p)) return nullptr;
+    jdoubleArray ret = env->NewDoubleArray(3);
+    if (ret) env->SetDoubleArrayRegion(ret, 0, 3, p);
+    return ret;
+}
+
+/**
+ * CbctVtkJni.getRenderSnapshot(rendererPtr): DoubleArray?
+ * [0]mode [1]plane [2]position [3]w [4]h [5]ww [6]wc [7]parallelProjection
+ */
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_getRenderSnapshot(JNIEnv *env, jclass clazz,
+                                                           jlong renderer_ptr) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (!renderer) return nullptr;
+    double out[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    if (!renderer->getRenderSnapshot(out)) return nullptr;
+    jdoubleArray ret = env->NewDoubleArray(8);
+    if (ret) env->SetDoubleArrayRegion(ret, 0, 8, out);
+    return ret;
+}
+
+/** CbctVtkJni.setVolumeVisible(rendererPtr, visible)：隔离显示时隐藏体数据/切面 */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_setVolumeVisible(JNIEnv *env, jclass clazz,
+                                                          jlong renderer_ptr,
+                                                          jboolean visible) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (renderer) renderer->setVolumeVisible(visible == JNI_TRUE);
+}
+
+/** CbctVtkJni.setSegmentHuRange(rendererPtr, huMin, huMax, feather)：HU 阈值分割显示 */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_setSegmentHuRange(JNIEnv *env, jclass clazz,
+                                                           jlong renderer_ptr,
+                                                           jdouble hu_min, jdouble hu_max,
+                                                           jdouble feather) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (renderer) renderer->setSegmentHuRange(hu_min, hu_max, feather);
+}
+
+/** CbctVtkJni.resetSegmentHuRange(rendererPtr)：恢复模块默认骨窗不透明度曲线 */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_resetSegmentHuRange(JNIEnv *env, jclass clazz,
+                                                             jlong renderer_ptr) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (renderer) renderer->resetSegmentHuRange();
+}
+
+/** CbctVtkJni.captureFrame(rendererPtr): Bitmap?  抓取当前帧（含 RGBA 行序翻转） */
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_wangyao_cbctdeal_jni_CbctVtkJni_captureFrame(JNIEnv *env, jclass clazz,
+                                                      jlong renderer_ptr) {
+    CbctVtkRenderer *renderer = asRenderer(renderer_ptr);
+    if (!renderer) return nullptr;
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    if (!renderer->captureFrame(rgba, w, h)) {
+        LOGW("captureFrame: renderer not ready");
+        return nullptr;
+    }
+    jobject bmp = createRgbaBitmap(env, w, h, rgba);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+    LOGD("captureFrame: %dx%d in %lld ms", w, h, (long long) ms);
+    return bmp;
+}
+
 // JNI Registration（沿用 dcmtk 模块的动态注册风格）
 static const JNINativeMethod kMethods[] = {
         {"initDictionary",     "(Ljava/lang/String;)V",
@@ -289,6 +417,24 @@ static const JNINativeMethod kVtkMethods[] = {
                 (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_resetCamera},
         {"destroyRenderer",    "(J)V",
                 (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_destroyRenderer},
+        // double[] 的 JNI 签名是 "[D"，写成 "[Double;" 会让 RegisterNatives 整类失败，
+        // 进而 JNI_OnLoad 返回 JNI_ERR —— 表现是 libcbct_native.so 根本加载不了（真机踩过）
+        {"projectPoints",      "(J[D)[D",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_projectPoints},
+        {"displayToRay",       "(JDD)[D",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_displayToRay},
+        {"displayToSliceWorld", "(JDD)[D",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_displayToSliceWorld},
+        {"getRenderSnapshot",  "(J)[D",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_getRenderSnapshot},
+        {"setVolumeVisible",   "(JZ)V",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_setVolumeVisible},
+        {"setSegmentHuRange",  "(JDDD)V",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_setSegmentHuRange},
+        {"resetSegmentHuRange","(J)V",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_resetSegmentHuRange},
+        {"captureFrame",       "(J)Landroid/graphics/Bitmap;",
+                (void *) Java_com_wangyao_cbctdeal_jni_CbctVtkJni_captureFrame},
 };
 
 extern "C" jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {

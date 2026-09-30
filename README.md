@@ -30,6 +30,14 @@
 *   **智能调窗 (Smart Windowing)**: 自研 `Peak Area Auto` 算法，自动识别组织波峰。
 *   **图像增强**: 双边滤波去噪、CLAHE 对比度增强、USM 锐化。
 
+### 4. CBCT 三维测量与手术规划 (`:cbctmeasure`)
+在 `:cbctdeal` 的同一份体数据与同一个渲染窗口上做临床测量（零拷贝复用 `CbctVolume`）：
+*   **三维测量**: 距离 / 角度 / 点到线 / 体积 / 面积 / 弧线 / HU 采样 / 骨密度，外加牙弓弧线等正畸量。
+*   **ROI 分割**: HU 阈值、空间裁剪盒、截面多边形、球面，以及交/并/差组合 ROI，逐体素角点加权统计。
+*   **种植体规划**: 定位与姿态可调，自动评估骨高度、骨宽度、神经管距离、多种植体间距并红黄绿判级。
+*   **标注与归档**: 7 类标注 + 9 态手势状态机，JSON 按 Study/Series 归档，一键导出 **PDF 报告 + DICOM SR**（含渲染证据图，SR 导出后现场读回自校验）。
+*   需求实现见 [cbctmeasure/README.md](cbctmeasure/README.md)，操作手册见 [cbctmeasure/USER.md](cbctmeasure/USER.md)，真机回归结论见 [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md)。
+
 ---
 
 ## 📺 演示视频 (Video Demos)
@@ -70,7 +78,7 @@
 | compileSdk / minSdk / targetSdk | 37 / 24 / 37 | `app/build.gradle.kts` |
 | CMake | 3.22.1 | 各模块 `build.gradle.kts` 的 `externalNativeBuild` |
 | NDK | r25 (25.1.8937393)，`android-24` 为 API 基线 | 见 `cbctdeal/doc/android_vtk.sh` 的 `ANDROID_NDK` |
-| ABI | `:dcmtk`、`:cbctdeal` 仅 `arm64-v8a`；`:rawpixeldeal` 另含 `armeabi-v7a` | 各模块 `abiFilters` |
+| ABI | `:dcmtk`、`:cbctdeal`、`:cbctmeasure` 仅 `arm64-v8a`；`:rawpixeldeal` 另含 `armeabi-v7a` | 各模块 `abiFilters` |
 | C++ 标准 / STL | C++11，`-frtti -fexceptions`，`c++_shared` | 各模块 `CMakeLists.txt` |
 | DCMTK | 3.6.9（静态库 + 头文件已入库） | `dcmtk/src/main/cpp/dcmtk/`（头文件）、`dcmtk/src/main/cpp/lib/arm64-v8/`（29 个 `.a`） |
 | VTK | 9.1.0 裁剪版（静态库 + 头文件已入库） | `cbctdeal/src/main/cpp/include/vtk-9.1/`、`cbctdeal/src/main/cpp/lib/`（43 个 `libvtk*.a`） |
@@ -163,10 +171,11 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 *   **`:cbctdeal`**: **三维核心模块**。包含 VTK 9.1.0 静态库与 C++ 渲染引擎。
 *   **`:dcmtk`**: 通信模块。封装 DCMTK 静态库，处理网络与文件 IO。
 *   **`:rawpixeldeal`**: 算法模块。基于 OpenCV 处理底层像素变换。
+*   **`:cbctmeasure`**: 测量扩展模块。在 `:cbctdeal` 的同一份体数据与同一个渲染窗口上做临床测量、ROI 分割、种植体规划与报告导出，Kotlin/C++ 单向依赖 `:cbctdeal`，零拷贝复用体素内存。
 
 三层解耦是贯穿全项目的核心设计：**JNI 桥接层是唯一接触 `JNIEnv` 的地方，只做类型转换；业务逻辑层（`PacsClient` / `DicomFileIO` / `CtSeriesProcessor`）使用纯 C++ 类型，不依赖 JNI，可独立阅读和测试。** 原理见文章 1 第二、五章。
 
-### 功能入口速查（左侧抽屉 8 项，定义在 `app/src/main/res/menu/bottom_nav_menu.xml`）
+### 功能入口速查（左侧抽屉 9 项，定义在 `app/src/main/res/menu/bottom_nav_menu.xml`）
 
 | 入口 | 对应 Fragment | 依赖模块 | 上手要点 | 原理出处 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -178,6 +187,7 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 | Compare | `FileCompareFragment` | `:dcmtk` + `:rawpixeldeal` | DICOM 文件与调窗结果对比 | 文章 1 第四、七章 |
 | CT Preprocess | `CTPreprocessFragment` | `:rawpixeldeal` | 选资产 → 选字节序 → 执行最优调节 / 自定义流水线 / 写入 DICOM | 文章 1 第六、七、九章；`rawpixeldeal/README.md` |
 | CBCT Parse | `CbctParseFragment` | `:cbctdeal` | 「加载 ASSETS/NECK_CT」一键体验解析 + Bitmap 2D + VTK VR / MPR | 文章 3 第七、八、九章；`cbctdeal/README.md` |
+| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | 同一份体数据 + 同一个渲染窗口上做测量 / ROI / 种植体规划，一键导出 PDF 报告 + DICOM SR | `cbctmeasure/README.md`（需求覆盖）、`cbctmeasure/USER.md`（操作）、`cbctmeasure/doc/TEST_REPORT.md`（真机回归） |
 
 ---
 

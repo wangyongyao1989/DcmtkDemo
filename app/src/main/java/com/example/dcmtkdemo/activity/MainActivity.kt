@@ -14,6 +14,7 @@ import com.example.dcmtk.viewmodel.PacsViewModel
 import com.example.dcmtkdemo.R
 import com.example.dcmtkdemo.databinding.ActivityMainBinding
 import com.example.dcmtkdemo.fragment.CTPreprocessFragment
+import com.example.dcmtkdemo.fragment.CbctMeasureFragment
 import com.example.dcmtkdemo.fragment.CbctParseFragment
 import com.example.dcmtkdemo.fragment.DcmShowFragment
 import com.example.dcmtkdemo.fragment.FileCompareFragment
@@ -80,6 +81,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_compare -> FileCompareFragment()
                 R.id.nav_ct_preprocess -> CTPreprocessFragment()
                 R.id.nav_cbct -> CbctParseFragment()
+                R.id.nav_cbct_measure -> CbctMeasureFragment()
                 else -> null
             }
 

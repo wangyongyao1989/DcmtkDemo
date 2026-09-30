@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:text="CBCT Measure &amp; Planning (cbctmeasure)"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- 1) Series Source：与 CBCT Parse 页一致的数据入口 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="1) Series Source"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/et_path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="CBCT 序列目录绝对路径"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_select_dir"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="选择目录 (SAF)" />
+
+            <Button
+                android:id="@+id/btn_parse"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="解析并进入测量" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_load_assets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="加载 assets/neck_ct" />
+
+        <TextView
+            android:id="@+id/tv_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="(waiting for parse)"
+            android:textSize="11sp" />
+
+        <ProgressBar
+            android:id="@+id/progress_measure"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <!-- 2) Viewport：渲染模式 / 平面 / 层位 / 窗宽窗位 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="2) Viewport"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rg_vtk_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_vtk_vr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="VR 体绘制" />
+
+            <RadioButton
+                android:id="@+id/rb_vtk_mpr"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MPR 切面" />
+        </RadioGroup>
+
+        <RadioGroup
+            android:id="@+id/rg_plane"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_axial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Axial" />
+
+            <RadioButton
+                android:id="@+id/rb_coronal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Coronal" />
+
+            <RadioButton
+                android:id="@+id/rb_sagittal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sagittal" />
+        </RadioGroup>
+
+        <LinearLayout
+            android:id="@+id/row_position"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="位置:" />
+
+            <SeekBar
+                android:id="@+id/sb_position"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/tv_position"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="-/-"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗宽 WW:" />
+
+            <SeekBar
+                android:id="@+id/sb_ww"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="8000" />
+
+            <TextView
+                android:id="@+id/tv_ww"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="4000"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="窗位 WC:" />
+
+            <SeekBar
+                android:id="@+id/sb_wc"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="4000" />
+
+            <TextView
+                android:id="@+id/tv_wc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="600"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- 3) 测量工具：九态状态机 + 测量类型 + 描边颜色 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="3) Measure Tools"
+            android:textStyle="bold" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <RadioGroup
+                android:id="@+id/rg_tool"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingEnd="8dp">
+
+                <RadioButton
+                    android:id="@+id/rb_view"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="浏览" />
+
+                <RadioButton
+                    android:id="@+id/rb_distance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="测距" />
+
+                <RadioButton
+                    android:id="@+id/rb_angle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="测角" />
+
+                <RadioButton
+                    android:id="@+id/rb_volume"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="体积" />
+
+                <RadioButton
+                    android:id="@+id/rb_area"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="面积" />
+
+                <RadioButton
+                    android:id="@+id/rb_roi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ROI" />
+
+                <RadioButton
+                    android:id="@+id/rb_implant"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="种植体" />
+
+                <RadioButton
+                    android:id="@+id/rb_annotate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="标注" />
+
+                <RadioButton
+                    android:id="@+id/rb_nerve"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="神经管" />
+            </RadioGroup>
+        </HorizontalScrollView>
+
+        <HorizontalScrollView
+            android:id="@+id/hsv_measure_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <RadioGroup
+                android:id="@+id/rg_measure_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingEnd="8dp">
+
+                <RadioButton
+                    android:id="@+id/rb_mt_distance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="两点距离" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_point_line"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="点到线" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_arc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="弧线长度" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_hu"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HU 采样" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_density"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="骨密度" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_arch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="牙弓弧线" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_angulation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="排列角度" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_midline"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="中线偏移" />
+
+                <RadioButton
+                    android:id="@+id/rb_mt_overbite"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="覆合覆盖" />
+            </RadioGroup>
+        </HorizontalScrollView>
+
+        <HorizontalScrollView
+            android:id="@+id/hsv_annotation_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <RadioGroup
+                android:id="@+id/rg_annotation_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingEnd="8dp">
+
+                <RadioButton
+                    android:id="@+id/rb_an_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="文字" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_line"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="线段" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_arrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="箭头" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_curve"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="自由曲线" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_ring"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="环形" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_mpr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="截面" />
+
+                <RadioButton
+                    android:id="@+id/rb_an_shot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="截图圈注" />
+            </RadioGroup>
+        </HorizontalScrollView>
+
+        <com.wangyao.cbctmeasure.view.CbctMeasureView
+            android:id="@+id/measure_view"
+            android:layout_width="match_parent"
+            android:layout_height="420dp"
+            android:layout_marginTop="8dp"
+            android:background="#FF101418" />
+
+        <TextView
+            android:id="@+id/tv_tool_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="4dp"
+            android:text="浏览：单指旋转，双指缩放/平移"
+            android:textColor="#FF666666"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_undo_point"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="撤销取点" />
+
+            <Button
+                android:id="@+id/btn_reset_cam"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="复位相机" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_clear_draft"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="丢弃草稿" />
+
+            <Button
+                android:id="@+id/btn_clear_all"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="清空全部" />
+        </LinearLayout>
+
+        <!-- 4) ROI：HU 阈值与隔离显示（R-01） -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="4) ROI / Threshold"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="HU 下限" />
+
+            <SeekBar
+                android:id="@+id/sb_hu_lo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="4000" />
+
+            <TextView
+                android:id="@+id/tv_hu_lo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="200"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="HU 上限" />
+
+            <SeekBar
+                android:id="@+id/sb_hu_hi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="4000" />
+
+            <TextView
+                android:id="@+id/tv_hu_hi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="56dp"
+                android:text="3000"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_add_hu_roi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="建 HU 阈值 ROI" />
+
+            <Button
+                android:id="@+id/btn_isolate"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="隔离显示 ROI" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_add_composite_roi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="组合 ROI（交/并/差）" />
+
+        <Button
+            android:id="@+id/btn_add_nerve"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="新建神经管路径并开始描记" />
+
+        <!-- 5) 结果列表 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="5) Results"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_list_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="测量结果"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_results"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="#08000000" />
+
+        <!-- 6) 归档与报告 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="6) Archive &amp; Report"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_save_archive"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="保存归档" />
+
+            <Button
+                android:id="@+id/btn_load_archive"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="恢复归档" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_export_report"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="导出报告 (PDF + DICOM SR)" />
+
+        <TextView
+            android:id="@+id/tv_measure_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:padding="8dp"
+            android:text="摘要区域"
+            android:textColor="@color/bg_title"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="320dp" />
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

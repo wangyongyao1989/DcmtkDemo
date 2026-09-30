@@ -1,0 +1,86 @@
+#ifndef DCMTKDEMO_CBCTVOLUME_H
+#define DCMTKDEMO_CBCTVOLUME_H
+
+#include <cstddef>
+#include <string>
+
+/**
+ * 主机侧（macOS 单测用）CbctVolume 副本。
+ *
+ * 与 :cbctdeal/src/main/cpp/include/CbctVolume.h 的**唯一**差异是去掉两行
+ * DCMTK include（osconfig.h / offtypes.h）并就地补上它提供的 Uint16 typedef，
+ * 字段名、字段顺序、类型、默认值、注释全部逐字保持一致。
+ *
+ * 为什么必须完全一致：core/VolumeRef.cpp 通过 CbctVolume 的内存布局直读
+ * data、sliceSize、width、height、depth、spacing 各分量与 studyInstanceUID，
+ * 真机上这份结构由 libcbct_native.so 分配、由本模块只读引用（见
+ * include/VolumeRef.h 顶部的跨 .so 约定）。单测里如果用了一个字段顺序不同的
+ * 假结构体，那么"测试通过"就完全不能外推到真机。改真机头文件时必须同步改这里。
+ *
+ * 真机版的析构函数 `~CbctVolume();` 是 out-of-line 定义（在 :cbctdeal 的 .so 里
+ * 释放 data 数组），主机侧没有那份实现，因此这里给一个空的 inline 体：
+ * 单测的体素数组由测试自己的 std::vector<float> 持有并负责释放，
+ * CbctVolume 只是视图（与真机上"本模块永不释放"的约定同构）。
+ */
+
+/** offtypes.h 提供的前缀类型，本工程只用到 Uint16（保持与真机头同义） */
+typedef unsigned short Uint16;
+
+/**
+ * CBCT 序列解析结果：Native 堆上的连续 3D 体数据。
+ *
+ * 内存布局为 [z][y][x] 的连续 float 数组（Native 堆分配），已按逐切片
+ * RescaleSlope/Intercept 换算为 HU 域——GLES3 的 3D 纹理没有归一化 16bit
+ * 整数格式（R16/R16_SNORM 均为桌面 GL 专属），float 体素对应 GL_R32F，
+ * 是 ES3 核心保证可用的全精度路径；同时 TF/LUT/窗宽窗位全部直接工作在
+ * HU 域，无需 raw<->HU 往返换算。
+ *
+ * 结构由 CbctSeriesParser 装配，由 CbctJni（JNI 桥）读写，
+ * 生命周期：loadSeries 创建 -> extract* 读取 -> releaseVolume 释放。
+ */
+struct CbctVolume {
+    float *data = nullptr;           // 连续体数据 [depth][height][width]，HU 域
+    size_t sliceSize = 0;             // 单张切片像素数 = width * height
+    int width = 0;                    // x 方向像素数（Columns）
+    int height = 0;                   // y 方向像素数（Rows）
+    int depth = 0;                    // z 方向切片数（含补全的空白切片）
+
+    double spacingX = 1.0;           // 像素间距 mm（各向同性时与层厚相等）
+    double spacingY = 1.0;
+    double spacingZ = 1.0;           // 层厚/切片间距 mm
+
+    double slope = 1.0;              // 源文件 Rescale 参数（元数据展示用，
+    double intercept = 0.0;          //  数据本身已完成 HU 换算）
+    int pixelRepresentation = 0;     // 源文件存储符号（0=unsigned 1=signed，元数据）
+
+    double windowWidth = 4000.0;     // 默认窗宽窗位（缺失时用 CBCT 骨骼窗）
+    double windowCenter = 600.0;
+
+    double zMin = 0.0;               // 排序后首/末切片 Z 坐标
+    double zMax = 0.0;
+
+    int sliceCount = 0;              // 有效切片帧数（不含补全空白片）
+    int skippedFiles = 0;           // 被过滤的非 DICOM / 损坏文件数
+    long long elapsedMs = 0;        // 解析耗时
+
+    // 患者与检查信息（取自第一个有效切片）
+    std::string patientName;
+    std::string patientID;
+    std::string patientSex;
+    std::string patientBirthDate;
+    std::string studyDate;
+    std::string modality;
+    std::string manufacturer;
+
+    // 序列标识与来源文件（取自第一个有效切片）
+    // 用途：上层扩展模块（测量/规划）按 {StudyUID}_{SeriesUID} 归档测量数据，
+    //       以及生成 DICOM SR 时复制 Study 级模块、引用原始图像实例。
+    std::string studyInstanceUID;
+    std::string seriesInstanceUID;
+    std::string seriesDescription;
+    std::string firstSlicePath;      // 首个有效切片文件绝对路径（SR 证据引用用）
+
+    ~CbctVolume() {}                 // 见文件头注释：主机侧体素数组归测试所有
+};
+
+#endif // DCMTKDEMO_CBCTVOLUME_H

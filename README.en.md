@@ -30,6 +30,14 @@ Native-level processing of CT / X-Ray raw data (16-bit raw / HU):
 *   **Smart windowing**: in-house `Peak Area Auto` algorithm that detects the tissue peak automatically.
 *   **Enhancement**: bilateral denoising, CLAHE contrast enhancement, USM sharpening.
 
+### 4. CBCT 3D Measurement and Surgical Planning (`:cbctmeasure`)
+Clinical measurement on the *same* volume and the *same* render window as `:cbctdeal` (zero-copy reuse of `CbctVolume`):
+*   **3D measurement**: distance / angle / point-to-line / volume / area / arc / HU sampling / bone density, plus orthodontic measures such as dental-arc length.
+*   **ROI segmentation**: HU threshold, spatial clip box, cross-section polygon, sphere, and AND/OR/NOT composite ROIs with per-voxel corner-weighted statistics.
+*   **Implant planning**: position and pose adjustable, automatic evaluation of bone height, bone width, nerve-canal distance and inter-implant spacing, graded red/amber/green.
+*   **Annotation and archiving**: 7 annotation types + a 9-state gesture machine, JSON archived per Study/Series, one-tap export of a **PDF report + DICOM SR** (with rendered evidence images; the SR is read back on device for self-verification).
+*   Requirement coverage in [cbctmeasure/README.md](cbctmeasure/README.md), operator manual in [cbctmeasure/USER.md](cbctmeasure/USER.md), on-device regression verdict in [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md) (all 中文).
+
 ---
 
 ## 📺 Video Demos
@@ -70,7 +78,7 @@ The implementation is documented in a three-part article series covering **proje
 | compileSdk / minSdk / targetSdk | 37 / 24 / 37 | `app/build.gradle.kts` |
 | CMake | 3.22.1 | `externalNativeBuild` in each module's `build.gradle.kts` |
 | NDK | r25 (25.1.8937393), `android-24` API baseline | see `ANDROID_NDK` in `cbctdeal/doc/android_vtk.sh` |
-| ABIs | `:dcmtk` and `:cbctdeal` are `arm64-v8a` only; `:rawpixeldeal` also builds `armeabi-v7a` | `abiFilters` per module |
+| ABIs | `:dcmtk`, `:cbctdeal` and `:cbctmeasure` are `arm64-v8a` only; `:rawpixeldeal` also builds `armeabi-v7a` | `abiFilters` per module |
 | C++ standard / STL | C++11, `-frtti -fexceptions`, `c++_shared` | each module's `CMakeLists.txt` |
 | DCMTK | 3.6.9 (static libs + headers committed to the repo) | `dcmtk/src/main/cpp/dcmtk/` (headers), `dcmtk/src/main/cpp/lib/arm64-v8/` (29 `.a` files) |
 | VTK | 9.1.0 trimmed build (static libs + headers committed) | `cbctdeal/src/main/cpp/include/vtk-9.1/`, `cbctdeal/src/main/cpp/lib/` (43 `libvtk*.a` files) |
@@ -163,10 +171,11 @@ All demo data is bundled under `app/src/main/assets/`: the `.raw` / `.bin` files
 *   **`:cbctdeal`**: **the 3D core**. VTK 9.1.0 static libraries plus the C++ rendering engine.
 *   **`:dcmtk`**: communication layer. Wraps the DCMTK static libraries for networking and file I/O.
 *   **`:rawpixeldeal`**: algorithm layer. Low-level pixel transforms on OpenCV.
+*   **`:cbctmeasure`**: measurement extension. Clinical measurement, ROI segmentation, implant planning and report export on top of `:cbctdeal`'s volume and render window; depends on `:cbctdeal` one-way in Kotlin/C++ and reuses the voxel memory without copying it.
 
 Three-layer separation is the design principle running through the whole project: **the JNI bridge layer is the only place that touches `JNIEnv` and does nothing but type marshalling; the business layer (`PacsClient` / `DicomFileIO` / `CtSeriesProcessor`) uses plain C++ types, has no JNI dependency, and can be read and tested in isolation.** See chapters 2 and 5 of article 1.
 
-### Feature Entry Points (8 items in the left drawer, defined in `app/src/main/res/menu/bottom_nav_menu.xml`)
+### Feature Entry Points (9 items in the left drawer, defined in `app/src/main/res/menu/bottom_nav_menu.xml`)
 
 | Entry | Fragment | Module(s) | Getting-started note | Principle |
 | :--- | :--- | :--- | :--- | :--- |
@@ -178,6 +187,7 @@ Three-layer separation is the design principle running through the whole project
 | Compare | `FileCompareFragment` | `:dcmtk` + `:rawpixeldeal` | Compare a DICOM file against windowing results | Article 1 ch. 4 and 7 |
 | CT Preprocess | `CTPreprocessFragment` | `:rawpixeldeal` | Pick asset → pick byte order → optimal adjustment / custom pipeline / write DICOM | Article 1 ch. 6, 7, 9; `rawpixeldeal/README.md` (中文) |
 | CBCT Parse | `CbctParseFragment` | `:cbctdeal` | "Load ASSETS/NECK_CT" gives parsing + Bitmap 2D + VTK VR / MPR in one tap | Article 3 ch. 7, 8, 9; `cbctdeal/README.md` (中文) |
+| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | Measure / ROI / implant planning on the same volume and render window; one tap exports a PDF report + DICOM SR | `cbctmeasure/README.md` (coverage), `cbctmeasure/USER.md` (manual), `cbctmeasure/doc/TEST_REPORT.md` (on-device regression) — 中文 |
 
 ---
 

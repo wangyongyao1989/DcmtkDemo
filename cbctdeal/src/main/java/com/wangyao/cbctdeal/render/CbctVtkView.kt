@@ -2,6 +2,7 @@ package com.wangyao.cbctdeal.render
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -192,6 +193,46 @@ class CbctVtkView @JvmOverloads constructor(
     /** 渲染器是否就绪（Surface 与 Volume 均已挂载） */
     val isReady: Boolean
         get() = rendererPtr != 0L && surfaceReady
+
+    // =========================================================================
+    // 坐标内省与取图（供上层扩展模块叠加测量/标注图形，见 CbctVtkJni 同名方法）
+    //
+    // 未就绪（Surface/Volume 缺失）时统一返回 null / false，调用方按"本帧不刷新"处理。
+    // =========================================================================
+
+    /** 世界坐标(mm) -> 显示坐标(像素、左上原点)，按当前相机与实际渲染管线换算 */
+    fun projectPoints(xyz: DoubleArray): DoubleArray? =
+        if (rendererPtr == 0L) null else CbctVtkJni.projectPoints(rendererPtr, xyz)
+
+    /** 显示坐标 -> 世界拾取射线 [ox,oy,oz,dx,dy,dz] */
+    fun displayToRay(x: Double, y: Double): DoubleArray? =
+        if (rendererPtr == 0L) null else CbctVtkJni.displayToRay(rendererPtr, x, y)
+
+    /** 显示坐标 -> 当前 MPR 切面上的世界点 [x,y,z]（mm）；非 MPR 或点在切面外返回 null */
+    fun displayToSliceWorld(x: Double, y: Double): DoubleArray? =
+        if (rendererPtr == 0L) null else CbctVtkJni.displayToSliceWorld(rendererPtr, x, y)
+
+    /** 渲染状态快照（模式/平面/位置/尺寸/窗宽窗位/投影方式） */
+    fun renderSnapshot(): DoubleArray? =
+        if (rendererPtr == 0L) null else CbctVtkJni.getRenderSnapshot(rendererPtr)
+
+    /** 隐藏/恢复体数据与切面 Prop（叠加层隔离显示） */
+    fun setVolumeVisible(visible: Boolean) {
+        if (rendererPtr != 0L) CbctVtkJni.setVolumeVisible(rendererPtr, visible)
+    }
+
+    /** HU 阈值分割显示（R-01）；[resetSegmentHuRange] 恢复默认骨窗曲线 */
+    fun setSegmentHuRange(huMin: Double, huMax: Double, feather: Double) {
+        if (rendererPtr != 0L) CbctVtkJni.setSegmentHuRange(rendererPtr, huMin, huMax, feather)
+    }
+
+    fun resetSegmentHuRange() {
+        if (rendererPtr != 0L) CbctVtkJni.resetSegmentHuRange(rendererPtr)
+    }
+
+    /** 抓取当前渲染帧（报告截图用） */
+    fun captureFrame(): Bitmap? =
+        if (rendererPtr == 0L) null else CbctVtkJni.captureFrame(rendererPtr)
 
     /**
      * 销毁渲染器（幂等安全）。
