@@ -2,7 +2,7 @@
 
 🌐 **[中文](README.md)** | **English**
 
-`DcmtkDemo` is a full-stack medical imaging sample project built for Android. It integrates **DCMTK (DICOM Toolkit)**, **VTK 9.1.0** and **OpenCV**, covering the entire chain from PACS networking and DICOM file parsing to high-performance pixel preprocessing, plus **CBCT (cone-beam CT) volume rendering and MPR reconstruction**.
+`DcmtkDemo` is a full-stack medical imaging sample project built for Android. It integrates **DCMTK (DICOM Toolkit)**, **VTK 9.1.0**, **OpenCV** and **ONNX Runtime for Android**, covering the entire chain from PACS networking and DICOM file parsing to high-performance pixel preprocessing, plus **CBCT (cone-beam CT) volume rendering and MPR reconstruction**.
 
 > Most in-repo documents, code comments and the CSDN article series are written in Chinese. This file is the English entry point; the links below keep their original titles and are marked **(中文)** where no translation exists.
 
@@ -36,7 +36,8 @@ Clinical measurement on the *same* volume and the *same* render window as `:cbct
 *   **ROI segmentation**: HU threshold, spatial clip box, cross-section polygon, sphere, and AND/OR/NOT composite ROIs with per-voxel corner-weighted statistics.
 *   **Implant planning**: position and pose adjustable, automatic evaluation of bone height, bone width, nerve-canal distance and inter-implant spacing, graded red/amber/green.
 *   **Annotation and archiving**: 7 annotation types + a 9-state gesture machine, JSON archived per Study/Series, one-tap export of a **PDF report + DICOM SR** (with rendered evidence images; the SR is read back on device for self-verification).
-*   Requirement coverage in [cbctmeasure/README.md](cbctmeasure/README.md), operator manual in [cbctmeasure/USER.md](cbctmeasure/USER.md), on-device regression verdict in [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md) (all 中文).
+*   **AI-assisted analysis (Phase 2)**: on-device **ONNX Runtime for Android** inference for automatic tooth segmentation (AI-01); every instance becomes a mask ROI with volume and bone-density measurements attached, and implant-site recommendation (AI-03) reuses the same safety grading. Two public DentVoxel dental CBCT cases are bundled and can be loaded from the UI. **Accuracy is below the PRD gate (F1 0.58 < 0.85) while the pipeline and forensics pass** — AI-02 and AI-04 are not delivered.
+*   Requirement coverage in [cbctmeasure/README.md](cbctmeasure/README.md), operator manual in [cbctmeasure/USER.md](cbctmeasure/USER.md), Phase-1 on-device regression in [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md), ONNX inference test report in [cbctmeasure/doc/AI_ONNX_TEST_REPORT.md](cbctmeasure/doc/AI_ONNX_TEST_REPORT.md) (all 中文).
 
 ---
 
@@ -83,6 +84,7 @@ The implementation is documented in a three-part article series covering **proje
 | DCMTK | 3.6.9 (static libs + headers committed to the repo) | `dcmtk/src/main/cpp/dcmtk/` (headers), `dcmtk/src/main/cpp/lib/arm64-v8/` (29 `.a` files) |
 | VTK | 9.1.0 trimmed build (static libs + headers committed) | `cbctdeal/src/main/cpp/include/vtk-9.1/`, `cbctdeal/src/main/cpp/lib/` (43 `libvtk*.a` files) |
 | OpenCV | 4.12.0 (shared library) | `rawpixeldeal/src/main/cpp/include/`, `rawpixeldeal/src/main/cpp/libs/<ABI>/libopencv_java4.so` |
+| ONNX Runtime | 1.17.0 (`onnxruntime-android` AAR, matched to the device's C API v17; only its `jni/arm64-v8a/libonnxruntime.so` artefact is used, inference runs in C++) | `gradle/libs.versions.toml`, `cbctmeasure/src/main/cpp/third_party/onnxruntime/include/` (vendored C headers + runtime `dlopen`; this AAR ships no `prefab/` metadata) |
 
 > Article 2 builds the host-side service from DCMTK **3.6.8**, while the cross-compiled artefacts committed for Android are **3.6.9** (see `PACKAGE_VERSION` in `osconfig.h`). They interoperate fully at the C-ECHO / C-FIND / C-STORE / C-MOVE level, so there is no need to match minor versions for integration testing.
 
@@ -161,6 +163,8 @@ Upload / Query / Retrieve / Worklist all require a real SCP. On a Mac, follow ar
 
 All demo data is bundled under `app/src/main/assets/`: the `.raw` / `.bin` files used by CT Preprocess, several `.dcm` files, and `neck_ct/` (a 265-slice CBCT series used by the "Load ASSETS/NECK_CT" button in `:cbctdeal`).
 
+`:cbctmeasure` additionally ships two public dental CBCT cases (DentVoxel, dentate jaws, for the AI layer) under its **own** module assets at `cbctmeasure/src/main/assets/dental_cbct/` — they are *not* in `app/src/main/assets`, and "Load dental CBCT (assets)" in the UI reads them from the module. `neck_ct` is a head-and-neck series whose segmentation output is meaningless, so do not use it for AI.
+
 > ⚠️ **Pick the right byte order on the CT Preprocess screen**: `.raw` files need **Little**, `.bin` files need **Big**. Read with the wrong order and the pixel values scatter across 0–65535, the histogram looks roughly uniform and auto-windowing degenerates to full range — that is a **byte-order symptom, not an algorithm defect**. Also note the W/H inputs are not linked to the selected file: 1112x1740 against a 1112x1700 `CR*.raw` asks for 40 rows too many, and the Native side truncates by row and logs a `RawPixelDealJni: ... truncate to 1700 rows` warning, which is expected.
 
 ---
@@ -171,7 +175,7 @@ All demo data is bundled under `app/src/main/assets/`: the `.raw` / `.bin` files
 *   **`:cbctdeal`**: **the 3D core**. VTK 9.1.0 static libraries plus the C++ rendering engine.
 *   **`:dcmtk`**: communication layer. Wraps the DCMTK static libraries for networking and file I/O.
 *   **`:rawpixeldeal`**: algorithm layer. Low-level pixel transforms on OpenCV.
-*   **`:cbctmeasure`**: measurement extension. Clinical measurement, ROI segmentation, implant planning and report export on top of `:cbctdeal`'s volume and render window; depends on `:cbctdeal` one-way in Kotlin/C++ and reuses the voxel memory without copying it.
+*   **`:cbctmeasure`**: measurement extension. Clinical measurement, ROI segmentation, implant planning, report export and AI-assisted analysis (on-device ONNX Runtime inference) on top of `:cbctdeal`'s volume and render window; depends on `:cbctdeal` one-way in Kotlin/C++ and reuses the voxel memory without copying it.
 
 Three-layer separation is the design principle running through the whole project: **the JNI bridge layer is the only place that touches `JNIEnv` and does nothing but type marshalling; the business layer (`PacsClient` / `DicomFileIO` / `CtSeriesProcessor`) uses plain C++ types, has no JNI dependency, and can be read and tested in isolation.** See chapters 2 and 5 of article 1.
 
@@ -187,7 +191,7 @@ Three-layer separation is the design principle running through the whole project
 | Compare | `FileCompareFragment` | `:dcmtk` + `:rawpixeldeal` | Compare a DICOM file against windowing results | Article 1 ch. 4 and 7 |
 | CT Preprocess | `CTPreprocessFragment` | `:rawpixeldeal` | Pick asset → pick byte order → optimal adjustment / custom pipeline / write DICOM | Article 1 ch. 6, 7, 9; `rawpixeldeal/README.md` (中文) |
 | CBCT Parse | `CbctParseFragment` | `:cbctdeal` | "Load ASSETS/NECK_CT" gives parsing + Bitmap 2D + VTK VR / MPR in one tap | Article 3 ch. 7, 8, 9; `cbctdeal/README.md` (中文) |
-| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | Measure / ROI / implant planning on the same volume and render window; one tap exports a PDF report + DICOM SR | `cbctmeasure/README.md` (coverage), `cbctmeasure/USER.md` (manual), `cbctmeasure/doc/TEST_REPORT.md` (on-device regression) — 中文 |
+| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | Measure / ROI / implant planning on the same volume and render window; one tap exports a PDF report + DICOM SR; bundled dental CBCT cases can be loaded to run the AI layer | `cbctmeasure/README.md` (coverage), `cbctmeasure/USER.md` (manual), `cbctmeasure/doc/TEST_REPORT.md` (Phase-1 on-device regression), `cbctmeasure/doc/AI_ONNX_TEST_REPORT.md` (ONNX inference) — 中文 |
 
 ---
 

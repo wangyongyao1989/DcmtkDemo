@@ -2,7 +2,7 @@
 
 🌐 **中文** | **[English](README.en.md)**
 
-`DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理全栈示例项目。它集成了 **DCMTK (DICOM Toolkit)**、**VTK 9.1.0** 和 **OpenCV**，实现了从 PACS 网络通信、DICOM 文件解析到高性能像素预处理，以及 **CBCT（锥形束 CT）三维体渲染与 MPR 重建** 的全链路功能。
+`DcmtkDemo` 是一个专为 Android 平台设计的医疗影像处理全栈示例项目。它集成了 **DCMTK (DICOM Toolkit)**、**VTK 9.1.0**、**OpenCV** 和 **ONNX Runtime Android**，实现了从 PACS 网络通信、DICOM 文件解析到高性能像素预处理，以及 **CBCT（锥形束 CT）三维体渲染与 MPR 重建** 的全链路功能。
 
 > [README.en.md](README.en.md) 是本文件的英文对照版，内容与中文版逐节同步；仓库内的模块文档、代码注释与技术文章以中文为主。
 
@@ -36,7 +36,8 @@
 *   **ROI 分割**: HU 阈值、空间裁剪盒、截面多边形、球面，以及交/并/差组合 ROI，逐体素角点加权统计。
 *   **种植体规划**: 定位与姿态可调，自动评估骨高度、骨宽度、神经管距离、多种植体间距并红黄绿判级。
 *   **标注与归档**: 7 类标注 + 9 态手势状态机，JSON 按 Study/Series 归档，一键导出 **PDF 报告 + DICOM SR**（含渲染证据图，SR 导出后现场读回自校验）。
-*   需求实现见 [cbctmeasure/README.md](cbctmeasure/README.md)，操作手册见 [cbctmeasure/USER.md](cbctmeasure/USER.md)，真机回归结论见 [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md)。
+*   **AI 辅助分析（Phase 2）**: **ONNX Runtime Android** 端上推理做牙齿自动分割（AI-01），每个实例落成掩膜 ROI 并自动挂体积/骨密度；种植位点推荐（AI-03）复用同一套安全判级。内置公开 DentVoxel 牙科 CBCT 两例可直接选加载。**精度未达 PRD 门槛（F1 0.58 < 0.85），链路/取证达标**——AI-02、AI-04 未交付。
+*   需求实现见 [cbctmeasure/README.md](cbctmeasure/README.md)，操作手册见 [cbctmeasure/USER.md](cbctmeasure/USER.md)，一期真机回归见 [cbctmeasure/doc/TEST_REPORT.md](cbctmeasure/doc/TEST_REPORT.md)，AI 推理测试报告见 [cbctmeasure/doc/AI_ONNX_TEST_REPORT.md](cbctmeasure/doc/AI_ONNX_TEST_REPORT.md)。
 
 ---
 
@@ -83,6 +84,7 @@
 | DCMTK | 3.6.9（静态库 + 头文件已入库） | `dcmtk/src/main/cpp/dcmtk/`（头文件）、`dcmtk/src/main/cpp/lib/arm64-v8/`（29 个 `.a`） |
 | VTK | 9.1.0 裁剪版（静态库 + 头文件已入库） | `cbctdeal/src/main/cpp/include/vtk-9.1/`、`cbctdeal/src/main/cpp/lib/`（43 个 `libvtk*.a`） |
 | OpenCV | 4.12.0（共享库） | `rawpixeldeal/src/main/cpp/include/`、`rawpixeldeal/src/main/cpp/libs/<ABI>/libopencv_java4.so` |
+| ONNX Runtime | 1.17.0（`onnxruntime-android` AAR，与设备端 C API v17 对齐；只取它的 `jni/arm64-v8a/libonnxruntime.so` 交付物，推理在 C++ 侧） | `gradle/libs.versions.toml`、`cbctmeasure/src/main/cpp/third_party/onnxruntime/include/`（vendored C 头 + 运行时 `dlopen`，该 AAR 无 `prefab/` 元数据） |
 
 > 文章 2 的主机端服务用 DCMTK **3.6.8** 源码编译，Android 端交叉编译入库的产物是 **3.6.9**（见 `osconfig.h` 的 `PACKAGE_VERSION`）；两者在 C-ECHO / C-FIND / C-STORE / C-MOVE 这些上层协议上完全互通，联调无需对齐小版本。
 
@@ -161,6 +163,8 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 
 `app/src/main/assets/` 下已内置全部演示数据：CT Preprocess 用的 `.raw` / `.bin` 裸数据、若干 `.dcm`，以及 `neck_ct/`（265 层 CBCT 序列，供 `:cbctdeal` 的「加载 ASSETS/NECK_CT」使用）。
 
+`:cbctmeasure` 另在模块自己的 `cbctmeasure/src/main/assets/dental_cbct/` 下内置两例公开牙科 CBCT（DentVoxel，真牙列，供 AI 辅助分析用；`neck_ct` 是头颈序列，跑 AI 分割没有意义）。注意 `dental_cbct/` **不在 `app/src/main/assets`**，UI 上「选择加载牙科 CBCT」走的是本模块资源。
+
 > ⚠️ **CT Preprocess 页选对字节序**：`.raw` 文件要用 **Little**，`.bin` 文件要用 **Big**。选错时像素值会散到 0~65535，直方图看起来近似均匀、自动调窗退化成全跨度——这是**读错字节序的症状，不是算法缺陷**。另外 W/H 输入框与所选文件不联动，例如 1112x1740 对 1112x1700 的 `CR*.raw` 会多要 40 行，Native 侧会按行截断并打一条 `RawPixelDealJni: ... truncate to 1700 rows` 的 WARN，属正常提示。
 
 ---
@@ -171,7 +175,7 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 *   **`:cbctdeal`**: **三维核心模块**。包含 VTK 9.1.0 静态库与 C++ 渲染引擎。
 *   **`:dcmtk`**: 通信模块。封装 DCMTK 静态库，处理网络与文件 IO。
 *   **`:rawpixeldeal`**: 算法模块。基于 OpenCV 处理底层像素变换。
-*   **`:cbctmeasure`**: 测量扩展模块。在 `:cbctdeal` 的同一份体数据与同一个渲染窗口上做临床测量、ROI 分割、种植体规划与报告导出，Kotlin/C++ 单向依赖 `:cbctdeal`，零拷贝复用体素内存。
+*   **`:cbctmeasure`**: 测量扩展模块。在 `:cbctdeal` 的同一份体数据与同一个渲染窗口上做临床测量、ROI 分割、种植体规划、报告导出与 AI 辅助分析（ONNX Runtime 端上推理），Kotlin/C++ 单向依赖 `:cbctdeal`，零拷贝复用体素内存。
 
 三层解耦是贯穿全项目的核心设计：**JNI 桥接层是唯一接触 `JNIEnv` 的地方，只做类型转换；业务逻辑层（`PacsClient` / `DicomFileIO` / `CtSeriesProcessor`）使用纯 C++ 类型，不依赖 JNI，可独立阅读和测试。** 原理见文章 1 第二、五章。
 
@@ -187,7 +191,7 @@ adb shell am start -n com.example.dcmtkdemo/.activity.MainActivity
 | Compare | `FileCompareFragment` | `:dcmtk` + `:rawpixeldeal` | DICOM 文件与调窗结果对比 | 文章 1 第四、七章 |
 | CT Preprocess | `CTPreprocessFragment` | `:rawpixeldeal` | 选资产 → 选字节序 → 执行最优调节 / 自定义流水线 / 写入 DICOM | 文章 1 第六、七、九章；`rawpixeldeal/README.md` |
 | CBCT Parse | `CbctParseFragment` | `:cbctdeal` | 「加载 ASSETS/NECK_CT」一键体验解析 + Bitmap 2D + VTK VR / MPR | 文章 3 第七、八、九章；`cbctdeal/README.md` |
-| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | 同一份体数据 + 同一个渲染窗口上做测量 / ROI / 种植体规划，一键导出 PDF 报告 + DICOM SR | `cbctmeasure/README.md`（需求覆盖）、`cbctmeasure/USER.md`（操作）、`cbctmeasure/doc/TEST_REPORT.md`（真机回归） |
+| CBCT Measure | `CbctMeasureFragment` | `:cbctdeal` + `:cbctmeasure` | 同一份体数据 + 同一个渲染窗口上做测量 / ROI / 种植体规划，一键导出 PDF 报告 + DICOM SR；可加载内置牙科 CBCT 跑 AI 辅助分析 | `cbctmeasure/README.md`（需求覆盖）、`cbctmeasure/USER.md`（操作）、`cbctmeasure/doc/TEST_REPORT.md`（一期真机回归）、`cbctmeasure/doc/AI_ONNX_TEST_REPORT.md`（ONNX 推理） |
 
 ---
 
