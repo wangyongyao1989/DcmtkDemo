@@ -8,6 +8,8 @@
 // 长度用解析欧氏距离（无累积误差），体积用分数覆盖权重（<= 1%）。
 
 #include "include/MeasurementManager.h"
+
+#include "include/AiCore.h"
 #include "include/AnnotationStore.h"
 #include "include/MeasureMath.h"
 
@@ -122,7 +124,12 @@ namespace {
 }   // namespace
 
 MeasurementManager::MeasurementManager()
-        : extractor_(vol_), planner_(vol_), picker_(vol_) {}
+        : extractor_(vol_), planner_(vol_), picker_(vol_) {
+    // R-06（AI 掩膜 ROI）的判定要问本类：只有持有 AiResult 的一方知道
+    // "世界坐标 -> 抽稀网格体素 -> 实例号"的映射（网格换算见 AiTypes.h）。
+    // 注入的是 this，而本类不会被拷贝/移动（JNI 会话表按指针持有），所以安全。
+    extractor_.setAiMaskQuery(this);
+}
 
 void MeasurementManager::bindVolume(const CbctVolume *vol) {
     vol_.bind(vol);
@@ -594,6 +601,139 @@ bool MeasurementManager::dominantHuRange(double &lo, double &hi) const {
 }
 
 // =============================================================================
+// AI-01 / AI-03（PRD 5.6）
+// =============================================================================
+
+void MeasurementManager::adoptAiResult(const AiResult &src) {
+    ai_ = src;
+    if (!ai_.ok) ai_.instances.clear();
+    LOGD("adoptAiResult: ok=%d inst=%zu toothVox=%lld total=%.0fms thr=%.4f",
+         ai_.ok ? 1 : 0, ai_.instances.size(), ai_.toothVoxels, ai_.totalMs, ai_.thresholdUsed);
+}
+
+void MeasurementManager::clearAi() {
+    ai_.clear();
+    LOGD("clearAi: 推理结果已丢弃（R-06 ROI 保留，统计将为空并给出原因）");
+}
+
+void MeasurementManager::setAiOverlayVisible(bool visible) {
+    if (ai_.overlayVisible == visible) return;
+    ai_.overlayVisible = visible;
+    LOGD("setAiOverlayVisible: %d", visible ? 1 : 0);
+}
+
+void MeasurementManager::setAiOverlaySlice(int plane, int position) {
+    // 只在变化时打日志：MPR 拖动时每帧都会调，刷屏会淹没别的取证行
+    if (aiOverlayPlane_ == plane && aiOverlayPosition_ == position) return;
+    aiOverlayPlane_ = plane;
+    aiOverlayPosition_ = position;
+}
+
+bool MeasurementManager::containsMm(int label, const Vec3 &world) const {
+    if (!ai_.hasMask() || label <= 0) return false;
+    const AiGrid &g = ai_.grid;
+    // 世界 mm -> 抽稀网格索引（floor：与 redToWorld 的"+0.5 球心"互补，
+    // 即某个体素中心落在哪个掩膜单元里，就认为它属于那个单元）
+    int i = (int) std::floor(world.x / (g.spacing[0] > 1e-9 ? g.spacing[0] : 1.0));
+    int j = (int) std::floor(world.y / (g.spacing[1] > 1e-9 ? g.spacing[1] : 1.0));
+    int k = (int) std::floor(world.z / (g.spacing[2] > 1e-9 ? g.spacing[2] : 1.0));
+    if (i < 0 || j < 0 || k < 0 || i >= g.redDim[0] || j >= g.redDim[1] || k >= g.redDim[2]) {
+        return false;           // 补 0 区 / 体积外：不属于任何实例
+    }
+    // 判据用 inst 而不是 label：R-06 的体积要与 AiInstance.volumeMm3 逐体素相等，
+    // 用 label 会把散点（已剔除、无实例号）算进 ROI，两处数字就对不上了。
+    return ai_.inst[(size_t) g.redIndex(i, j, k)] == (short) label;
+}
+
+bool MeasurementManager::boundsMm(int label, Vec3 &lo, Vec3 &hi) const {
+    for (size_t t = 0; t < ai_.instances.size(); ++t) {
+        if (ai_.instances[t].id != label) continue;
+        lo = ai_.instances[t].bboxMin;
+        hi = ai_.instances[t].bboxMax;
+        return true;
+    }
+    return false;
+}
+
+int MeasurementManager::aiAutoMeasure(bool withBoneDensity) {
+    if (!ai_.hasMask() || ai_.instances.empty()) {
+        LOGW("aiAutoMeasure: 没有可用的分割实例");
+        return 0;
+    }
+    int added = 0;
+    for (size_t t = 0; t < ai_.instances.size(); ++t) {
+        AiInstance &ins = ai_.instances[t];       // 非 const：要把落库 id 回填写回去
+        if (ins.roiId != 0) continue;             // 已经落过库，别重复建
+        const int archTag = ins.arch == 0 ? 'U' : (ins.arch == 1 ? 'L' : '?');
+        char nm[64];
+        snprintf(nm, sizeof(nm), "AI 牙 %c%d(#%d)", archTag, ins.toothCountHint, ins.id);
+
+        // 按 aiLabel 认领列表里已有的同一颗牙的掩膜 ROI：恢复归档 + 重跑推理时，旧 ROI
+        // 连同它的数值行都在（那些行因掩膜网格不入档而显示"待重算"）。不认领的话每跑一
+        // 次就多一套 26 行，报告里双份条目且一半是空的。
+        int reuseId = 0;
+        for (size_t q = 0; q < rois_.size(); ++q) {
+            if (rois_[q].type == ROI_AI_MASK && rois_[q].aiLabel == ins.id) {
+                reuseId = rois_[q].id;
+                break;
+            }
+        }
+
+        RoiDef roi;
+        roi.type = ROI_AI_MASK;
+        roi.aiLabel = ins.id;
+        roi.name = std::string(nm) + " 掩膜";
+        roi.color = (int) AiConst::PALETTE[(size_t) ((ins.id - 1) % AiConst::PALETTE_COUNT)];
+        roi.visible = true;
+        int roiId = 0;
+        if (reuseId != 0) {
+            roi.id = reuseId;
+            updateRoi(roi);       // id 不变，名称/配色按本次推理结果刷新
+            roiId = reuseId;
+        } else {
+            roiId = addRoi(roi);
+        }
+        ins.roiId = roiId;
+
+        if (reuseId != 0) {
+            // 只清本函数自己写过的行；先收集 id 再删，避免 erase 时迭代器失效
+            std::vector<int> stale;
+            for (size_t q = 0; q < records_.size(); ++q) {
+                if (records_[q].roiId == reuseId && records_[q].note == AiConst::AUTO_NOTE) {
+                    stale.push_back(records_[q].id);
+                }
+            }
+            for (size_t q = 0; q < stale.size(); ++q) removeMeasure(stale[q]);
+            if (!stale.empty()) {
+                LOGD("aiAutoMeasure: 复用 ROI #%d（aiLabel=%d），清理旧自动测量 %zu 条",
+                     reuseId, ins.id, stale.size());
+            }
+        }
+
+        const MeasureRecord rec = addMeasure(MT_ROI_VOLUME, std::vector<Vec3>(), roiId,
+                                             std::string(nm) + " 体积", roi.color,
+                                             AiConst::AUTO_NOTE);
+        ins.measureId = rec.id;
+        ++added;
+
+        if (withBoneDensity) {
+            addMeasure(MT_BONE_DENSITY, std::vector<Vec3>(), roiId,
+                       std::string(nm) + " 骨密度", roi.color, AiConst::AUTO_NOTE);
+            ++added;
+        }
+    }
+    LOGD("aiAutoMeasure: %zu 实例 -> %d 条测量（R-06 掩膜 ROI 复用 M-04/M-08）",
+         ai_.instances.size(), added);
+    return added;
+}
+
+std::vector<AiCandidate> MeasurementManager::aiRecommend(double minGapMm, int maxOut) const {
+    std::vector<AiCandidate> out;
+    AiPlanner::recommend(ai_, vol_, nerves_, implants_, minGapMm, maxOut, out);
+    return out;
+}
+
+// =============================================================================
 // 种植体方案（S-01 ~ S-06）
 // =============================================================================
 int MeasurementManager::addImplant(const Implant &im) {
@@ -701,6 +841,25 @@ bool MeasurementManager::appendNervePoint(int id, const Vec3 &p) {
 // 叠加图元
 // =============================================================================
 void MeasurementManager::buildOverlay(std::vector<OverlayPrim> &out) const {
+    const size_t aiBegin = out.size();
+    if (ai_.hasMask() && ai_.overlayVisible) {
+        AiCore::buildOverlay(ai_, aiOverlayPlane_, aiOverlayPosition_, out);
+    }
+    const size_t aiEnd = out.size();
+    // 把 AI 轮廓的归属改写成对应的 R-06 ROI：AiCore 只认识"实例号"，而 UI 列表里
+    // 选中的是 ROI —— 不改写的话"选中列表项 -> 掩膜加粗"就断了。没落库的实例
+    // 保持 (OW_AI, 实例号)，Kotlin 仍可按 AI 组高亮。
+    for (size_t k = aiBegin; k < aiEnd; ++k) {
+        OverlayPrim &p = out[k];
+        if (p.ownerKind != OW_AI) continue;
+        for (size_t t = 0; t < rois_.size(); ++t) {
+            if (rois_[t].type == ROI_AI_MASK && rois_[t].aiLabel == p.ownerId) {
+                p.ownerKind = OW_ROI;
+                p.ownerId = rois_[t].id;
+                break;
+            }
+        }
+    }
     for (size_t i = 0; i < rois_.size(); ++i) {
         if (!rois_[i].visible) continue;
         const size_t roiStart = out.size();
@@ -857,6 +1016,7 @@ void MeasurementManager::buildPlanOverlay(std::vector<OverlayPrim> &out) const {
         }
         tagOwner(out, implantStart, OW_IMPLANT, im.id);
     }
+
 }
 
 // =============================================================================
@@ -890,6 +1050,7 @@ Json MeasurementManager::roiToJson(const RoiDef &r) {
     j.set("polygon", pointsJson(r.polygon));
     j.set("plane", Json::makeNumber(r.plane));
     j.set("planePosition", Json::makeNumber(r.planePosition));
+    j.set("aiLabel", Json::makeNumber(r.aiLabel));      // R-06
     return j;
 }
 
@@ -916,6 +1077,7 @@ void MeasurementManager::roiFromJson(const Json &jj, RoiDef &r) {
     r.polygon = pointsFrom(jj.at("polygon"));
     r.plane = jj.at("plane").asInt(MP_AXIAL);
     r.planePosition = jj.at("planePosition").asInt(0);
+    r.aiLabel = jj.at("aiLabel").asInt(0);              // R-06（旧存档无此键 -> 0）
 }
 
 Json MeasurementManager::implantToJson(const Implant &a) {
