@@ -53,6 +53,14 @@ struct CbctVolume {
     std::string modality;
     std::string manufacturer;
 
+    // 序列标识与来源文件（取自第一个有效切片）
+    // 用途：上层扩展模块（测量/规划）按 {StudyUID}_{SeriesUID} 归档测量数据，
+    //       以及生成 DICOM SR 时复制 Study 级模块、引用原始图像实例。
+    std::string studyInstanceUID;
+    std::string seriesInstanceUID;
+    std::string seriesDescription;
+    std::string firstSlicePath;      // 首个有效切片文件绝对路径（SR 证据引用用）
+
     ~CbctVolume();
 };
 

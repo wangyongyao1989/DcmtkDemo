@@ -70,6 +70,7 @@ struct SliceMeta {
     // 患者与检查信息（取第一个有效切片）
     std::string patientName, patientID, patientSex, patientBirthDate;
     std::string studyDate, modality, manufacturer;
+    std::string studyUID, seriesUID, seriesDesc;
     double windowWidth = 0.0, windowCenter = 0.0;
     bool hasWindow = false;
 };
@@ -169,6 +170,10 @@ bool readMeta(const std::string &path, SliceMeta &m) {
     if (ds->findAndGetOFString(DCM_StudyDate, s).good()) m.studyDate = s.c_str();
     if (ds->findAndGetOFString(DCM_Modality, s).good()) m.modality = s.c_str();
     if (ds->findAndGetOFString(DCM_Manufacturer, s).good()) m.manufacturer = s.c_str();
+    // 序列标识：测量数据归档键与 DICOM SR 的 Study/Series 引用都依赖这两个 UID
+    if (ds->findAndGetOFString(DCM_StudyInstanceUID, s).good()) m.studyUID = s.c_str();
+    if (ds->findAndGetOFString(DCM_SeriesInstanceUID, s).good()) m.seriesUID = s.c_str();
+    if (ds->findAndGetOFString(DCM_SeriesDescription, s).good()) m.seriesDesc = s.c_str();
 
     Float64 ww = 0, wc = 0;
     if (ds->findAndGetFloat64(DCM_WindowWidth, ww).good() && ww >= 1.0 &&
@@ -448,6 +453,10 @@ CbctVolume *CbctSeriesParser::loadSeries(const std::string &dir,
     vol->studyDate = slices[0].studyDate;
     vol->modality = slices[0].modality;
     vol->manufacturer = slices[0].manufacturer;
+    vol->studyInstanceUID = slices[0].studyUID;
+    vol->seriesInstanceUID = slices[0].seriesUID;
+    vol->seriesDescription = slices[0].seriesDesc;
+    vol->firstSlicePath = slices[0].path;
     if (slices[0].hasWindow) {
         vol->windowWidth = slices[0].windowWidth;
         vol->windowCenter = slices[0].windowCenter;

@@ -153,6 +153,10 @@ namespace CbctJniHelper {
         putStr("studyDate", vol->studyDate);
         putStr("modality", vol->modality);
         putStr("manufacturer", vol->manufacturer);
+        putStr("studyInstanceUID", vol->studyInstanceUID);
+        putStr("seriesInstanceUID", vol->seriesInstanceUID);
+        putStr("seriesDescription", vol->seriesDescription);
+        putStr("firstSlicePath", vol->firstSlicePath);
 
         snprintf(buf, sizeof(buf), "%d", vol->width);
         putStr("width", buf);
