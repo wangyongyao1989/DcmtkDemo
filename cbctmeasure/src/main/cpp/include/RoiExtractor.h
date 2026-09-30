@@ -37,6 +37,28 @@ struct RoiStats {
 };
 
 /**
+ * R-06（AI-01 掩膜 ROI）的查询接口。
+ *
+ * 为什么用回调而不是把 AiResult 直接塞进 RoiExtractor：
+ *   RoiExtractor 工作在体数据原生网格，AiResult 工作在模型抽稀网格（AiGrid），
+ *   两者的换算规则（factor / 补 0 区 / 轴序）全部属于 AI 层的知识。让 AI 层
+ *   实现"世界点 -> 是否属于实例 L"，RoiExtractor 只认这个布尔值，依赖方向
+ *   保持 core -> 无回调定义之外的东西，主机单测仍可用一个假掩膜覆盖 R-06。
+ *
+ * 生命周期：非拥有指针，由 MeasurementManager 保证在推理结果存续期内有效。
+ */
+class AiMaskQuery {
+public:
+    virtual ~AiMaskQuery() {}
+
+    /** 世界坐标（mm）是否落在实例 label 的掩膜内 */
+    virtual bool containsMm(int label, const Vec3 &world) const = 0;
+
+    /** 实例掩膜的世界包围盒（mm）；实例不存在或掩膜已清除时返回 false */
+    virtual bool boundsMm(int label, Vec3 &lo, Vec3 &hi) const = 0;
+};
+
+/**
  * ROI 提取与体数据统计（PRD 5.2）。
  *
  * 体素权重模型（M-04 精度设计的关键）：
@@ -51,6 +73,10 @@ struct RoiStats {
  *     交集 min(a,b)、并集 max(a,b)、差集 min(a, 1-b)，
  *     与逐体素"AND / OR / NOT" 在权重 0/1 时完全等价。
  *
+ *   - AI 掩膜（R-06）：按体素中心所属的掩膜抽稀单元判定，权重取 0/1，
+ *     不做 2x2x2 角点超采样 —— 抽稀单元本身比体素粗（factor>=2），
+ *     亚体素采样只会得到"看似精细、实则由插值虚构"的边界权重。
+ *
  * 遍历范围只覆盖 ROI 的空间包围盒（R-02/R-04 给出的包围盒或全体积），
  * 纯 HU 阈值 ROI（R-01 无空间约束）必须全体积扫描，耗时随体素数线性增长；
  * UI 侧交互预览应搭配空间裁剪盒，显式"重新统计"才允许全体积扫描。
@@ -58,6 +84,12 @@ struct RoiStats {
 class RoiExtractor {
 public:
     explicit RoiExtractor(const VolumeRef &vol);
+
+    /**
+     * 注入 R-06 掩膜查询（不注入时所有 ROI_AI_MASK 统计为空并在 error 里说明）。
+     * 由 MeasurementManager 在推理结果建立/清除时调用。
+     */
+    void setAiMaskQuery(const AiMaskQuery *q) { ai_ = q; }
 
     /**
      * 统计一个 ROI。pool 用于解析组合 ROI 的子 ROI（可为空，
@@ -110,6 +142,7 @@ private:
                         int &i0, int &j0, int &k0, int &i1, int &j1, int &k1, int depth) const;
 
     const VolumeRef &vol_;
+    const AiMaskQuery *ai_ = nullptr;   // R-06 用；非拥有
 };
 
 #endif // DCMTKDEMO_ROIEXTRACTOR_H

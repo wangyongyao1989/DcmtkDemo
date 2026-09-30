@@ -43,13 +43,14 @@ enum MeasureType {
     MT_OVERBITE = 11,          // S-10 覆合（垂直，主值）+ 覆盖（前后向，明细）
 };
 
-/** ROI 定义方式（PRD 5.2.2 表 R-01 ~ R-05） */
+/** ROI 定义方式（PRD 5.2.2 表 R-01 ~ R-05；R-06 为本模块 AI-01 扩展） */
 enum RoiType {
     ROI_HU_THRESHOLD = 0,  // R-01 HU 阈值范围
     ROI_BOX = 1,           // R-02 空间裁剪盒
     ROI_PLANE = 2,         // R-03 平面裁剪（保留法线正向一侧）
     ROI_SPHERE = 3,        // R-04 球面 ROI
     ROI_COMPOSITE = 4,     // R-05 组合 ROI（子 ROI 交/并/差）
+    ROI_AI_MASK = 5,       // R-06 AI-01 分割掩膜实例（PRD 5.6.1）
 };
 
 /** 手势/工具状态机（PRD 8.5，共 9 态，对应 AC-10） */
@@ -140,7 +141,7 @@ struct MeasureRecord {
     long long createdAt = 0;       // epoch millis
 };
 
-/** ROI 定义（参数按 type 取用；组合 ROI 使用子 ROI 引用） */
+/** ROI 定义（参数按 type 取用；组合 ROI 使用子 ROI 引用；R-06 用 aiLabel） */
 struct RoiDef {
     int id = 0;
     int type = ROI_HU_THRESHOLD;
@@ -157,6 +158,15 @@ struct RoiDef {
 
     int childA = 0, childB = 0, childC = 0;     // R-05
     int opAB = OP_INTERSECT, opAC = OP_SUBTRACT;
+
+    /**
+     * R-06（AI-01）：掩膜实例号 = AiInstance.id。
+     * 之所以只存一个整数而不是掩膜本身：掩膜是"本次推理的产物"，量大且随
+     * 体数据/模型变化，它归 MeasurementManager 的 AiResult 持有；ROI 只是
+     * 一个引用，因此可以随 measuresJson 一起落盘、被 R-05 组合、被 M-04/M-08 复用。
+     * 推理结果被清除后该 ROI 统计为空并在 error 里说明，不会崩溃。
+     */
+    int aiLabel = 0;
 
     std::vector<Vec3> polygon;                  // M-05 截面封闭路径
     int plane = MP_AXIAL;                       // 多边形所在平面
@@ -240,6 +250,7 @@ enum OverlayOwner {
     OW_NERVE = 3,
     OW_IMPLANT = 4,
     OW_ANNOTATION = 5,
+    OW_AI = 6,          // AI-01 分割实例（id = AiInstance.id）
 };
 
 enum OverlayKind {

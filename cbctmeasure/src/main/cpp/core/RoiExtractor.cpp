@@ -1,4 +1,4 @@
-// ROI 提取与体数据统计实现（PRD 5.2 R-01 ~ R-05，支撑 M-04 / M-08）。
+// ROI 提取与体数据统计实现（PRD 5.2 R-01 ~ R-05 + R-06 AI 掩膜，支撑 M-04 / M-08）。
 //
 // 权重模型与遍历范围策略见 include/RoiExtractor.h 顶部注释。
 // 本文件是纯 C++（只读 Volume），可主机侧编译单测：AC-04「体积误差 <= 1%」
@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <string>
 
 #define TAG "CbctMeasureCore"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
@@ -145,7 +146,7 @@ namespace {
     /** 单个 ROI 对体素 (i,j,k) 的覆盖权重（含子 ROI 递归） */
     double roiWeight(const RoiDef &roi, int i, int j, int k,
                      const VolumeRef &vol, const std::vector<RoiDef> *pool,
-                     int depth, std::string *error) {
+                     int depth, std::string *error, const AiMaskQuery *ai) {
         if (depth > kMaxDepth) {
             if (error && error->empty()) *error = "ROI 组合层级过深（可能存在循环引用）";
             return 0.0;
@@ -181,17 +182,28 @@ namespace {
                 for (int n = 0; n < 8; ++n) if (geometryContains(roi, w.corner(n))) ++hit;
                 return (double) hit / 8.0;
             }
+            case ROI_AI_MASK: {
+                // R-06：整块抽稀掩膜单元归属判定（中心点属于该单元即权重 1）。
+                // 见 RoiExtractor.h 权重模型注释：掩膜比体素粗，亚体素超采样无意义。
+                if (!ai) {
+                    if (error && error->empty()) *error = "AI 掩膜 ROI 需要推理结果（已清除或未运行）";
+                    return 0.0;
+                }
+                Vec3 c;
+                vol.indexToWorld(i, j, k, c);
+                return ai->containsMm(roi.aiLabel, c) ? 1.0 : 0.0;
+            }
             case ROI_COMPOSITE: {
                 const RoiDef *a = findRoi(pool, roi.childA);
                 if (!a) {
                     if (error && error->empty()) *error = "组合 ROI 缺少子 ROI A";
                     return 0.0;
                 }
-                double w = roiWeight(*a, i, j, k, vol, pool, depth + 1, error);
+                double w = roiWeight(*a, i, j, k, vol, pool, depth + 1, error, ai);
                 if (roi.childB != 0) {
                     const RoiDef *b = findRoi(pool, roi.childB);
                     if (b) {
-                        const double wb = roiWeight(*b, i, j, k, vol, pool, depth + 1, error);
+                        const double wb = roiWeight(*b, i, j, k, vol, pool, depth + 1, error, ai);
                         if (roi.opAB == OP_UNION) w = std::max(w, wb);
                         else if (roi.opAB == OP_INTERSECT) w = std::min(w, wb);
                         // OP_NONE：忽略 B
@@ -200,7 +212,7 @@ namespace {
                 if (roi.childC != 0) {
                     const RoiDef *c = findRoi(pool, roi.childC);
                     if (c) {
-                        const double wc = roiWeight(*c, i, j, k, vol, pool, depth + 1, error);
+                        const double wc = roiWeight(*c, i, j, k, vol, pool, depth + 1, error, ai);
                         // R-05 的"NOT C"语义：差集；也允许显式 INTERSECT 三重叠
                         w = (roi.opAC == OP_INTERSECT) ? std::min(w, wc) : std::min(w, 1.0 - wc);
                     }
@@ -216,7 +228,7 @@ namespace {
 double RoiExtractor::weightOfVoxel(const RoiDef &roi, int i, int j, int k,
                                    const std::vector<RoiDef> *pool,
                                    std::string *error) const {
-    return roiWeight(roi, i, j, k, vol_, pool, 0, error);
+    return roiWeight(roi, i, j, k, vol_, pool, 0, error, ai_);
 }
 
 bool RoiExtractor::contains(const RoiDef &roi, const Vec3 &world,
@@ -364,6 +376,16 @@ int RoiExtractor::spatialBoundsAt(const RoiDef &roi, const std::vector<RoiDef> *
             spatial = SB_SPATIAL;
             break;
         }
+        case ROI_AI_MASK: {
+            // R-06：候选集 = 该实例掩膜的包围盒。掩膜是抽稀网格上的整块单元，
+            // 中心点归属判定的候选范围因此恰好是这个盒（不必再放宽一格）。
+            if (!ai_) { spatial = SB_EMPTY; break; }
+            Vec3 lo, hi;
+            if (!ai_->boundsMm(roi.aiLabel, lo, hi)) { spatial = SB_EMPTY; break; }
+            clipTo(lo, hi);
+            spatial = SB_SPATIAL;
+            break;
+        }
         case ROI_COMPOSITE: {
             // 组合 ROI 的候选区间：交集取各子区间的"交"、并集取"并"、差集只看 A。
             // 改动前只看 A 的包围盒，"大盒 ∩ 一层截面"要把上百万个必然为 0 的
@@ -437,6 +459,20 @@ RoiStats RoiExtractor::analyze(const RoiDef &roi, const std::vector<RoiDef> *poo
     }
     const long long t0 = monoMs();
     s.voxelMm3 = vol_.voxelVolumeMm3();
+
+    if (roi.type == ROI_AI_MASK) {
+        // 提前判定：否则 SB_EMPTY 的通用文案"ROI 与体数据无交集"会被读成
+        // "掩膜不在体积内"，而真实原因是推理结果不在了（清除 / 换了序列）。
+        Vec3 lo, hi;
+        if (!ai_) {
+            s.error = "AI 掩膜 ROI 需要推理结果（已清除或未运行）";
+            return s;
+        }
+        if (!ai_->boundsMm(roi.aiLabel, lo, hi)) {
+            s.error = "AI 掩膜 ROI 需要推理结果（实例 #" + std::to_string(roi.aiLabel) + " 不存在）";
+            return s;
+        }
+    }
 
     int i0, j0, k0, i1, j1, k1;
     const int bounds = spatialBounds(roi, pool, i0, j0, k0, i1, j1, k1);
@@ -529,7 +565,7 @@ RoiStats RoiExtractor::analyze(const RoiDef &roi, const std::vector<RoiDef> *poo
                 const size_t rowBase = (size_t) k * slice + (size_t) j * W;
                 for (int i = i0; i <= i1; ++i) {
                     ++scanned;
-                    const double w = roiWeight(roi, i, j, k, vol_, pool, 0, &err);
+                    const double w = roiWeight(roi, i, j, k, vol_, pool, 0, &err, ai_);
                     if (w <= 0.0) continue;
                     accumulate(w, data[rowBase + i]);
                 }
