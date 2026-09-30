@@ -27,3 +27,4 @@ include ':app'
 include ':dcmtk'
 include ':rawpixeldeal'
 include ':cbctdeal'
+include ':cbctmeasure'   // CBCT 测量与手术规划扩展模块（PRD cbctmeasure_prd.pdf）

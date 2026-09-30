@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":dcmtk"))
     implementation(project(":rawpixeldeal"))
     implementation(project(":cbctdeal"))
+    implementation(project(":cbctmeasure"))   // 测量/规划扩展层，单向依赖 :cbctdeal
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)
     implementation(libs.material)
