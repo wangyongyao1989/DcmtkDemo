@@ -32,4 +32,8 @@
         android:id="@+id/nav_cbct"
         android:icon="@android:drawable/ic_menu_compass"
         android:title="CBCT Parse" />
+    <item
+        android:id="@+id/nav_cbct_measure"
+        android:icon="@android:drawable/ic_menu_myplaces"
+        android:title="CBCT Measure" />
 </menu>
