@@ -15,6 +15,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.dcmtkdemo.R
 import com.example.dcmtkdemo.adapter.MeasureResultAdapter
 import com.example.dcmtkdemo.adapter.MeasureRow
 import com.example.dcmtkdemo.databinding.FragmentCbctMeasureBinding
@@ -26,17 +27,12 @@ import com.wangyao.cbctdeal.transfer.CbctFileTransfer
 import com.wangyao.cbctmeasure.ai.AiEngine
 import com.wangyao.cbctmeasure.ai.DentalDataAssets
 import com.wangyao.cbctmeasure.jni.AnnotationJni
-import com.wangyao.cbctmeasure.jni.AiJni
 import com.wangyao.cbctmeasure.jni.MeasureJni
 import com.wangyao.cbctmeasure.jni.RoiJni
 import com.wangyao.cbctmeasure.jni.SurgeryPlanJni
 import com.wangyao.cbctmeasure.model.AnnotationItem
 import com.wangyao.cbctmeasure.model.AnnotationType
-import com.wangyao.cbctmeasure.model.AiArch
-import com.wangyao.cbctmeasure.model.AiCandidateInfo
-import com.wangyao.cbctmeasure.model.AiResultInfo
 import com.wangyao.cbctmeasure.model.CombineOp
-import com.wangyao.cbctmeasure.model.ImplantItem
 import com.wangyao.cbctmeasure.model.MeasurePlane
 import com.wangyao.cbctmeasure.model.MeasureType
 import com.wangyao.cbctmeasure.model.OverlayOwner
@@ -61,14 +57,19 @@ import java.io.IOException
 /**
  * CBCT 测量与手术规划页（:cbctmeasure 的宿主界面）。
  *
- * 页面只做三件事，与模块分层严格对齐：
+ * 页面只做四件事，与模块分层严格对齐：
  *   1) 数据入口与渲染参数（与 CBCT Parse 页同一套流程）；
  *   2) 把工具按钮映射成 [ToolState]，手势交给 MeasureToolController（PRD 8.5 九态状态机）；
- *   3) 把会话数据（测量/ROI/方案/标注）投影成结果列表，并把导出交给 ReportExporter。
+ *   3) 把会话数据（测量/ROI/方案/标注）投影成可折叠的结果列表，并把导出交给 ReportExporter；
+ *   4) 承载 AI 面板 [CbctAiFragment]：它是本页的 child fragment，会话句柄经 [CbctAiHost] 借出。
  * 所有数值都来自 Native core：本页不重新计算，只显示 JNI 回传的读数，
  * 这样"界面上的数字""PDF 里的数字""SR 里的数字"必然一致（PRD 6 精度项的前提）。
+ *
+ * 为什么 AI 不做成抽屉里的第二个页面：MainActivity 切页用的是 replace()，
+ * 离开本页就会销毁渲染窗口与 Native 会话，而推理的输入正是这份体数据。
+ * 做成 child fragment 后"谁拥有会话"仍然只有本页一个答案，AI 崩了也不拖累测量。
  */
-class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
+class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
 
     private var _binding: FragmentCbctMeasureBinding? = null
     private val binding get() = _binding!!
@@ -93,18 +94,14 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
     /** 隔离显示（只保留阈值区间体素）是否开启 */
     private var isolating = false
 
-    /**
-     * AI 层状态（PRD 5.6）。
-     *
-     * aiModel 为空表示运行时/模型还没装载成功；aiInfo 是"最近一次推理的回执"，
-     * 状态栏文字与取证导出都引用它，页面不自己算任何数。
-     * parityKept 记录最近一次推理是否用了 keepParity（导出取证数据要先有缓冲）。
-     */
-    private var aiModel: AiEngine.LoadResult? = null
+    /** 结果面板是否展开；初始 true，行多时按 [AUTO_COLLAPSE_ROWS] 自动收起一次 */
+    private var resultsExpanded = true
 
-    private var aiInfo: AiResultInfo = AiResultInfo.EMPTY
+    /** 用户是否手动点过折叠头：点过之后不再自动收起，避免"我刚展开它就缩回去" */
+    private var resultsUserToggled = false
 
-    private var parityKept = false
+    /** 当前面板：false = 测量工具与 ROI，true = AI 辅助分析 */
+    private var aiPanelShown = false
 
     /** RadioGroup 程序化设值时的防重入标志（避免 listener <-> controller 互相回调） */
     private var syncingToolRadio = false
@@ -159,26 +156,16 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
 
         setupController()
         setupResultsList()
+        setupAiPanel()
 
         binding.btnSelectDir.setOnClickListener { dirPicker.launch(null) }
         binding.btnParse.setOnClickListener { runParse() }
         binding.btnLoadAssets.setOnClickListener { loadNeckCtAssets() }
         binding.btnDentalData.setOnClickListener { pickDentalCase() }
 
-        // AI（PRD 5.6）：按钮可用性由 updateAiButtons() 统一管，见下面的会话生命周期
-        binding.btnAiLoad.setOnClickListener { loadAiModel() }
-        binding.btnAiSegment.setOnClickListener { runAiSegment(keepParity = false) }
-        binding.btnAiMeasure.setOnClickListener { aiAutoMeasure() }
-        binding.btnAiRecommend.setOnClickListener { aiRecommend() }
-        binding.btnAiParity.setOnClickListener { runAiSegment(keepParity = true) }
-        binding.btnAiClear.setOnClickListener { clearAi() }
-        binding.cbAiOverlay.setOnCheckedChangeListener { _, checked ->
-            if (sessionHandle != 0L) {
-                AiEngine.setOverlayVisible(sessionHandle, checked)
-                controller?.syncOverlay()
-            }
-        }
-        updateAiButtons()
+        // 结果面板折叠：整块列表在页尾，展开时会把归档区挤出屏幕（本轮真机反馈）
+        binding.llResultsHeader.setOnClickListener { toggleResults() }
+        applyResultsCollapse()
 
         binding.rgTool.setOnCheckedChangeListener { _, _ -> onToolChanged() }
         binding.rgMeasureType.setOnCheckedChangeListener { _, _ -> onMeasureTypeChanged() }
@@ -188,9 +175,15 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
 
         binding.btnUndoPoint.setOnClickListener { controller?.undoPendingPoint() }
         binding.btnResetCam.setOnClickListener { binding.measureView.resetCamera() }
-        binding.btnClearDraft.setOnClickListener {
-            controller?.abortDraft()
+        // 面积多边形的起点闭合有 2.0mm 世界容差，放大后点不中，按钮是唯一的备用收尾路径
+        binding.btnCloseArea.setOnClickListener {
+            controller?.closeAreaDraft()
             controller?.syncOverlay()
+        }
+        binding.btnClearDraft.setOnClickListener {
+            // 用 discardDraft() 而不是 abortDraft()：后者只清数据，提示文案会停在旧点数上，
+            // 看起来像"按钮没反应"（本轮真机回归复现）
+            controller?.discardDraft()
         }
         binding.btnClearAll.setOnClickListener { confirmClearAll() }
 
@@ -253,6 +246,61 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
     }
 
     // =========================================================================
+    // 面板切换与结果折叠（本轮 UI 瘦身：AI 是 child fragment，结果列表可收起）
+    // =========================================================================
+
+    /**
+     * 挂上 AI 子面板。
+     *
+     * 用 childFragmentManager 而不是抽屉新页面：AI 与测量共用同一个 Native 会话，
+     * 抽屉切页的 replace() 会把渲染窗口和会话一起销毁。这里 add 到
+     * fl_ai_panel 后，本页始终是唯一的所有者，AI 侧只通过 [CbctAiHost] 借句柄。
+     */
+    private fun setupAiPanel() {
+        if (childFragmentManager.findFragmentByTag(AI_PANEL_TAG) == null) {
+            childFragmentManager.beginTransaction()
+                .add(R.id.fl_ai_panel, CbctAiFragment(), AI_PANEL_TAG)
+                .commit()
+        }
+        binding.tabTools.setOnClickListener { selectPanel(ai = false) }
+        binding.tabAi.setOnClickListener { selectPanel(ai = true) }
+        selectPanel(ai = aiPanelShown)
+    }
+
+    private fun aiChild(): CbctAiFragment? =
+        childFragmentManager.findFragmentByTag(AI_PANEL_TAG) as? CbctAiFragment
+
+    /**
+     * 测量面板与 AI 面板互斥显示，默认只显示测量面板。
+     *
+     * 两栏按钮叠在一起时页面高度远超一屏，"归档与报告"要滚很久才够得着（真机反馈）；
+     * 而 AI 只在装了牙科 CBCT 的会话里才有意义，没必要常占着屏幕。
+     */
+    private fun selectPanel(ai: Boolean) {
+        aiPanelShown = ai
+        binding.llMeasurePanel.visibility = if (ai) View.GONE else View.VISIBLE
+        binding.flAiPanel.visibility = if (ai) View.VISIBLE else View.GONE
+        binding.tabTools.isSelected = !ai
+        binding.tabAi.isSelected = ai
+        if (ai) aiChild()?.onPanelShown()
+    }
+
+    private fun toggleResults() {
+        resultsExpanded = !resultsExpanded
+        resultsUserToggled = true
+        applyResultsCollapse()
+    }
+
+    /** 折叠只隐藏列表本体，标题行留着——它同时是"共几项"的读数 */
+    @SuppressLint("SetTextI18n")
+    private fun applyResultsCollapse() {
+        if (_binding == null) return
+        binding.rvResults.visibility = if (resultsExpanded) View.VISIBLE else View.GONE
+        binding.tvResultsArrow.text = if (resultsExpanded) ARROW_EXPANDED else ARROW_COLLAPSED
+        binding.tvResultsToggle.text = if (resultsExpanded) "点击折叠" else "点击展开"
+    }
+
+    // =========================================================================
     // 数据入口（与 CBCT Parse 页同流程）
     // =========================================================================
 
@@ -274,6 +322,46 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
                 if (_binding != null) binding.tvInfo.text = "assets 拷贝失败: ${e.message}"
             } finally {
                 if (_binding != null) binding.btnLoadAssets.isEnabled = true
+            }
+        }
+    }
+
+    /** 病例选择：公开 DentVoxel 数据转成的内置牙科 CBCT 序列 */
+    private fun pickDentalCase() {
+        val ctx = context ?: return
+        val cases = DentalDataAssets.listCases(ctx)
+        if (cases.isEmpty()) {
+            toast("assets/dental_cbct 里没有病例")
+            return
+        }
+        val labels = cases.map { c ->
+            "${c.title}\n${c.note}（${c.sliceCount} 张）"
+        }.toTypedArray()
+        AlertDialog.Builder(ctx)
+            .setTitle("选择加载牙科 CBCT 数据")
+            .setItems(labels) { _, which -> loadDentalCase(cases[which]) }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun loadDentalCase(case: DentalDataAssets.Case) {
+        val appCtx = context?.applicationContext ?: return
+        binding.btnDentalData.isEnabled = false
+        binding.tvInfo.text = "正在释放牙科 CBCT ${case.id} 到私有存储..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val dir = DentalDataAssets.release(appCtx, case)
+                if (_binding == null) return@launch
+                binding.etPath.setText(dir.absolutePath)
+                binding.tvInfo.text =
+                    "牙科 CBCT ${case.id}（${case.sliceCount} 张 @0.6mm）就绪，开始解析..."
+                runParse()
+            } catch (e: Exception) {
+                Log.e(TAG, "release dental case failed", e)
+                if (_binding != null) binding.tvInfo.text = "释放牙科 CBCT 失败: ${e.message}"
+            } finally {
+                if (_binding != null) binding.btnDentalData.isEnabled = true
             }
         }
     }
@@ -361,12 +449,10 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         sessionHandle = h
         volumeInfo = MeasureJni.volumeInfo(h)
         // 新会话 = 新的 MeasureSession 对象，旧会话里的 OrtEngine 已随它销毁，
-        // 所以 AI 必须重新装载；沿用 aiModel 会让按钮"看着可点"却报句柄无效
-        aiModel = null
-        aiInfo = AiResultInfo.EMPTY
-        parityKept = false
-        binding.tvAiStatus.text = aiStatusText()
-        updateAiButtons()
+        // 所以 AI 面板必须把装载状态清零；沿用旧 aiModel 会让按钮"看着可点"却报句柄无效
+        aiChild()?.onSessionRebuilt()
+        // 换序列 = 结果重新数一遍：折叠状态回到"跟随行数"的默认策略
+        resultsUserToggled = false
 
         binding.measureView.setVolume(handle)
         setupViewerRanges()
@@ -401,9 +487,29 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
 
     private fun onVtkModeChanged() {
         if (syncingModeRadio) return
+        exitSliceToolForVr()
         applyViewport()
         updateSliceControlsVisibility()
         controller?.syncOverlay()
+    }
+
+    /**
+     * [ensureMprForSliceTools] 的反向保护：面积与神经管描记只能在 MPR 切面上取点。
+     *
+     * 真机回归实测：先选「面积」，再手动切回 VR，工具单选钮仍停在面积上，
+     * 之后每次点击都只得到"当前切面未拾取到点" —— 用户读到的是"软件坏了"。
+     * 这里不替用户把渲染模式切回 MPR（他想看三维），而是把工具退回浏览并说明原因。
+     */
+    private fun exitSliceToolForVr() {
+        val isVr = binding.rgVtkMode.checkedRadioButtonId == binding.rbVtkVr.id
+        val state = controller?.state ?: ToolState.VIEW
+        if (!isVr || (state != ToolState.MEASURE_AREA && state != ToolState.NERVE_TRACE)) return
+        syncingToolRadio = true
+        binding.rgTool.check(binding.rbView.id)
+        syncingToolRadio = false
+        controller?.switchState(ToolState.VIEW)
+        updateToolRows(ToolState.VIEW)
+        toast("已退回浏览：面积 / 神经管描记只能在 MPR 切面上取点")
     }
 
     /** 面积测量与神经描记依赖当前切面，自动从 VR 切到 MPR，避免"点了没反应" */
@@ -750,15 +856,27 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         toast("隔离显示 ${lo.toInt()} ~ ${hi.toInt()} HU")
     }
 
-    /** 清空全部数据（不可撤销，必须二次确认） */
+    /**
+     * 清空全部数据（不可撤销，必须二次确认）。
+     *
+     * 本轮真机测试发现的口径问题：这个对话框原本承诺"ROI 也会被删除"，
+     * 但 Native 只有 clearMeasures / clearAnnotations / clearPlan，没有批量清 ROI，
+     * 所以点完"清空"列表里仍然留着 ROI 行（AI 建的掩膜行尤其多，看起来像没生效）。
+     * 这里不加 C++ 接口，直接用已有的 removeRoi 逐条删 —— 删除口径与逐行删除按钮一致。
+     */
     private fun confirmClearAll() {
         if (sessionHandle == 0L) return
         AlertDialog.Builder(requireContext())
             .setTitle("清空全部测量数据？")
-            .setMessage("测量项、ROI、种植体方案与标注都会被删除，磁盘上的归档不受影响。")
+            .setMessage(
+                "测量项、ROI（含 AI 掩膜行）、种植体方案与标注都会被删除，" +
+                        "磁盘上的归档不受影响。\nAI 的分割掩膜本身保留：想重建成测量，" +
+                        "回 AI 面板点「逐牙自动测量」即可。"
+            )
             .setNegativeButton("取消", null)
             .setPositiveButton("清空") { _, _ ->
                 MeasureJni.clearMeasures(sessionHandle)
+                RoiJni.list(sessionHandle).forEach { RoiJni.removeRoi(sessionHandle, it.id) }
                 AnnotationJni.clearAnnotations(sessionHandle)
                 SurgeryPlanJni.clearPlan(sessionHandle)
                 isolating = false
@@ -853,7 +971,15 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
             )
         }
         adapter?.updateData(rows)
-        binding.tvListTitle.text = "测量结果（${rows.size} 项）"
+        // 标题行就是折叠后的唯一读数：条数必须留在这里，不能只画在列表里
+        binding.tvListTitle.text = "6) 结果 Results（${rows.size} 项）"
+        if (!resultsUserToggled) {
+            val wantExpanded = rows.size <= AUTO_COLLAPSE_ROWS
+            if (wantExpanded != resultsExpanded) {
+                resultsExpanded = wantExpanded
+                applyResultsCollapse()
+            }
+        }
         binding.tvMeasureSummary.text = sessionSummaryText()
     }
 
@@ -1148,308 +1274,33 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
     }
 
     // =========================================================================
-    // 生命周期
-    // =========================================================================
-
-    // =========================================================================
-    // AI 辅助分析（PRD 5.6：AI-01 牙齿自动分割 / AI-03 种植位点推荐）
+    // CbctAiHost —— AI 子面板向本页借会话、请求刷新
     //
-    // 页面在这层只做三件事：选病例、点按钮、显示 Native 回传的数。
-    // 阈值不在这里定（来自 assets/models/teeth_cnn.json 的标定值），
-    // 掩膜/连通域/逐牙统计也都不在这里算 —— 否则"屏幕上的体积"与
-    // "PDF/SR 里的体积"就可能不是同一个数（PRD 6 精度项的前提）。
+    // 只给"会话与视图"这两样本页面拥有的东西；推理编排、按钮可用性、状态文案
+    // 都留在 CbctAiFragment 里，本页不知道 AI 的算法步骤。
     // =========================================================================
 
-    /** 病例选择：公开 DentVoxel 数据转成的内置牙科 CBCT 序列 */
-    private fun pickDentalCase() {
-        val ctx = context ?: return
-        val cases = DentalDataAssets.listCases(ctx)
-        if (cases.isEmpty()) {
-            toast("assets/dental_cbct 里没有病例")
-            return
-        }
-        val labels = cases.map { c ->
-            "${c.title}\n${c.note}（${c.sliceCount} 张）"
-        }.toTypedArray()
-        AlertDialog.Builder(ctx)
-            .setTitle("选择加载牙科 CBCT 数据")
-            .setItems(labels) { _, which -> loadDentalCase(cases[which]) }
-            .setNegativeButton("取消", null)
-            .show()
-    }
+    override fun aiSessionHandle(): Long = sessionHandle
 
-    @SuppressLint("SetTextI18n")
-    private fun loadDentalCase(case: DentalDataAssets.Case) {
-        val appCtx = context?.applicationContext ?: return
-        binding.btnDentalData.isEnabled = false
-        binding.tvInfo.text = "正在释放牙科 CBCT ${case.id} 到私有存储..."
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val dir = DentalDataAssets.release(appCtx, case)
-                if (_binding == null) return@launch
-                binding.etPath.setText(dir.absolutePath)
-                binding.tvInfo.text =
-                    "牙科 CBCT ${case.id}（${case.sliceCount} 张 @0.6mm）就绪，开始解析..."
-                runParse()
-            } catch (e: Exception) {
-                Log.e(TAG, "release dental case failed", e)
-                if (_binding != null) binding.tvInfo.text = "释放牙科 CBCT 失败: ${e.message}"
-            } finally {
-                if (_binding != null) binding.btnDentalData.isEnabled = true
-            }
-        }
-    }
+    override fun aiVolumeInfo(): VolumeInfo = volumeInfo
 
-    /** 装载 ONNX Runtime + 模型（dlopen 失败也只影响 AI，不影响测量功能） */
-    @SuppressLint("SetTextI18n")
-    private fun loadAiModel() {
-        val appCtx = context?.applicationContext ?: return
-        if (sessionHandle == 0L) {
-            toast("请先解析一个 CBCT 序列")
-            return
-        }
-        binding.btnAiLoad.isEnabled = false
-        binding.tvAiStatus.text = "正在装载 ONNX Runtime 与模型..."
-        viewLifecycleOwner.lifecycleScope.launch {
-            val r = try {
-                withContext(Dispatchers.Default) { AiEngine.loadModel(appCtx, sessionHandle) }
-            } catch (e: Exception) {
-                Log.e(TAG, "loadModel threw", e)
-                AiEngine.LoadResult(false, "装载异常: ${e.message}")
-            }
-            if (_binding == null) return@launch
-            aiModel = r
-            binding.tvAiStatus.text = aiStatusText()
-            updateAiButtons()
-            binding.btnAiLoad.isEnabled = true
-        }
+    override fun aiInvalidate(overlay: Boolean, results: Boolean) {
+        if (_binding == null) return
+        if (overlay) controller?.syncOverlay()
+        if (results) refreshResults()
     }
 
     /**
-     * 一次完整推理。keepParity=true 是 AC-08 取证入口：
-     * 让 Native 把 feat/prob 留在会话里，随后落盘给主机脚本逐元素比对。
+     * 「换一例牙科 CBCT」：AI 面板借本页的数据入口，不自己写一份释放逻辑。
+     *
+     * 刻意不切回测量面板 —— 换病例是为了继续跑 AI，留在这里才能立刻看到
+     * onSessionRebuilt 后的状态行（AI 未装载 + 请重新装载）。
      */
-    @SuppressLint("SetTextI18n")
-    private fun runAiSegment(keepParity: Boolean) {
-        val h = sessionHandle
-        val model = aiModel
-        if (h == 0L || model == null || !model.ok) {
-            toast("请先装载模型")
-            return
-        }
-        aiBusy(true, if (keepParity) "AI 推理中（保留取证缓冲）..." else "AI 推理中...")
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val res = AiEngine.segment(
-                    h, model.threshold,
-                    keepParity = keepParity, autoMeasure = false,
-                )
-                if (_binding == null) return@launch
-                aiInfo = res.info
-                parityKept = keepParity
-                binding.tvAiStatus.text = aiStatusText()
-                updateAiButtons()
-                controller?.syncOverlay()
-                if (!res.info.ok) {
-                    toast("分割失败：${res.info.error}")
-                } else if (keepParity) {
-                    dumpAiParity()
-                } else {
-                    toast(res.info.summary)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "ai segment failed", e)
-                if (_binding != null) binding.tvAiStatus.text = "推理异常: ${e.message}"
-            } finally {
-                if (_binding != null) aiBusy(false, null)
-            }
-        }
-    }
+    override fun aiPickDentalCase() = pickDentalCase()
 
-    /** 每个分割实例 -> R-06 掩膜 ROI + M-04 体积（+M-08 骨密度），进既有的列表/报告/SR 链路 */
-    private fun aiAutoMeasure() {
-        val h = sessionHandle
-        if (h == 0L || !aiInfo.ok) {
-            toast("请先做一次自动分割")
-            return
-        }
-        aiBusy(true, "正在按分割结果逐牙建 ROI 并测量...")
-        viewLifecycleOwner.lifecycleScope.launch {
-            val n = withContext(Dispatchers.Default) {
-                AiJni.nativeAiAutoMeasure(h, true)
-            }
-            if (_binding == null) return@launch
-            aiBusy(false, null)
-            aiInfo = AiEngine.status(h)
-            binding.tvAiStatus.text = aiStatusText()
-            controller?.syncOverlay()
-            refreshResults()
-            toast(if (n > 0) "已为 $n 颗牙建立掩膜 ROI 与体积/骨密度测量"
-            else "没有可建的测量（先做分割）")
-        }
-    }
-
-    /** AI-03：缺牙间隙候选 -> 对话框 -> 选中即落成一颗按建议姿态的种植体 */
-    private fun aiRecommend() {
-        val h = sessionHandle
-        if (h == 0L || !aiInfo.ok) {
-            toast("AI-03 需要先有分割结果（牙弓与咬合平面来自它）")
-            return
-        }
-        aiBusy(true, "正在评估候选位点...")
-        viewLifecycleOwner.lifecycleScope.launch {
-            val (list, summary) = AiEngine.recommend(h, AI_MIN_GAP_MM, AI_MAX_CANDIDATES)
-            if (_binding == null) return@launch
-            aiBusy(false, null)
-            if (list.isEmpty()) {
-                toast(summary.ifEmpty { "没有可用的缺牙间隙（牙数不足或间隙过小）" })
-                return@launch
-            }
-            val labels = list.map { c ->
-                "${c.title()} · 评分 ${String.format("%.0f", c.score)} · " +
-                        "Ø${String.format("%.1f", c.diaMm)}x${String.format("%.1f", c.lengthMm)}mm · " +
-                        "${SafetyLevel.label(c.level)}${if (c.reason.isEmpty()) "" else "\n${c.reason}"}"
-            }.toTypedArray()
-            AlertDialog.Builder(requireContext())
-                .setTitle("种植位点推荐（${list.size} 个候选）\n$summary")
-                .setItems(labels) { _, which -> placeRecommended(list[which]) }
-                .setNegativeButton("关闭", null)
-                .show()
-        }
-    }
-
-    /** 把建议位点变成一颗真正的种植体：走既有的 S-02~S-06 安全评估通道 */
-    private fun placeRecommended(c: AiCandidateInfo) {
-        val h = sessionHandle
-        if (h == 0L) return
-        val implant = ImplantItem(
-            name = "AI推荐 ${AiArch.label(c.arch)}" +
-                    "${c.beforeId}-${c.afterId}",
-            entry = c.entry,
-            pitchDeg = c.pitchDeg,
-            yawDeg = c.yawDeg,
-            diaMm = c.diaMm,
-            lengthMm = c.lengthMm,
-            depthMm = c.depthMm,
-        )
-        val id = SurgeryPlanJni.addImplant(h, implant.toJson().toString())
-        if (id <= 0) {
-            toast("落库失败（Native addImplant 返回 $id）")
-            return
-        }
-        SurgeryPlanJni.recomputePlan(h)
-        controller?.syncOverlay()
-        refreshResults()
-        toast("已放置推荐种植体 #$id（骨高 ${String.format("%.1f", c.boneHeightMm)}mm，" +
-                "骨宽 ${String.format("%.1f", c.boneWidthMm)}mm）")
-    }
-
-    /** AC-08 取证导出：真机 feat/prob/label/inst 落到 filesDir/ai_parity */
-    @SuppressLint("SetTextI18n")
-    private fun dumpAiParity() {
-        val ctx = context?.applicationContext ?: return
-        val h = sessionHandle
-        if (h == 0L || !parityKept) {
-            toast("取证导出要用带缓冲的推理（直接按「导出取证数据」即可）")
-            return
-        }
-        val caseId = when {
-            !volumeInfo.valid -> "unknown"
-            volumeInfo.seriesDescription.isNotEmpty() -> volumeInfo.seriesDescription
-            else -> volumeInfo.seriesInstanceUID.ifEmpty { "unknown" }
-        }
-        // 文件名要能被 adb / shell 直接引用，所以先把描述里的空格与中文换掉
-        val safeCase = caseId.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val json = AiEngine.dumpParity(ctx, h, "device_$safeCase.parity.bin")
-        val o = try {
-            JSONObject(json)
-        } catch (e: Exception) {
-            JSONObject()
-        }
-        val ok = o.optBoolean("ok")
-        val msg = if (ok) {
-            "取证数据已写出：${o.optLong("bytes")} 字节（feat ${o.optLong("featCount")} / prob ${o.optLong("probCount")} float）\n" +
-                    "拉取：adb shell run-as ${ctx.packageName} cat ${o.optString("path")}"
-        } else {
-            "取证导出失败：${o.optString("error").ifEmpty { json }}"
-        }
-        Log.d(TAG, msg)
-        binding.tvAiStatus.text = "${aiStatusText()}\n$msg"
-        toast(if (ok) "取证数据已导出" else "取证导出失败")
-    }
-
-    private fun clearAi() {
-        val h = sessionHandle
-        if (h == 0L) return
-        AiJni.nativeAiClear(h)
-        parityKept = false
-        aiInfo = AiResultInfo.EMPTY
-        if (_binding != null) {
-            binding.tvAiStatus.text = aiStatusText()
-            updateAiButtons()
-            controller?.syncOverlay()
-            refreshResults()
-        }
-    }
-
-    /** 状态栏：模型/阈值/耗时/实例数/内存，报告里的 PC-05 数字就取自这里 */
-    private fun aiStatusText(): String {
-        val model = aiModel
-        val sb = StringBuilder()
-        if (model == null || !model.ok) {
-            sb.append("AI 未装载")
-            if (model != null) sb.append("：${model.error}")
-            sb.append("\nlibonnxruntime 候选: ")
-            context?.applicationContext?.let { sb.append(AiEngine.ortSoCandidates(it).joinToString(" | ")) }
-            return sb.toString()
-        }
-        sb.append("运行时 ${model.runtimeInfo}；阈值 ${model.threshold}")
-        sb.append("\ndlopen 命中：${model.usedSoPath}")
-        if (!model.channelsMatch()) {
-            sb.append("（通道不匹配：模型 ${model.inChannels} vs 特征 ${model.expectChannels}）")
-        }
-        if (aiInfo.ok) {
-            sb.append("\n分割 ${aiInfo.instances.size} 颗 · 牙齿体素 ${aiInfo.toothVoxels}")
-            sb.append(
-                "\n耗时 预处理 %.0f + 推理 %.0f + 后处理 %.0f = %.0f ms（推理占 %.1f%%）".format(
-                    aiInfo.prepMs, aiInfo.inferMs, aiInfo.postMs, aiInfo.totalMs,
-                    aiInfo.inferSharePercent()
-                )
-            )
-            sb.append("\n新增 Native 内存约 %.1f MB；PC-05<=5s：%s".format(
-                aiInfo.allocBytes / 1048576.0,
-                if (aiInfo.pc05Within5s()) "达标" else "未达标"
-            ))
-            sb.append("\n掩膜网格 ${aiInfo.redDim.joinToString("x")}，体素 ${String.format("%.3f", aiInfo.redVoxelMm3)} mm³")
-        } else if (aiInfo.error.isNotEmpty()) {
-            sb.append("\n最近一次推理：${aiInfo.error}")
-        }
-        return sb.toString()
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun aiBusy(busy: Boolean, hint: String?) {
-        if (_binding == null) return
-        binding.btnAiLoad.isEnabled = !busy
-        binding.btnAiSegment.isEnabled = !busy && aiCanRun()
-        binding.btnAiMeasure.isEnabled = !busy && aiInfo.ok
-        binding.btnAiRecommend.isEnabled = !busy && aiInfo.ok
-        binding.btnAiParity.isEnabled = !busy && aiCanRun()
-        binding.progressMeasure.visibility = if (busy) View.VISIBLE else View.GONE
-        if (hint != null) binding.tvAiStatus.text = hint
-    }
-
-    private fun aiCanRun(): Boolean =
-        sessionHandle != 0L && aiModel != null && aiModel!!.ok
-
-    private fun updateAiButtons() {
-        if (_binding == null) return
-        val can = aiCanRun()
-        binding.btnAiSegment.isEnabled = can
-        binding.btnAiParity.isEnabled = can
-        binding.btnAiMeasure.isEnabled = aiInfo.ok
-        binding.btnAiRecommend.isEnabled = aiInfo.ok
-    }
+    // =========================================================================
+    // 生命周期
+    // =========================================================================
 
     override fun onDestroyView() {
         super.onDestroyView()
@@ -1467,17 +1318,16 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
      * AI 必须在 destroySession 之前释放：OrtEngine 是 MeasureSession 的成员，
      * 会话析构时它也会析构，但"先显式释放"能让 16MB 运行时内存与 ORT 会话
      * 在体数据 munmap 之前就还给你，避免三个大对象同时挂在堆上。
+     * 没有装载过也没关系：ort.unload() 对空会话是 no-op（nativeReleaseModel
+     * 只判会话存在，见 cpp/ai-native-lib.cpp），所以这里不按 AI 状态分支。
      */
     private fun releaseSessionAndVolume() {
         _binding?.measureView?.vtkView?.release()
         if (sessionHandle != 0L) {
-            if (aiModel?.ok == true) AiEngine.release(sessionHandle)
+            AiEngine.release(sessionHandle)
             MeasureJni.destroySession(sessionHandle)
             sessionHandle = 0L
         }
-        aiModel = null
-        aiInfo = AiResultInfo.EMPTY
-        parityKept = false
         val handle = volumeHandle
         volumeHandle = null
         if (handle != null && !handle.isReleased) {
@@ -1500,10 +1350,18 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host {
         /** 隔离显示时区间边界的羽化宽度（HU） */
         private const val SEGMENT_FEATHER_HU = 60.0
 
-        /** AI-03 的间隙下限（mm）：小于它的邻牙间隙不作为种植位点 */
-        private const val AI_MIN_GAP_MM = 5.0
+        /** AI 子面板在 childFragmentManager 里的 tag */
+        private const val AI_PANEL_TAG = "ai"
 
-        /** 候选表最多列几条（对话框可读性上限，不影响 Native 侧的全量评估） */
-        private const val AI_MAX_CANDIDATES = 12
+        /**
+         * 结果列表自动折叠阈值：超过这个条数就只留标题行。
+         *
+         * 真机上一次 AI 自动测量能建 20+ 行，列表把"归档与报告"整段挤出可视区，
+         * 用户必须长滚才能导出；6 行约等于一屏内还能看见上下文的极限。
+         */
+        private const val AUTO_COLLAPSE_ROWS = 6
+
+        private const val ARROW_EXPANDED = "▾"
+        private const val ARROW_COLLAPSED = "▸"
     }
 }

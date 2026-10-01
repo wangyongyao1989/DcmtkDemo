@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    CBCT Measure 页（本轮重构后的结构）
+
+    1) 数据源  ->  2) 视口  ->  3) 三维画面 + 快捷操作  ->  [测量工具 | AI 辅助分析] 面板切换
+    -> 5) 结果（可折叠）-> 6) 归档与报告（共享，两个面板都能导出）
+
+    与上一版的差别（对应本轮需求 2/3/4）：
+      - AI 辅助分析（原 6) 一节）整体剥离到 CbctAiFragment，容器是 fl_ai_panel；
+      - 只有"工具与 ROI"属于测量面板（ll_measure_panel），切到 AI 时整段隐藏，页面长度减半；
+      - 结果列表加了可折叠表头，条目多时默认折叠，不再把归档/导出顶出屏幕；
+      - 按钮统一用 styles.xml 的 CompactButton/CompactRadio（40dp 高、12sp、零 inset），
+        原来 4 行的 ROI/神经管操作压成 2 行，WW/WC 与 HU 上下限各合成 1 行。
+    所有 id 与上一版保持一致（AI 那几个 id 随功能迁到 fragment_cbct_ai.xml），
+    Kotlin 侧除 AI 外不需要改名。
+-->
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/scroll_root"
     android:layout_width="match_parent"
@@ -9,94 +24,104 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="10dp">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
+            android:paddingBottom="6dp"
             android:text="CBCT Measure &amp; Planning (cbctmeasure)"
-            android:textSize="18sp"
+            android:textSize="16sp"
             android:textStyle="bold" />
 
         <!-- 1) Series Source：与 CBCT Parse 页一致的数据入口 -->
         <TextView
+            style="@style/SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="1) Series Source"
-            android:textStyle="bold" />
+            android:text="1) 数据源 Series Source" />
 
         <EditText
             android:id="@+id/et_path"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:hint="CBCT 序列目录绝对路径"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLines="1"
             android:textSize="13sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btn_select_dir"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="选择目录 (SAF)" />
 
             <Button
                 android:id="@+id/btn_parse"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
                 android:layout_weight="1"
                 android:text="解析并进入测量" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btn_load_assets"
+        <!-- neck_ct 与牙科 CBCT 并排：两例都是"一键准备好目录并解析"，同一层级 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="加载 assets/neck_ct" />
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal">
 
-        <!--
-            内置牙科 CBCT：AI-01 的验证数据（公开 DentVoxel 临床采集，转成
-            本解析器直接消费的 192x192x128 @0.6mm 符号 int16 序列）。
-            与 neck_ct 不同，它是"模型见过的解剖域"，分割才有意义。
-        -->
-        <Button
-            android:id="@+id/btn_dental_data"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="选择加载牙科 CBCT (assets/dental_cbct)" />
+            <Button
+                android:id="@+id/btn_load_assets"
+                style="@style/CompactButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:text="加载 neck_ct" />
+
+            <Button
+                android:id="@+id/btn_dental_data"
+                style="@style/CompactButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
+                android:layout_weight="1"
+                android:text="加载牙科 CBCT" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_info"
+            style="@style/HintText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="(waiting for parse)"
-            android:textSize="11sp" />
+            android:layout_marginTop="2dp"
+            android:text="(waiting for parse)" />
 
         <ProgressBar
             android:id="@+id/progress_measure"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:visibility="gone" />
 
-        <!-- 2) Viewport：渲染模式 / 平面 / 层位 / 窗宽窗位 -->
+        <!-- 2) Viewport -->
         <TextView
+            style="@style/SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="2) Viewport"
-            android:textStyle="bold" />
+            android:layout_marginTop="8dp"
+            android:text="2) 视口 Viewport" />
 
         <RadioGroup
             android:id="@+id/rg_vtk_mode"
@@ -106,6 +131,7 @@
 
             <RadioButton
                 android:id="@+id/rb_vtk_vr"
+                style="@style/CompactRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"
@@ -113,6 +139,7 @@
 
             <RadioButton
                 android:id="@+id/rb_vtk_mpr"
+                style="@style/CompactRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="MPR 切面" />
@@ -126,6 +153,7 @@
 
             <RadioButton
                 android:id="@+id/rb_axial"
+                style="@style/CompactRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"
@@ -133,12 +161,14 @@
 
             <RadioButton
                 android:id="@+id/rb_coronal"
+                style="@style/CompactRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Coronal" />
 
             <RadioButton
                 android:id="@+id/rb_sagittal"
+                style="@style/CompactRadio"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Sagittal" />
@@ -152,9 +182,10 @@
             android:orientation="horizontal">
 
             <TextView
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="位置:" />
+                android:text="位置" />
 
             <SeekBar
                 android:id="@+id/sb_position"
@@ -164,13 +195,14 @@
 
             <TextView
                 android:id="@+id/tv_position"
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="56dp"
-                android:text="-/-"
-                android:textSize="12sp" />
+                android:minWidth="52dp"
+                android:text="-/-" />
         </LinearLayout>
 
+        <!-- 窗宽 / 窗位合并成一行：两行滑杆是这一节最占高度的部分 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -178,9 +210,10 @@
             android:orientation="horizontal">
 
             <TextView
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="窗宽 WW:" />
+                android:text="WW" />
 
             <SeekBar
                 android:id="@+id/sb_ww"
@@ -191,23 +224,18 @@
 
             <TextView
                 android:id="@+id/tv_ww"
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="56dp"
-                android:text="4000"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+                android:minWidth="44dp"
+                android:text="4000" />
 
             <TextView
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="窗位 WC:" />
+                android:layout_marginStart="6dp"
+                android:text="WC" />
 
             <SeekBar
                 android:id="@+id/sb_wc"
@@ -218,497 +246,495 @@
 
             <TextView
                 android:id="@+id/tv_wc"
+                style="@style/RowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="56dp"
-                android:text="600"
-                android:textSize="12sp" />
+                android:minWidth="44dp"
+                android:text="600" />
         </LinearLayout>
 
-        <!-- 3) 测量工具：九态状态机 + 测量类型 + 描边颜色 -->
+        <!-- 3) 三维画面 -->
         <TextView
+            style="@style/SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="3) Measure Tools"
-            android:textStyle="bold" />
+            android:layout_marginTop="8dp"
+            android:text="3) 三维画面 3D View" />
 
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-
-            <RadioGroup
-                android:id="@+id/rg_tool"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingEnd="8dp">
-
-                <RadioButton
-                    android:id="@+id/rb_view"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="浏览" />
-
-                <RadioButton
-                    android:id="@+id/rb_distance"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="测距" />
-
-                <RadioButton
-                    android:id="@+id/rb_angle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="测角" />
-
-                <RadioButton
-                    android:id="@+id/rb_volume"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="体积" />
-
-                <RadioButton
-                    android:id="@+id/rb_area"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="面积" />
-
-                <RadioButton
-                    android:id="@+id/rb_roi"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="ROI" />
-
-                <RadioButton
-                    android:id="@+id/rb_implant"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="种植体" />
-
-                <RadioButton
-                    android:id="@+id/rb_annotate"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="标注" />
-
-                <RadioButton
-                    android:id="@+id/rb_nerve"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="神经管" />
-            </RadioGroup>
-        </HorizontalScrollView>
-
-        <HorizontalScrollView
-            android:id="@+id/hsv_measure_type"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-
-            <RadioGroup
-                android:id="@+id/rg_measure_type"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingEnd="8dp">
-
-                <RadioButton
-                    android:id="@+id/rb_mt_distance"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="两点距离" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_point_line"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="点到线" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_arc"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="弧线长度" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_hu"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="HU 采样" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_density"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="骨密度" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_arch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="牙弓弧线" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_angulation"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="排列角度" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_midline"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="中线偏移" />
-
-                <RadioButton
-                    android:id="@+id/rb_mt_overbite"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="覆合覆盖" />
-            </RadioGroup>
-        </HorizontalScrollView>
-
-        <HorizontalScrollView
-            android:id="@+id/hsv_annotation_type"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:visibility="gone">
-
-            <RadioGroup
-                android:id="@+id/rg_annotation_type"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingEnd="8dp">
-
-                <RadioButton
-                    android:id="@+id/rb_an_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="文字" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_line"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="线段" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_arrow"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="箭头" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_curve"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="自由曲线" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_ring"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="环形" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_mpr"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="截面" />
-
-                <RadioButton
-                    android:id="@+id/rb_an_shot"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="截图圈注" />
-            </RadioGroup>
-        </HorizontalScrollView>
-
+        <!-- 300dp：三维视图会吃掉落在它自己身上的竖向拖动（旋转手势），
+             所以页面能不能滚过它，取决于它在视口里占多少。平板横屏可视高约 576dp，
+             420dp 时"看全三维"和"够得着工具行"永远无法同屏（真机回归实测：
+             滚到底只剩 124dp 的三维条，取点全部落在渲染体外，报"未拾取到点"）。 -->
         <com.wangyao.cbctmeasure.view.CbctMeasureView
             android:id="@+id/measure_view"
             android:layout_width="match_parent"
-            android:layout_height="420dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="300dp"
             android:background="#FF101418" />
 
         <TextView
             android:id="@+id/tv_tool_hint"
+            style="@style/HintText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="4dp"
-            android:text="浏览：单指旋转，双指缩放/平移"
-            android:textColor="#FF666666"
-            android:textSize="11sp" />
+            android:padding="2dp"
+            android:text="浏览：单指旋转，双指缩放/平移" />
 
+        <!-- 快捷操作压成一行：这 5 个按钮都是对当前草稿/视图的操作，两个面板都用得到所以放共享区。
+             宽度按 12sp×4 汉字估算，最窄 360dp 屏幕也放得下 5 个 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btn_undo_point"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="撤销取点" />
 
             <Button
-                android:id="@+id/btn_reset_cam"
+                android:id="@+id/btn_close_area"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
+                android:layout_weight="1"
+                android:text="闭合路径" />
+
+            <Button
+                android:id="@+id/btn_reset_cam"
+                style="@style/CompactButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
                 android:layout_weight="1"
                 android:text="复位相机" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btn_clear_draft"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
                 android:layout_weight="1"
                 android:text="丢弃草稿" />
 
             <Button
                 android:id="@+id/btn_clear_all"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
                 android:layout_weight="1"
                 android:text="清空全部" />
         </LinearLayout>
 
-        <!-- 4) ROI：HU 阈值与隔离显示（R-01） -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="4) ROI / Threshold"
-            android:textStyle="bold" />
-
+        <!-- 面板切换：测量工具 / AI 辅助分析 -->
         <LinearLayout
+            android:id="@+id/ll_panel_tabs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="HU 下限" />
-
-            <SeekBar
-                android:id="@+id/sb_hu_lo"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="4000" />
-
-            <TextView
-                android:id="@+id/tv_hu_lo"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="56dp"
-                android:text="200"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="HU 上限" />
-
-            <SeekBar
-                android:id="@+id/sb_hu_hi"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:max="4000" />
-
-            <TextView
-                android:id="@+id/tv_hu_hi"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="56dp"
-                android:text="3000"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/btn_add_hu_roi"
+                android:id="@+id/tab_tools"
+                style="@style/TabButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="38dp"
                 android:layout_weight="1"
-                android:text="建 HU 阈值 ROI" />
+                android:text="4) 测量工具与 ROI" />
 
             <Button
-                android:id="@+id/btn_isolate"
+                android:id="@+id/tab_ai"
+                style="@style/TabButton"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="5) AI 辅助分析 (Phase 2)" />
+        </LinearLayout>
+
+        <!-- 测量面板：工具选择 + 类型 + ROI 参数（切到 AI 时整段隐藏） -->
+        <LinearLayout
+            android:id="@+id/ll_measure_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <RadioGroup
+                    android:id="@+id/rg_tool"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingEnd="8dp">
+
+                    <RadioButton
+                        android:id="@+id/rb_view"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="浏览" />
+
+                    <RadioButton
+                        android:id="@+id/rb_distance"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="测距" />
+
+                    <RadioButton
+                        android:id="@+id/rb_angle"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="测角" />
+
+                    <RadioButton
+                        android:id="@+id/rb_volume"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="体积" />
+
+                    <RadioButton
+                        android:id="@+id/rb_area"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="面积" />
+
+                    <RadioButton
+                        android:id="@+id/rb_roi"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="ROI" />
+
+                    <RadioButton
+                        android:id="@+id/rb_implant"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="种植体" />
+
+                    <RadioButton
+                        android:id="@+id/rb_annotate"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="标注" />
+
+                    <RadioButton
+                        android:id="@+id/rb_nerve"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="神经管" />
+                </RadioGroup>
+            </HorizontalScrollView>
+
+            <HorizontalScrollView
+                android:id="@+id/hsv_measure_type"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <RadioGroup
+                    android:id="@+id/rg_measure_type"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingEnd="8dp">
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_distance"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="两点距离" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_point_line"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="点到线" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_arc"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="弧线长度" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_hu"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="HU 采样" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_density"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="骨密度" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_arch"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="牙弓弧线" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_angulation"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="排列角度" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_midline"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="中线偏移" />
+
+                    <RadioButton
+                        android:id="@+id/rb_mt_overbite"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="覆合覆盖" />
+                </RadioGroup>
+            </HorizontalScrollView>
+
+            <HorizontalScrollView
+                android:id="@+id/hsv_annotation_type"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <RadioGroup
+                    android:id="@+id/rg_annotation_type"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingEnd="8dp">
+
+                    <RadioButton
+                        android:id="@+id/rb_an_text"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="文字" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_line"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="线段" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_arrow"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="箭头" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_curve"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="自由曲线" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_ring"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="环形" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_mpr"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="截面" />
+
+                    <RadioButton
+                        android:id="@+id/rb_an_shot"
+                        style="@style/CompactRadio"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="截图圈注" />
+                </RadioGroup>
+            </HorizontalScrollView>
+
+            <!-- HU 上下限合并成一行（原两行） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    style="@style/RowLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HU 低" />
+
+                <SeekBar
+                    android:id="@+id/sb_hu_lo"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="4000" />
+
+                <TextView
+                    android:id="@+id/tv_hu_lo"
+                    style="@style/RowLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="44dp"
+                    android:text="200" />
+
+                <TextView
+                    style="@style/RowLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="HU 高" />
+
+                <SeekBar
+                    android:id="@+id/sb_hu_hi"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="4000" />
+
+                <TextView
+                    android:id="@+id/tv_hu_hi"
+                    style="@style/RowLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="44dp"
+                    android:text="3000" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn_add_hu_roi"
+                    style="@style/CompactButton"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="建 HU 阈值 ROI" />
+
+                <Button
+                    android:id="@+id/btn_isolate"
+                    style="@style/CompactButton"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
+                    android:layout_weight="1"
+                    android:text="隔离显示" />
+
+                <Button
+                    android:id="@+id/btn_add_composite_roi"
+                    style="@style/CompactButton"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
+                    android:layout_weight="1"
+                    android:text="组合 ROI" />
+
+                <Button
+                    android:id="@+id/btn_add_nerve"
+                    style="@style/CompactButton"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="2dp"
+                    android:layout_weight="1"
+                    android:text="神经管描记" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- AI 辅助分析面板（CbctAiFragment 的内容，剥离出去的整节） -->
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/fl_ai_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <!-- 5) 结果列表：可折叠。条目多时默认折叠，避免把归档/导出顶出屏幕 -->
+        <LinearLayout
+            android:id="@+id/ll_results_header"
+            style="@style/CollapsibleHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:id="@+id/tv_results_arrow"
+                style="@style/SectionTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▾" />
+
+            <TextView
+                android:id="@+id/tv_list_title"
+                style="@style/SectionTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="隔离显示 ROI" />
+                android:text="6) 结果 Results（0 条）" />
+
+            <TextView
+                android:id="@+id/tv_results_toggle"
+                style="@style/HintText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="点击折叠" />
         </LinearLayout>
-
-        <Button
-            android:id="@+id/btn_add_composite_roi"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="组合 ROI（交/并/差）" />
-
-        <Button
-            android:id="@+id/btn_add_nerve"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="新建神经管路径并开始描记" />
-
-        <!-- 5) 结果列表 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="5) Results"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_list_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="测量结果"
-            android:textSize="12sp"
-            android:textStyle="bold" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_results"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:background="#08000000" />
 
-        <!--
-            6) AI 辅助分析（PRD 5.6 Phase 2）：
-               AI-01 牙齿自动分割（ONNX Runtime Android 推理）+ AI-03 种植位点推荐。
-               按钮顺序 = 使用顺序：装载模型 -> 推理 -> 自动测量 -> 推荐 -> 取证导出。
-        -->
+        <!-- 6) 归档与报告：共享区，测量面板与 AI 面板都用它导出 -->
         <TextView
+            style="@style/SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="6) AI 辅助分析 (Phase 2)"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_ai_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="AI 未装载（模型未加载）"
-            android:textColor="#FF666666"
-            android:textSize="11sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btn_ai_load"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="装载模型" />
-
-            <Button
-                android:id="@+id/btn_ai_segment"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:text="牙齿自动分割" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btn_ai_measure"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:text="逐牙自动测量" />
-
-            <Button
-                android:id="@+id/btn_ai_recommend"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:text="种植位点推荐" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <CheckBox
-                android:id="@+id/cb_ai_overlay"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:checked="true"
-                android:text="显示 AI 掩膜" />
-
-            <Button
-                android:id="@+id/btn_ai_parity"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:enabled="false"
-                android:text="导出取证数据" />
-
-            <Button
-                android:id="@+id/btn_ai_clear"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="清除 AI 结果" />
-        </LinearLayout>
-
-        <!-- 7) 归档与报告 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="7) Archive &amp; Report"
-            android:textStyle="bold" />
+            android:layout_marginTop="8dp"
+            android:text="7) 归档与报告 Archive &amp; Report" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -717,40 +743,50 @@
 
             <Button
                 android:id="@+id/btn_save_archive"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:text="保存归档" />
 
             <Button
                 android:id="@+id/btn_load_archive"
+                style="@style/CompactButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
                 android:layout_weight="1"
                 android:text="恢复归档" />
-        </LinearLayout>
 
-        <Button
-            android:id="@+id/btn_export_report"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="导出报告 (PDF + DICOM SR)" />
+            <Button
+                android:id="@+id/btn_export_report"
+                style="@style/CompactButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="2dp"
+                android:layout_weight="1.4"
+                android:text="导出 PDF + SR" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_measure_summary"
+            style="@style/HintText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:padding="8dp"
+            android:layout_marginTop="6dp"
+            android:background="#08000000"
+            android:padding="6dp"
             android:text="摘要区域"
             android:textColor="@color/bg_title"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="12sp" />
 
+        <!--
+            底部留白：原来给到 320dp 是为了让最后一屏不被遮挡，但整页因此多出
+            将近一屏的空滚动；改为 16dp，靠 padding 与滚动位置本身保证可读。
+        -->
         <Space
             android:layout_width="match_parent"
-            android:layout_height="320dp" />
+            android:layout_height="16dp" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
