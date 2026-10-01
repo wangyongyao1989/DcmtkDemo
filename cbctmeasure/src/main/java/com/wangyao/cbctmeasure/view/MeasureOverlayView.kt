@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.Log
@@ -60,6 +61,18 @@ class MeasureOverlayView @JvmOverloads constructor(
     }
 
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
+
+    /**
+     * 本帧已画出的文字框（屏幕坐标），用于避让重叠。
+     *
+     * 多颗种植体/AI 推荐位点挨得很近时，它们的文字标签会投影到同一行，
+     * 真机回归截图里 "AI推荐 上颌3-2 …" 与相邻标签直接叠成一片，等于没有信息。
+     * 每帧 onDraw 开头清空，所以避让只跟当前相机有关，不会累积历史。
+     */
+    private val labelRects = ArrayList<RectF>(16)
+
+    /** drawLabel 的求交工作区（避免在 onDraw 路径里分配） */
+    private val scratch = RectF()
 
     /** 已提交的图元（Native 产出）与其投影后的屏幕点 */
     private var prims: List<OverlayPrim> = emptyList()
@@ -211,6 +224,7 @@ class MeasureOverlayView @JvmOverloads constructor(
         // 用户实际看到的叠加刷新率；每满 1s 打一行，空闲不打，避免刷屏。
         val t0 = SystemClock.elapsedRealtimeNanos()
         super.onDraw(canvas)
+        labelRects.clear()
         if (screenPts.size >= 2) {
             for (prim in prims) drawPrim(canvas, prim, screenPts)
         }
@@ -368,9 +382,25 @@ class MeasureOverlayView @JvmOverloads constructor(
         if (to - from <= 0) return
         val anchor = to - 1
         val x = pts[anchor * 2] + 8f * density
-        val y = pts[anchor * 2 + 1] - 6f * density
+        var y = pts[anchor * 2 + 1] - 6f * density
         textPaint.color = if (Color.alpha(prim.color) > 200) prim.color else Color.WHITE
         textPaint.textSize = 12f * density * if (prim.kind == OverlayKind.TEXT) 1.05f else 0.95f
+        val w = textPaint.measureText(prim.text)
+        val lineH = textPaint.textSize * 1.25f
+        // 与已经画过的标签压字就整行下移。求交用成员 scratch，不挪位时零分配；
+        // 只有真正落位的标签才 new 一个 RectF 登记，即每帧分配数 <= 标签数
+        // （真机 prims=33 时 avgDraw 0.46~1.49ms，见 UI_SPLIT_LAYOUT_REGRESSION_REPORT §6，
+        //  没到需要在 PC-02 的 30FPS 预算里抠这一份的程度）
+        var tries = 0
+        while (tries < LABEL_AVOID_TRIES) {
+            scratch.set(x, y - textPaint.textSize, x + w, y + textPaint.textSize * 0.35f)
+            if (labelRects.none { RectF.intersects(it, scratch) }) {
+                labelRects.add(RectF(scratch))
+                break
+            }
+            y += lineH
+            tries++
+        }
         canvas.drawText(prim.text, x, y, textPaint)
     }
 
@@ -447,5 +477,8 @@ class MeasureOverlayView @JvmOverloads constructor(
 
         /** PC-02 统计窗口长度（ms）：1s 内的 onDraw 次数即叠加层刷新帧率 */
         const val FPS_WINDOW_MS = 1000L
+
+        /** 标签避让的最大下移次数：再挤就不挪了，宁可压字也不让文字飘出图元 */
+        const val LABEL_AVOID_TRIES = 6
     }
 }
