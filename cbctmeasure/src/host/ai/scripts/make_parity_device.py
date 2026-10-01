@@ -31,10 +31,12 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "/tmp/ai_build")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_AI_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _HERE)
 import prep  # canonical pipeline single source of truth
 
-OUT = "/tmp/ai_build"
+OUT = os.environ.get("AI_BUILD") or _AI_ROOT
 PARITY = f"{OUT}/parity_ref"
 CASE = "dentvoxel_0101"
 MODEL = f"{OUT}/model/teeth_cnn.onnx"

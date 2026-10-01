@@ -27,6 +27,9 @@ def size_bytes(path):
 
 
 def main():
+    # 输出目录可能不存在（clean clone / 新的 AI_BUILD），nibabel 只会写不会建目录
+    for d in ("app_volume", "gt", "work", "work/cache"):
+        os.makedirs(f"{OUT}/{d}", exist_ok=True)
     meta_all = {}
     rt_all = {}
     for cid in prep.ALL_CASES:

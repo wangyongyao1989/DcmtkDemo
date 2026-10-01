@@ -1,7 +1,9 @@
 """探针：确认 HU 体积与 GT mask 的空间对齐关系、1.2mm 网格上的类别占比。"""
 import numpy as np, nibabel as nib, json, glob, os
 
-SRC = "/tmp/dental_cbct"
+_AI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.environ.get("DENTAL_SRC") or os.path.join(_AI_ROOT, "raw")
+OUT = os.environ.get("AI_BUILD") or _AI_ROOT
 CASES = ["0021", "0047", "0074", "0101"]
 
 for c in CASES:
@@ -38,5 +40,5 @@ for c in CASES:
         tooth.mean(), np.isin(md, [1, 2]).mean(), np.isin(md, [35, 36, 37, 38]).mean()))
     tot[c] = dict(shape=list(md.shape), tooth=float(tooth.mean()),
                   hu=[float(vd.min()), float(vd.max()), float(np.median(vd))])
-json.dump(tot, open("/tmp/ai_build/work/probe.json", "w"), indent=1)
+json.dump(tot, open(f"{OUT}/work/probe.json", "w"), indent=1)
 print(json.dumps(tot, indent=1))

@@ -2,7 +2,7 @@
 prep.py -- single source of truth for the host-side CBCT tooth-segmentation pipeline.
 
 Every constant used by the Android integration is defined HERE and nowhere else.
-See /tmp/ai_build/SPEC.md for the prose specification; this file is the executable
+See scripts/SPEC.md for the prose specification; this file is the executable
 definition and the C++ port must match it bit-for-bit.
 
 Axis convention (IMPORTANT)
@@ -16,13 +16,20 @@ Dependencies: numpy only (scipy is used for connected components in other script
 """
 
 import json
+import os
+
 import numpy as np
 
 # =============================================================================
 # 0. Global constants
 # =============================================================================
-SRC_DIR = "/tmp/dental_cbct"
-OUT_DIR = "/tmp/ai_build"
+# Repo-relative defaults so a clean clone can regenerate every fixture without
+# staging anything under /tmp.  Override when working out of tree:
+#   DENTAL_SRC=/path/to/nifti  AI_BUILD=/path/to/out  bash scripts/run_all.sh
+# The NIfTI inputs live in ../raw (see raw/README.md for provenance).
+_AI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.environ.get("DENTAL_SRC") or os.path.join(_AI_ROOT, "raw")
+OUT_DIR = os.environ.get("AI_BUILD") or _AI_ROOT
 
 CASES_TRAIN = ["dentvoxel_0021", "dentvoxel_0047", "dentvoxel_0074"]
 CASE_HELD_OUT = "dentvoxel_0101"
