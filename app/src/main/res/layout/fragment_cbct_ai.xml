@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AI 辅助分析面板（PRD 5.6 Phase 2）——本轮从 CbctMeasureFragment 剥离出来的独立 Fragment。
+
+    为什么能单独成页：AI 层不改几何、不算数值，它只把"推理回执 + 掩膜 ROI + 推荐候选"
+    投影成状态文字，所以它与宿主会话的唯一耦合是 sessionHandle + 一次刷新回调
+    （见 CbctAiHost）。体数据、渲染窗口、结果列表都仍归宿主页，避免"两个 Fragment
+    各自持有一份 Native 会话"这种必然出事故的所有权。
+
+    按钮顺序 = 使用顺序：装载模型 -> 分割 -> 逐牙测量 -> 推荐 -> 取证导出 -> 清除。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ai_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#0A1A73E8"
+    android:orientation="vertical"
+    android:padding="2dp">
+
+    <TextView
+        style="@style/HintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="前置：先用「1) 数据源 → 加载牙科 CBCT」载入牙科序列。模型是在牙科 CBCT 上训练的，neck_ct 头颈序列的分割结果没有临床意义。" />
+
+    <!--
+        状态读数放在按钮区之后（见本文件末尾）：实测一次分割会把状态文本涨到 7 行，
+        放在按钮上方时整排按钮从 y=572 跳到 y=700（minLines 只能挡住其中一步），
+        用户按上一次的位置抬手就会点空。预留 7 行又会让面板在"还没跑过"时空一大块。
+        所以顺序改成「操作在前、读数在后」，读数多长都只往下推说明文字。
+    -->
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_ai_load"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="装载模型" />
+
+        <Button
+            android:id="@+id/btn_ai_segment"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="牙齿自动分割" />
+
+        <Button
+            android:id="@+id/btn_ai_measure"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="逐牙自动测量" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_ai_recommend"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="种植位点推荐" />
+
+        <Button
+            android:id="@+id/btn_ai_parity"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="导出取证数据" />
+
+        <Button
+            android:id="@+id/btn_ai_clear"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:text="清除 AI 结果" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <CheckBox
+            android:id="@+id/cb_ai_overlay"
+            style="@style/CompactCheck"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:checked="true"
+            android:text="显示 AI 掩膜" />
+
+        <Button
+            android:id="@+id/btn_ai_dental"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="换一例牙科 CBCT" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_ai"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tv_ai_status"
+        style="@style/HintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:background="#08000000"
+        android:minLines="3"
+        android:padding="4dp"
+        android:text="AI 未装载（模型未加载）" />
+
+    <!--
+        读数禁忌固定在页面上（需求 5 里"必要的用户提示性操作"）：这些不是可选说明，
+        而是当前模型精度下必须让使用者看到的前提，否则掩膜体积会被当成单颗牙的真值。
+    -->
+    <TextView
+        android:id="@+id/tv_ai_caveat"
+        style="@style/HintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:padding="4dp"
+        android:text="⚠ 粗筛不是结论：AI-01 实测 F1 0.58（PRD 门槛 0.85）。掩膜常把相邻牙合并成一个实例，最大实例的「体积」要按牙组读；推荐的间隙候选可能超出解剖可能，采纳前必须自行核对。" />
+
+</LinearLayout>
