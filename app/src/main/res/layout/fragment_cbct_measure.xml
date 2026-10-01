@@ -3,7 +3,7 @@
     CBCT Measure 页（本轮重构后的结构）
 
     1) 数据源  ->  2) 视口  ->  3) 三维画面 + 快捷操作  ->  [测量工具 | AI 辅助分析] 面板切换
-    -> 5) 结果（可折叠）-> 6) 归档与报告（共享，两个面板都能导出）
+    -> 6) 结果（可折叠）-> 7) 归档与报告（共享，两个面板都能导出）
 
     与上一版的差别（对应本轮需求 2/3/4）：
       - AI 辅助分析（原 6) 一节）整体剥离到 CbctAiFragment，容器是 fl_ai_panel；
@@ -691,7 +691,7 @@
             android:layout_marginTop="4dp"
             android:visibility="gone" />
 
-        <!-- 5) 结果列表：可折叠。条目多时默认折叠，避免把归档/导出顶出屏幕 -->
+        <!-- 6) 结果列表：可折叠。条目多时默认折叠，避免把归档/导出顶出屏幕 -->
         <LinearLayout
             android:id="@+id/ll_results_header"
             style="@style/CollapsibleHeader"
