@@ -20,6 +20,7 @@ core 层不 include 任何 Android/VTK/DCMTK 头文件，因此可以在主机�
 | [`USER.md`](USER.md) | 使用/演示 | 每个工具的手势步骤、面板读数含义、归档与导出、常见问题 |
 | [`doc/TEST_REPORT.md`](doc/TEST_REPORT.md) | 验收 | 一期真机回归逐条结果（AC-01~AC-10 / PC-01~PC-05）、缺陷与修复、证据（日志/产物/截图） |
 | [`doc/AI_ONNX_TEST_REPORT.md`](doc/AI_ONNX_TEST_REPORT.md) | 验收（Phase 2） | **ONNX Runtime Android 模型推理**测试报告：运行时集成偏差记档（Prefab→dlopen）、牙科 CBCT 数据来源与划分纪律、AI-01 精度实测（F1 0.5828，**未达 PRD 0.85**）、AC-08 主机/真机奇偶校验 PASS、PC-05 延迟与体积取证、缺陷与修复 |
+| [`doc/UI_SPLIT_LAYOUT_REGRESSION_REPORT.md`](doc/UI_SPLIT_LAYOUT_REGRESSION_REPORT.md) | 验收（UI 重构轮） | AI 面板剥离 + 结果折叠 + 按钮布局这一轮的两轮真机记录：round5 全量回归、D-01~D-07 缺陷与代码修复、round6 逐条回测（R1~R16）、性能与内存取证、主机侧 `verify_all` 56/56、AC-08 复跑（两次独立导出逐字节相同） |
 | [`src/host/ai/parity_ref/METRICS.md`](src/host/ai/parity_ref/METRICS.md) | 复现 | 冻结模型 `teeth_cnn v2` 的训练/标定契约、设备轴序依据、parity 夹具清单与判定规则（机器可读版在 `device_parity.json`） |
 | [`src/main/assets/dental_cbct/index.json`](src/main/assets/dental_cbct/index.json) | 数据来源 | 内置牙科 CBCT 病例的来源、体数据契约、train/val/test 角色、为什么有的病例不出包 |
 
@@ -83,7 +84,7 @@ PRD §5.3 的四种正畸量（S-07 牙弓弧线 / S-08 排列角度 / S-09 中�
 
 | 需求 | 名称 | core | JNI / Kotlin | 界面入口 |
 |---|---|---|---|---|
-| AI-01 | 牙齿自动分割（ONNX Runtime Android 推理） | `core/AiCore.cpp`（6 通道特征 → 阈值 → 26 邻接连通域 → 质心/PCA 长轴/包围盒/轮廓/逐实例 HU 与体积）+ `core/AiEngine.cpp`（会话内的推理编排）+ `ai/OrtEngine.cpp`（唯一 dlopen + OrtApi 跳转表） | `AiJni.nativeLoadModel / nativeRunSegment / nativeAiStatus / nativeAiAutoMeasure / nativeAiDumpParity`；`ai/AiEngine.kt` 只做"找 so、释放 assets、切线程、落盘"四件事 | 「6) AI 辅助分析 (Phase 2)」→ 装载模型 → 牙齿自动分割 |
+| AI-01 | 牙齿自动分割（ONNX Runtime Android 推理） | `core/AiCore.cpp`（6 通道特征 → 阈值 → 26 邻接连通域 → 质心/PCA 长轴/包围盒/轮廓/逐实例 HU 与体积）+ `core/AiEngine.cpp`（会话内的推理编排）+ `ai/OrtEngine.cpp`（唯一 dlopen + OrtApi 跳转表） | `AiJni.nativeLoadModel / nativeRunSegment / nativeAiStatus / nativeAiAutoMeasure / nativeAiDumpParity`；`ai/AiEngine.kt` 只做"找 so、释放 assets、切线程、落盘"四件事 | tab「5) AI 辅助分析 (Phase 2)」→ 装载模型 → 牙齿自动分割 |
 | AI-01→测量贯通 | 逐牙自动测量 | `MeasurementManager::aiAutoMeasure`：每实例建/复用一条 **R-06 掩膜 ROI**，挂 M-04 体积 + M-08 骨密度，`note = AiConst::AUTO_NOTE` | `nativeAiAutoMeasure(handle, withBoneDensity)` 返回条数 | 「逐牙自动测量」；结果进既有列表/归档/PDF/SR |
 | AI-03 | 种植位点推荐（规则 + ML 混合） | `core/AiPlanner.cpp`：ML 出解剖先验（牙弓归属、每牙质心与长轴来自 AI-01 掩膜），规则出判定（净间隙 ≥ `minGapMm`、邻牙长轴加权平均作轴向、嵴顶高度估计、按骨宽/骨高选 Ø/长度、0~100 打分降序） | `AiJni.nativeAiRecommend` → `AiCandidateInfo`；采纳即 `SurgeryPlanJni.addImplant` + `recomputePlan`，**安全判级完全复用 S-02~S-06**，不存在第二套数值 | 「种植位点推荐」→ 候选对话框 → 点一条即落一颗 |
 | AC-08 | 主机/真机奇偶校验 | `AiEngine::dumpParity`（64 字节头 + feat/prob/label/inst） | `nativeAiDumpParity` 落 `filesDir/ai_parity/` | 「导出取证数据」→ `adb run-as` 拉回 → `src/host/ai/scripts/check_device_dump.py` |
@@ -133,15 +134,28 @@ cbctmeasure/
 │   │   └── dentvoxel_0021/                 # 训练例 —— 掩膜观感最好，128 张 ≈9.5MB
 │   └── models/                             # teeth_cnn.onnx（14,477 B）+ teeth_cnn.json（阈值 0.49 与契约）
 ├── src/host/                               # 主机侧单测：build_and_run.sh + stub/android/log.h + test_main.cpp
-│   └── ai/                                 # AI 流水线与证据
-│       ├── scripts/                        # build_app_volumes / train2 / export2 / make_parity[_device] /
-│       │                                   # check_device_dump / parity / verify_all / run_all.sh
-│       ├── gt/                             # 专家 GT（.nii.gz，仅主机侧算 Dice，不进 APK）
-│       └── parity_ref/                     # 冻结模型的夹具 + METRICS.md + device_parity.json（判定规则）
-└── doc/                                    # TEST_REPORT.md（一期真机回归）、AI_ONNX_TEST_REPORT.md（Phase 2 推理报告）
+│   └── ai/                                 # AI 流水线与证据（.gitignore 写明「输入入库 / 派生物忽略」）
+│       ├── scripts/                        # dump_template / build_app_volumes / prep / variants /
+│       │                                   # train2（交付模型）/ train_model（1x1x1 历史实验）/ export2 /
+│       │                                   # make_parity[_device] / check_device_dump / parity /
+│       │                                   # make_report / probe / verify_all / run_all.sh
+│       ├── raw/                            # 公开 DentVoxel NIfTI 输入（4 例 + GT + cases.json，来源见 raw/README.md）
+│       ├── model/                          # 重建出的 teeth_cnn.onnx（与随包资产同 sha256）+ 1x1x1 历史备份
+│       ├── gt/                             # 专家 GT（.nii.gz，仅主机侧算 Dice，不进 APK；等价 .raw 属派生物）
+│       └── parity_ref/                     # 设备链夹具 device_*（随包证据）+ METRICS.md + device_parity.json
+└── doc/                                    # TEST_REPORT.md（一期真机回归）、AI_ONNX_TEST_REPORT.md（Phase 2 推理）、
+                                            # UI_SPLIT_LAYOUT_REGRESSION_REPORT.md（AI 剥离 + 布局重构轮）
 ```
 
-宿主接入在 `:app`：`fragment/CbctMeasureFragment.kt` + `res/layout/fragment_cbct_measure.xml`（沿用既有 Material 卡片分节 + RadioButton 工具条风格；AI 面板是第 6 节，归档与报告顺延为第 7 节），抽屉菜单项 `nav_cbct_measure`。`:app` 另加了 `ndk { abiFilters += "arm64-v8a" }`，原因见 §6.8。
+宿主接入在 `:app`，两个 Fragment 共用同一个 Native 会话：
+
+| 文件 | 职责 |
+|---|---|
+| `fragment/CbctMeasureFragment.kt` + `res/layout/fragment_cbct_measure.xml` | 主页：1) 数据源 / 2) 视口 / 3) 三维画面（含 5 按钮快捷行）/ tab「4) 测量工具与 ROI」「5) AI 辅助分析 (Phase 2)」/ 6) 结果 Results（可折叠）/ 7) 归档与报告。实现 `CbctAiHost`，是 `MeasureSession` 与渲染窗口的唯一所有者 |
+| `fragment/CbctAiFragment.kt` + `res/layout/fragment_cbct_ai.xml` | AI 面板：装载模型 / 自动分割 / 逐牙测量 / 位点推荐 / 导出取证 / 清除，外加掩膜开关与换病例。经 `childFragmentManager` add 到 `R.id.fl_ai_panel`，切换只改 visibility —— 抽屉切页用 `replace()`，会把会话和渲染窗口一起销毁 |
+| `res/values/styles.xml` + `res/{color,color-night}/tab_text.xml` + `res/drawable/bg_tab.xml` | `CompactButton`/`TabButton` 等紧凑样式（默认 Button 的 48dp 最小高度 + 6dp inset 是页面变高的主因）与 tab 夜间对比度 |
+
+抽屉菜单项 `nav_cbct_measure`。`:app` 另加了 `ndk { abiFilters += "arm64-v8a" }`，原因见 §6.8。
 
 ### 2.1 与 `:cbctdeal` 的关系
 
@@ -231,14 +245,22 @@ AC-01 最坏绝对误差 8.88e-16 mm · AC-02 7.11e-15 度 · AC-03 最坏相对
 AI 的**端到端精度与主机/真机一致性**不在单测里，而在两套离线脚本里：
 
 ```bash
-# 主机侧重建夹具/指标（训练 -> 导出 -> parity -> Dice）
+# 主机侧重建夹具/指标（step 00 模板 -> 01 体积+GT -> 02 特征研究 -> 03 train2 -> 04/04b parity -> 05 verify -> 06 报告）
 cd cbctmeasure/src/host/ai/scripts && ./run_all.sh
+#   输入默认取 ../raw（换目录：DENTAL_SRC=/path），产物默认写回 host/ai（换目录：AI_BUILD=/tmp/out）
+#   只重建夹具/报告、不动模型：SKIP_TRAIN=1 ./run_all.sh
 
 # AC-08：把真机 dump 拉回来逐元素比对（PASS 才允许宣称主机/真机一致）
-$ADB shell run-as com.example.dcmtkdemo cat files/ai_parity/device_dentvoxel_0101.parity.bin \
-  > /tmp/dcmtk_verify/device_0101.parity.bin
+ADB=$HOME/Library/Android/sdk/platform-tools/adb
+$ADB shell run-as com.example.dcmtkdemo cat \
+  files/ai_parity/device_DENTAL_CBCT_0.6MM_192X192X128.parity.bin > /tmp/dcmtk_verify/device_0101.parity.bin
 python3 cbctmeasure/src/host/ai/scripts/check_device_dump.py /tmp/dcmtk_verify/device_0101.parity.bin
 ```
+
+`check_device_dump.py` 的默认容差是 `--feat-max-abs 1e-6`，**不要改回 0.0**：真机跑的是
+ORT 1.17 + arm64 kernel，主机夹具是 ORT 1.23 + x86，float32 累加顺序就注定 1e-8 量级差
+（实测 feat 2.980e-08 / 799 个元素不同，prob 1.192e-07，label 与 inst 逐位相同）。
+默认值要求逐位相同会把每台正常设备判成 FAIL。夹具目录默认随仓库定位，clean clone 不用带参数。
 
 `FINDINGS` 是「实现与 PRD 字面表述不一致但已按更合理定义实现并写入文档」的提示项，不是失败。
 
@@ -323,12 +345,67 @@ onnxruntime AAR 自带 4 个 ABI（约 57 MB 冗余），而本工程自研 `.so
 * **掩膜判定是 `prob[1] > 阈值` 严格大于**（float32 提升 double，`AiCore::thresholdMask`），**不是 argmax**：0101 上两者差 133 体素。
 * **连通域可复现性**：邻居表顺序、扫描顺序、LIFO 栈、`<8` 丢弃、按裁剪后体素数降序重编号都固定，因此跨端逐实例一致；但 C++ `std::sort` 非稳定，**尺寸并列的实例之间只保证多重集一致**。
 * **阈值来自数据不来自代码**：`assets/models/teeth_cnn.json` 的 `threshold=0.49`（在验证集 0074 上扫出来的 Dice 最大点）。`AiConst::TOOTH_THRESHOLD` / Kotlin `DEFAULT_THRESHOLD` 只是 json 缺失时的回退，改阈值应改随包 json。
-* **dump 格式**：64 字节头 = 8×int64 LE（`featCount, probCount, labelBytes, modelDim0..2, redDim0..1`），随后 float32 feat、float32 prob、uint8 label、int16 inst。0101 合计 20,643,904 B。主机 checker 的容差：`--feat-max-abs 0`、`--prob-max-abs 1e-5`、`--label-max-rate 0.001`、`--inst-require-exact`。
+* **dump 格式**：64 字节头 = 8×int64 LE（`featCount, probCount, labelBytes, modelDim0..2, redDim0..1`），随后 float32 feat、float32 prob、uint8 label、int16 inst。0101 合计 20,643,904 B。主机 checker 的默认容差：`--feat-max-abs 1e-6`、`--prob-max-abs 1e-5`、`--label-max-rate 0.001`、`--inst-require-exact`（`feat` 那项曾经是 `0`，会把每台正常设备判 FAIL，见 §5）。
 * **feat/prob 不是 memcmp 级一致**：真机与主机差 1 个 float32 ulp 量级（2.98e-08 / 1.19e-07），成因是浮点**加法顺序**（`AiCore.cpp` 盒均值注释处），因此判定口径是"max|diff| + label 一致率"，不是逐字节相等。**改任何一处求和顺序都可能让 AC-08 的夹具失效**，改完必须重跑 §5 的 checker。
 
 ### 6.11 AI 是可选层：失败面收敛在按钮可用性
 
 `loadModel` / `runSegment` 失败都不抛异常，只回 `ok=false + error`；Fragment 据此禁用「牙齿自动分割/逐牙自动测量/种植位点推荐/导出取证数据」。一期功能（测量、ROI、规划、标注、归档、报告）不依赖 AI 可用。新增 AI 入口时保持这个契约：**不要让 AI 失败把整页拖崩**。
+
+### 6.12 AI 面板是宿主的 child fragment，会话所有权必须唯一
+
+AI 的输入是宿主 `MeasureSession` 里那份**零拷贝**体数据（`VolumeRef` 指向 `:cbctdeal` 的 `CbctVolume`）。
+抽屉切页走的是 `FragmentTransaction.replace()`，把 AI 做成第二个页面 = 离开测量页就销毁会话与渲染窗口，
+回来还得重新解析 9.5MB 序列。所以 `CbctAiFragment` 用 `childFragmentManager` add 到
+`R.id.fl_ai_panel`，tab 切换只改 visibility；它不持有 `sessionHandle`，四件事（借句柄、要体数据概况、
+请宿主重画/刷列表、走选病例流程）全部经 `CbctAiHost` 回宿主。
+
+* 新增跨面板能力时**先加宿主接口，再在面板里调**，不要在 `CbctAiFragment` 里另建一份 Native 会话。
+* ORT 会话跟着 `MeasureSession` 活：换例/退出才释放，「清除 AI 结果」只丢结果不释会话
+  （所以清完 PSS 仍 ~257MB，不是泄漏，见 §7）。
+* 本类不做任何数值计算，屏上每个数都是 JNI 回执 —— 与 PDF、DICOM SR 同源（PRD §6 精度项的前提）。
+
+### 6.13 提示文案是状态的一部分：按钮路径必须显式刷新
+
+`MeasureToolController` 的提示由 `updateHint()` 渲染，而内部工具切换（`switchState` /
+`setMeasureType` / `setAnnotationType`）都在 `abortDraft()` 之后自己刷一次，于是**只有按钮**会露出
+「图形没了、提示还停在（6 点）」这种数据与文案脱节。规则：
+
+* 按钮要清草稿就调 `discardDraft()`（= `abortDraft()` + 清 `stickyMissHint` + `updateHint()` + `pushDraft()`），
+  不要直接调 `abortDraft()`。
+* `stickyMissHint`（"上一次没点中切面"的粘性提示）只在手指 DOWN 时冲掉，而**按钮点击不是 view 上的 DOWN**。
+  任何"会改变提示语义"的按钮（丢弃草稿、撤销取点）都要显式 `stickyMissHint = null`，否则页面继续挂着
+  「当前切面未拾取到点」。
+* 点数不足的操作要给可执行文案而不是静默失败：`闭合无效：还需 N 个点（当前 M 点）`。
+* 面积多边形除了「点中起点」（容差 2.0mm 世界距离，放大视图里不到一个屏幕像素）还必须有
+  `closeAreaDraft()` 这条不依赖命中起点的提交路径，且失败时草稿不能丢。
+
+### 6.14 读数排在操作之后；夜间 selector 只能放 `res/color-night/`
+
+* 状态读数（`tv_ai_status`、面积提示）放在按钮**之后**。它原来在按钮上方且 `minLines=3`，
+  而分割后合法需要 7 行 —— 结果整排按钮往下跳 128px，用户按旧位置的手势点空（点空没有报错，
+  只表现为"界面没反应"）。本轮真机复验：装载前后与分割之后三次 dump，`btn_ai_*` 恒为 y=854/938/1018。
+* 折叠面板只隐藏列表本体，标题行常驻 —— 它同时是「共几项」的读数；行数超阈值自动收起一次，
+  用户手动开关过之后不再自动改（`resultsUserToggled`）。
+* `selector` 属 **color 类型**资源，夜间变体必须放 `res/color-night/`；放 `res/values-night/color/`
+  不参与合并，`merged_res` 里只会剩一个文件，症状是"夜间文字仍是浅色主题的近黑色"。
+
+### 6.15 主机流水线：派生物缺失只 SKIP/WARN，两条链的夹具不可互比
+
+`verify_all.py` 是定义完成的门，它必须区分三种情况，否则结论会骗人：
+
+* **派生物没生成**（`app_volume/`、`work/`、`gt/*.raw`、旧链 `parity_ref/{feat,prob,lab,inst}_*.raw`）
+  → 打 `SKIP`，不计入 checks 数。把"没跑"报成"跑过且对"和报成 FAIL 一样糟。
+* **两条链本来就不同**：旧主机链（`make_parity.py`，主机轴序 + 通道 argmax）与随包设备链
+  （`make_parity_device.py`，设备轴序 + `prob[1] > 0.49`）是**两份不同的预测**（实测 prob 通道 1
+  逐元素最大差 9.97e-01，lab 在 (1,0,2) 置换下 Dice 0.81）→ 打 `WARN` 写明原因。
+  随包证据只认 `parity_ref/device_*`（见 §6.10 的轴序纪律）。
+* **本地副本陈旧**：`feat_0101.raw` 与随包夹具不一致时，先重跑 `make_parity.py` 再判；
+  新鲜则 PASS，陈旧只 WARN。
+* 26 邻域普查的比较必须**过同一道 `<8` 体素丢弃闸**，否则 scipy 裸跑 34 域 vs 夹具 24 域会被当成不一致。
+* `run_all.sh` 的 step 03 必须是 `train2.py`（产出交付模型的那个）。指回 `train_model.py` 会把
+  14,477B 随包模型覆盖成 3,851B 的 1×1×1 旧结构，然后 step 05 以 "kernel_shape [1,1,1]" 失败收尾 ——
+  看起来像模型坏了，其实是流水线接错（本轮 D-05）。
 
 ---
 
@@ -345,6 +422,8 @@ onnxruntime AAR 自带 4 个 ABI（约 57 MB 冗余），而本工程自研 `.so
 | **PC-05 模型 + 运行时体积** | ≤80MB | `libonnxruntime.so` 16,033,712 B + `teeth_cnn.onnx` 14,477 B = **16.05 MB**；推理期新增 Native 内存 ≈21.9 MB | **达标**（前提是 §6.8 的 ABI 收窄） |
 | **AC-08 主机/真机奇偶校验** | 同输入同输出 | label **逐位一致**（0/589,824 不一致）、inst **100% 精确匹配**（24 实例个体素不差）、feat max\|diff\| 2.98e-08、prob 1.19e-07 | **PASS**（见 §6.10 判定口径） |
 | **AI-01 分割精度** | F1 ≥0.85 | **0.58285**（未见过的 0101，阈值 0.49；precision 0.64521 / recall 0.53147 / IoU 0.41128） | **未达标**，见 §7.3 与 `doc/AI_ONNX_TEST_REPORT.md` §6 |
+| UI 重构轮复测（AI 剥离 + 结果折叠 + 按钮布局） | — | 冷启动 1,626ms；序列解析 222ms；分割两次 `1014ms`（prep 676.8 + infer 329.6 + post 7.5）与 `997ms`（659/331/7），两次都是 `inst=24 toothVox=9958`；单实例体积遍历 1,121,796 体素 / 114ms；`avgDraw 0.46~1.49ms @ prims=33` | 剥离**没有引入性能回归**：AI 编排的耗时分项与一期同量级。逐条判定见 `doc/UI_SPLIT_LAYOUT_REGRESSION_REPORT.md` |
+| 内存（AI 装载态） | — | AI 装载 + 分割后 TOTAL PSS **268.9 MB**；「清除 AI 结果」后 **257.5 MB** | 正常：ORT 会话跟着 `MeasureSession` 活，清除只丢结果（见 §6.12）；差值主要来自推理期特征/概率缓冲（日志 `alloc=21.9MB`） |
 
 ### 7.1 PC-02 的测量手段局限（不要误读）
 
@@ -379,4 +458,6 @@ F1 0.5828 的根因是**数据量与模型容量**，不是链路：可用公开
 - 真机判定以 logcat 行 + 拉回主机的产物（PDF / SR / JSON）为准，**没有真机证据不宣称验证通过**；
 - 改动 AI 层（`core/AiCore.cpp` 的特征/阈值/连通域、抽稀倍率、求和顺序）之后，除单测外**必须**重跑 AC-08 取证：真机「导出取证数据」→ `run-as` 拉回 → `check_device_dump.py` 出 `VERDICT: PASS`；只有"肉眼看到掩膜"不构成 AI 精度证据；
 - AI 的精度指标（Dice/F1）**必须**在未参与训练与阈值标定的测试例上报告，且同时给出实例普查（防止大块合并把体积读数伪装成合理结果）；
+- 改动页面结构（面板增删、编号、tab 归属、按钮文案与提示语）**必须**三处同步：`fragment_cbct_measure.xml` 的区块注释、本文件 §2 的宿主接入表、`USER.md` 的小节标题与提示语对照表。本轮出现过布局注释仍写 `5) 结果`、README 仍写「6) AI」的情况——编号不一致会让人按旧位置抬手点空；
+- 提示语（`setHint` / toast）是状态的一部分：新增按钮时确认它清掉了 `stickyMissHint` 并刷新文案，失败路径给的是**可执行的原因**而不是「操作失败」；文案改动同样要进 `USER.md` §9 的对照表。
 - 涉及显示效果的本模块改动只影响叠加层，不动 `:rawpixeldeal` / `:cbctdeal` 的像素算子与调窗算法（该两模块有强制回滚基线约定）。
