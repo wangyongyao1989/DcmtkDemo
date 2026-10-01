@@ -60,9 +60,16 @@ def main():
     assert n_feat_bytes == EXPECTED, (n_feat_bytes, EXPECTED)
 
     # features must also equal the NIfTI-derived cached ones (proves the two ingest
-    # paths agree, so the device may load either)
-    cached = np.load(f"{OUT}/work/cache/{CID}_feat.npy")
-    feat_match = bool(np.array_equal(feat, cached))
+    # paths agree, so the device may load either).
+    # 缓存由 step 02/03 写；单独跑 step 04（或 clean clone 只想重放推理链）时没有缓存，
+    # 那是一条"没做"的检查，不是"做失败"——直接抛 FileNotFoundError 会把 step 04 说成坏了。
+    cached_path = f"{OUT}/work/cache/{CID}_feat.npy"
+    if os.path.exists(cached_path):
+        cached = np.load(cached_path)
+        feat_match = bool(np.array_equal(feat, cached))
+    else:
+        feat_match = None
+        print("NOTE: 无 %s（未跑 step 02/03），跳过 NIfTI 缓存对拍" % cached_path)
 
     # ---- 3. onnxruntime inference on exactly that buffer
     import onnxruntime as ort
@@ -130,7 +137,8 @@ def main():
     A("")
     A("source series : %s/app_volume/%s  (128 files, 000001.dcm..000128.dcm)" % (OUT, CID))
     A("DICOM re-read == canonical int16 array : %s" % lossless)
-    A("features from DICOM == features from NIfTI : %s" % feat_match)
+    A("features from DICOM == features from NIfTI : %s" % (
+        "not run (work/cache 缺 step 02/03 缓存)" if feat_match is None else feat_match))
     A("onnxruntime repeat run bit-exact : %s" % ort_repeat_bitexact)
     A("prob raw re-read bit-exact : %s" % prob_reread_bitexact)
     A("")
@@ -172,24 +180,31 @@ def main():
     open(f"{PAR}/summary.txt", "w").write(txt)
     print(txt)
 
-    # augment metrics.json with the fixture facts (kept consistent with run_all order)
+    # augment metrics.json with the fixture facts (kept consistent with run_all order).
+    # metrics.json 只有完整跑过 train_model.py 才存在；单独重放本步时不该把已生成的
+    # 夹具白写一遍却因为缺文件崩在最后，所以缺了就跳过这一步并说明。
     mp = f"{OUT}/metrics.json"
-    m = json.load(open(mp))
-    m["parity_fixtures"] = {
-        "case": CID, "dir": PAR,
-        "dicom_reread_equals_canonical": lossless,
-        "features_dicom_equal_features_nifti": feat_match,
-        "feat_0101_raw_bytes": n_feat_bytes,
-        "prob_0101_raw_bytes": n_prob_bytes,
-        "ort_repeat_run_bit_exact": ort_repeat_bitexact,
-        "prob_raw_reread_bit_exact": prob_reread_bitexact,
-        "components": comp,
-        "lab_dice_96": d96, "lab_dice_192": d192,
-        "sha256": {n: sha256(f"{PAR}/{n}") for n in
-                   ("feat_0101.raw", "prob_0101.raw", "lab_0101.raw", "inst_0101.raw")},
-        "build_seconds": round(time.time() - t0, 1),
-    }
-    json.dump(m, open(mp, "w"), indent=1)
+    if not os.path.exists(mp):
+        print("NOTE: 无 %s（未跑 step 03），夹具事实只写 %s/summary.txt" % (mp, PAR))
+    else:
+        m = json.load(open(mp))
+        m["parity_fixtures"] = {
+            "case": CID, "dir": PAR,
+            "dicom_reread_equals_canonical": lossless,
+            # None 会变成 JSON null，读的人不知道是"不等"还是"没做"；显式写清楚。
+            "features_dicom_equal_features_nifti": (
+                "not run (work/cache missing)" if feat_match is None else feat_match),
+            "feat_0101_raw_bytes": n_feat_bytes,
+            "prob_0101_raw_bytes": n_prob_bytes,
+            "ort_repeat_run_bit_exact": ort_repeat_bitexact,
+            "prob_raw_reread_bit_exact": prob_reread_bitexact,
+            "components": comp,
+            "lab_dice_96": d96, "lab_dice_192": d192,
+            "sha256": {n: sha256(f"{PAR}/{n}") for n in
+                       ("feat_0101.raw", "prob_0101.raw", "lab_0101.raw", "inst_0101.raw")},
+            "build_seconds": round(time.time() - t0, 1),
+        }
+        json.dump(m, open(mp, "w"), indent=1)
 
 
 if __name__ == "__main__":

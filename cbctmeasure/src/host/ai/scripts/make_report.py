@@ -10,7 +10,19 @@ import numpy as np
 import prep
 
 OUT = prep.OUT_DIR
+# 本脚本描述的是"旧 1x1x1 实验"那条链路（train_model.py -> metrics.json -> 本报告）。
+# 当前随包交付的链路是 train2.py（3x3x3 + 设备轴序），它写的是
+# parity_ref/metrics_0101.json，报告在 cbctmeasure/doc/ 与 parity_ref/METRICS.md（parity.py 生成）。
+# 没有 metrics.json 或它不是那个 schema 时，必须说清楚"这一步没数据"，
+# 不能拿一半字段去 % 格式化，崩成 "TypeError: must be real number, not str" 那种假故障。
+if not os.path.exists(f"{OUT}/metrics.json"):
+    raise SystemExit("NOTE: 缺 %s/metrics.json —— make_report.py 只描述旧 1x1x1 实验"
+                     "（train_model.py 产出）。当前交付链路的报告见 doc/ 与 parity_ref/METRICS.md。" % OUT)
 M = json.load(open(f"{OUT}/metrics.json"))
+if not {"model", "held_out", "parity_fixtures"} <= set(M):
+    raise SystemExit("NOTE: %s/metrics.json 不是旧 1x1x1 实验的记录（缺 %s），"
+                     "make_report.py 不适用；当前链路请读 doc/ 与 parity_ref/METRICS.md。"
+                     % (OUT, sorted({"model", "held_out", "parity_fixtures"} - set(M))))
 CR = json.load(open(f"{OUT}/work/crop_meta.json"))
 RT = json.load(open(f"{OUT}/work/dicom_roundtrip.json"))
 MD = M["model"]
@@ -45,6 +57,11 @@ def pc(s, keys="dice precision recall f1 tp fp fn".split()):
 L = []
 A = L.append
 A("# CBCT tooth segmentation (host side) — build report")
+A("")
+A("> **本报告描述的是旧 1x1x1 逐体素 MLP 实验**（`train_model.py` -> `metrics.json`）。"
+  "随包交付的设备链路是 `train2.py` 的 3x3x3 Conv3d + 设备轴序，其数据见 "
+  "`parity_ref/metrics_0101.json`、`parity_ref/METRICS.md` 与 `cbctmeasure/doc/` 下的真机测试报告。"
+  "两份报告的 Dice 不可直接对比（阈值 0.49 与通道 argmax 是不同的后处理规则）。")
 A("")
 A("Generated %s by `python3 %s/make_report.py` from `%s/metrics.json` "
   "(wall clock of the training step: %s s). Every number below was measured on this "
@@ -111,7 +128,7 @@ A("")
 A("Honest reading: **the public DentalSegmentator model reaches Dice ~%s/%s on these "
   "cases; the per-voxel MLP I was allowed to build within the fixed 6-channel/1x1x1 "
   "contract reaches ~%s on held-out data.** It is %sx better than an intensity "
-  "threshold and ~%.1fx worse than a real 3D CNN. Use it to validate the on-device "
+  "threshold and ~%sx worse than a real 3D CNN. Use it to validate the on-device "
   "*pipeline* (IO, features, ONNX, argmax, components) - not as a clinically "
   "meaningful tooth segmentor."
   % (f(DS["dentvoxel_0021"]["dice"]), f(DS["dentvoxel_0047"]["dice"]),
@@ -209,11 +226,14 @@ A("* ORT-vs-fixture on `feat_0101.raw`: re-running ONNX Runtime on the shipped "
   "`model/teeth_cnn.onnx` reproduces `prob_0101.raw` with max abs diff %.3e (measured "
   "here, not copied); repeated ORT runs bit-exact = %s; prob raw re-read bit-exact = %s"
   % (ORT_DIFF, PF["ort_repeat_run_bit_exact"], PF["prob_raw_reread_bit_exact"]))
-A("* model file: %d B, sha256 `%s` (recorded in metrics.json; backup copy "
-  "`model/teeth_cnn_pointwise_mlp.onnx`). Another host process was observed writing "
-  "the same path with a non-compliant 3x3x3 Conv model during this build; `verify_all.py` "
-  "now asserts the sha256 and the 1x1x1 kernel shapes."
-  % (MD["onnx_bytes"], MD["onnx_sha256"]))
+# 旧 metrics.json 没有记 sha256，就在这里量（本报告的原则是"只写量出来的数"）。
+import hashlib as _hl
+_md_sha = _hl.sha256(open(MD["onnx_path"], "rb").read()).hexdigest()
+A("* model file: %d B, sha256 `%s` (measured here, %s). `verify_all.py` asserts this "
+  "sha against `parity_ref/device_parity.json` and against the shipped app asset "
+  "`src/main/assets/models/teeth_cnn.onnx`; the 1x1x1 experiment this report describes is "
+  "kept as `model/teeth_cnn_pointwise_old.onnx` and is asserted to be a *different* file."
+  % (MD["onnx_bytes"], _md_sha[:16] + "...", MD["onnx_path"]))
 A("* my numpy forward vs ONNX Runtime: max abs diff %s (float64 vs float32 accumulation)"
   % M["cases"][HO]["onnx_numpy_prob_agreement"]["ort_max_abs_diff_vs_numpy"])
 A("* features from the DICOM series == features from the NIfTI: %s (bit-exact); "
