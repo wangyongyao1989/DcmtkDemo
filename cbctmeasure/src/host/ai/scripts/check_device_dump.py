@@ -40,9 +40,16 @@ def sha12(b):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("dump", help="path to device .parity.bin from AiEngine::dumpParity")
-    ap.add_argument("--fixtures-dir", default="/tmp/ai_build/parity_ref")
-    ap.add_argument("--feat-max-abs", type=float, default=0.0,
-                    help="max allowed |feat diff| (default 0 = bitwise exact)")
+    _ai_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ap.add_argument("--fixtures-dir",
+                    default=os.environ.get("AI_BUILD") or os.path.join(_ai_root, "parity_ref"))
+    # feat 的默认容差不可能是 0：真机是 ORT 1.17 + arm64 kernel，主机夹具是 ORT 1.23 + x86，
+    # 同一条 2x2x2 抽稀/特征链在 float32 上就会差到 1e-8 量级。
+    # 实测（2026-10-01 round6 拉回的 dump）：max|diff| = 2.980e-08，799/3538944 个元素非零差；
+    # prob 同批实测 1.192e-07，label/inst 逐位相同。默认取 1e-6 让「正常设备」直接 PASS，
+    # 而 0.0 这个默认值会让任何人都量出 FAIL，把"判定"变成"必须记得加 flag 的仪式"。
+    ap.add_argument("--feat-max-abs", type=float, default=1e-6,
+                    help="max allowed |feat diff| (default 1e-6: 跨 ORT 版本/架构不可能逐位相同)")
     ap.add_argument("--prob-max-abs", type=float, default=1e-5,
                     help="max allowed |prob diff| (default 1e-5)")
     ap.add_argument("--label-max-rate", type=float, default=0.001,
