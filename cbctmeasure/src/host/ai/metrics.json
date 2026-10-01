@@ -1,0 +1,951 @@
+{
+ "generated_utc": "2026-09-30T11:22:37Z",
+ "model": {
+  "onnx_path": "/tmp/ai_build/model/teeth_cnn.onnx",
+  "onnx_bytes": 3851,
+  "opset": 17,
+  "parameter_count": 818,
+  "architecture": "Conv(6->24,1x1x1)+Relu+Conv(24->24,1x1x1)+Relu+Conv(24->2,1x1x1)+Softmax",
+  "optimizer": "Adam, lr=0.01, betas=(0.9,0.999), eps=1e-08",
+  "minibatch": 4096,
+  "epochs_final": 110,
+  "iterations_phase1": 3360,
+  "iterations_final": 4180,
+  "total_iterations": 7540,
+  "sampling_rule": "all positives + negative pool (TRAIN_STRIDE=1 -> every label-0 reduced-grid voxel) capped at NEG_PER_POS=4 x #positives via sorted(rng(TRAIN_SEED+case_index).permutation)[:k]",
+  "sample_counts": {
+   "0021": 47920,
+   "0047": 64000,
+   "0074": 43065,
+   "final_fit": 154985,
+   "final_positives": 30997
+  },
+  "calibration": {
+   "threshold_on_logit_diff": 1.817192554473877,
+   "dice_at_threshold_on_calibration_cases": {
+    "dice": 0.6945919179127499,
+    "precision": 0.6991436789122761,
+    "recall": 0.6900990418427589,
+    "f1": 0.6945919179127499,
+    "tp": 21391,
+    "fp": 9205,
+    "fn": 9606,
+    "pred_voxels": 30596,
+    "gt_voxels": 30997,
+    "total_voxels": 1769472
+   },
+   "calibration_cases": [
+    "dentvoxel_0021",
+    "dentvoxel_0047",
+    "dentvoxel_0074"
+   ],
+   "b3_after": [
+    0.028830811381340027,
+    -1.8460233211517334
+   ],
+   "b3_before": [
+    0.028830811381340027,
+    -0.028830811381340027
+   ]
+  },
+  "epoch_choice": {
+   "criterion": "Dice at the Dice-optimal logit threshold on the full 96x96x64 grid of dentvoxel_0074",
+   "max_epochs_searched": 120,
+   "chosen": 110,
+   "phase1_history": [
+    {
+     "epoch": 1,
+     "iterations": 28,
+     "train_sampled_dice": 0.8864262406238081,
+     "val_dice": 0.5947127171943289,
+     "val_precision": 0.5497093309685683,
+     "val_recall": 0.6477417856728201,
+     "val_tp": 5579,
+     "val_fp": 4570,
+     "val_fn": 3034
+    },
+    {
+     "epoch": 5,
+     "iterations": 140,
+     "train_sampled_dice": 0.8949402823018459,
+     "val_dice": 0.6475031244905722,
+     "val_precision": 0.6085801838610827,
+     "val_recall": 0.6917450365726228,
+     "val_tp": 5958,
+     "val_fp": 3832,
+     "val_fn": 2655
+    },
+    {
+     "epoch": 10,
+     "iterations": 280,
+     "train_sampled_dice": 0.8997435897435897,
+     "val_dice": 0.6392777987999352,
+     "val_precision": 0.5981185514869513,
+     "val_recall": 0.6865203761755486,
+     "val_tp": 5913,
+     "val_fp": 3973,
+     "val_fn": 2700
+    },
+    {
+     "epoch": 15,
+     "iterations": 420,
+     "train_sampled_dice": 0.9006822696260471,
+     "val_dice": 0.6384006289661369,
+     "val_precision": 0.6182292799651947,
+     "val_recall": 0.6599326599326599,
+     "val_tp": 5684,
+     "val_fp": 3510,
+     "val_fn": 2929
+    },
+    {
+     "epoch": 20,
+     "iterations": 560,
+     "train_sampled_dice": 0.9025658439270783,
+     "val_dice": 0.6310793390366811,
+     "val_precision": 0.6370519342245357,
+     "val_recall": 0.6252176941832114,
+     "val_tp": 5385,
+     "val_fp": 3068,
+     "val_fn": 3228
+    },
+    {
+     "epoch": 25,
+     "iterations": 700,
+     "train_sampled_dice": 0.9052312033691772,
+     "val_dice": 0.6186939212074395,
+     "val_precision": 0.6336416747809153,
+     "val_recall": 0.6044351561592941,
+     "val_tp": 5206,
+     "val_fp": 3010,
+     "val_fn": 3407
+    },
+    {
+     "epoch": 30,
+     "iterations": 840,
+     "train_sampled_dice": 0.9039570316781761,
+     "val_dice": 0.6005607020965382,
+     "val_precision": 0.632071840923669,
+     "val_recall": 0.5720422616974341,
+     "val_tp": 4927,
+     "val_fp": 2868,
+     "val_fn": 3686
+    },
+    {
+     "epoch": 35,
+     "iterations": 980,
+     "train_sampled_dice": 0.9045280960174578,
+     "val_dice": 0.6230137314864784,
+     "val_precision": 0.6442212301587301,
+     "val_recall": 0.6031580169511204,
+     "val_tp": 5195,
+     "val_fp": 2869,
+     "val_fn": 3418
+    },
+    {
+     "epoch": 40,
+     "iterations": 1120,
+     "train_sampled_dice": 0.9082489769545552,
+     "val_dice": 0.6092140921409214,
+     "val_precision": 0.6328828828828829,
+     "val_recall": 0.587251828631139,
+     "val_tp": 5058,
+     "val_fp": 2934,
+     "val_fn": 3555
+    },
+    {
+     "epoch": 45,
+     "iterations": 1260,
+     "train_sampled_dice": 0.9080631537911766,
+     "val_dice": 0.6270643332511708,
+     "val_precision": 0.6681549573210768,
+     "val_recall": 0.5907349355625218,
+     "val_tp": 5088,
+     "val_fp": 2527,
+     "val_fn": 3525
+    },
+    {
+     "epoch": 50,
+     "iterations": 1400,
+     "train_sampled_dice": 0.9063605011568516,
+     "val_dice": 0.6405212687484633,
+     "val_precision": 0.6806009144350098,
+     "val_recall": 0.6048995704168117,
+     "val_tp": 5210,
+     "val_fp": 2445,
+     "val_fn": 3403
+    },
+    {
+     "epoch": 55,
+     "iterations": 1540,
+     "train_sampled_dice": 0.9091734393913193,
+     "val_dice": 0.6352381533207294,
+     "val_precision": 0.6690647482014388,
+     "val_recall": 0.6046673632880529,
+     "val_tp": 5208,
+     "val_fp": 2576,
+     "val_fn": 3405
+    },
+    {
+     "epoch": 60,
+     "iterations": 1680,
+     "train_sampled_dice": 0.905624614299568,
+     "val_dice": 0.6367601980664938,
+     "val_precision": 0.6467488923482217,
+     "val_recall": 0.6270753512132823,
+     "val_tp": 5401,
+     "val_fp": 2950,
+     "val_fn": 3212
+    },
+    {
+     "epoch": 65,
+     "iterations": 1820,
+     "train_sampled_dice": 0.9089063689418929,
+     "val_dice": 0.6378018318068276,
+     "val_precision": 0.6538227045482258,
+     "val_recall": 0.6225473122024846,
+     "val_tp": 5362,
+     "val_fp": 2839,
+     "val_fn": 3251
+    },
+    {
+     "epoch": 70,
+     "iterations": 1960,
+     "train_sampled_dice": 0.9097728428547212,
+     "val_dice": 0.6444378168804056,
+     "val_precision": 0.6626594700686947,
+     "val_recall": 0.6271914547776617,
+     "val_tp": 5402,
+     "val_fp": 2750,
+     "val_fn": 3211
+    },
+    {
+     "epoch": 75,
+     "iterations": 2100,
+     "train_sampled_dice": 0.910244864702603,
+     "val_dice": 0.6380315917375455,
+     "val_precision": 0.6691729323308271,
+     "val_recall": 0.6096598165563683,
+     "val_tp": 5251,
+     "val_fp": 2596,
+     "val_fn": 3362
+    },
+    {
+     "epoch": 80,
+     "iterations": 2240,
+     "train_sampled_dice": 0.9106003105054339,
+     "val_dice": 0.633301017935046,
+     "val_precision": 0.6622734761120264,
+     "val_recall": 0.6067572274468827,
+     "val_tp": 5226,
+     "val_fp": 2665,
+     "val_fn": 3387
+    },
+    {
+     "epoch": 85,
+     "iterations": 2380,
+     "train_sampled_dice": 0.9084520960056216,
+     "val_dice": 0.6289996431545141,
+     "val_precision": 0.6447994147055237,
+     "val_recall": 0.6139556484384071,
+     "val_tp": 5288,
+     "val_fp": 2913,
+     "val_fn": 3325
+    },
+    {
+     "epoch": 90,
+     "iterations": 2520,
+     "train_sampled_dice": 0.9104606858330447,
+     "val_dice": 0.638687244555603,
+     "val_precision": 0.672879177377892,
+     "val_recall": 0.6078021595262975,
+     "val_tp": 5235,
+     "val_fp": 2545,
+     "val_fn": 3378
+    },
+    {
+     "epoch": 95,
+     "iterations": 2660,
+     "train_sampled_dice": 0.9105450107868989,
+     "val_dice": 0.6338314405260012,
+     "val_precision": 0.6531969939632869,
+     "val_recall": 0.6155810983397191,
+     "val_tp": 5302,
+     "val_fp": 2815,
+     "val_fn": 3311
+    },
+    {
+     "epoch": 100,
+     "iterations": 2800,
+     "train_sampled_dice": 0.9106167056986729,
+     "val_dice": 0.6416048946934934,
+     "val_precision": 0.6503279666070364,
+     "val_recall": 0.6331127365610124,
+     "val_tp": 5453,
+     "val_fp": 2932,
+     "val_fn": 3160
+    },
+    {
+     "epoch": 105,
+     "iterations": 2940,
+     "train_sampled_dice": 0.9116345344243183,
+     "val_dice": 0.640283875623985,
+     "val_precision": 0.664212627901173,
+     "val_recall": 0.618019273191687,
+     "val_tp": 5323,
+     "val_fp": 2691,
+     "val_fn": 3290
+    },
+    {
+     "epoch": 110,
+     "iterations": 3080,
+     "train_sampled_dice": 0.9101138183234517,
+     "val_dice": 0.6541274817136886,
+     "val_precision": 0.6541274817136886,
+     "val_recall": 0.6541274817136886,
+     "val_tp": 5634,
+     "val_fp": 2979,
+     "val_fn": 2979
+    },
+    {
+     "epoch": 115,
+     "iterations": 3220,
+     "train_sampled_dice": 0.9111682253083087,
+     "val_dice": 0.6516278792928992,
+     "val_precision": 0.6685393258426966,
+     "val_recall": 0.6355509114129804,
+     "val_tp": 5474,
+     "val_fp": 2714,
+     "val_fn": 3139
+    },
+    {
+     "epoch": 120,
+     "iterations": 3360,
+     "train_sampled_dice": 0.9069917469356884,
+     "val_dice": 0.6330545695204861,
+     "val_precision": 0.656968031968032,
+     "val_recall": 0.6108208522001626,
+     "val_tp": 5261,
+     "val_fp": 2747,
+     "val_fn": 3352
+    }
+   ]
+  },
+  "wall_clock_seconds": 102.2
+ },
+ "held_out": "dentvoxel_0101",
+ "feature_variant_study": [
+  {
+   "radii": [
+    1,
+    2,
+    4,
+    8
+   ],
+   "bp": [
+    3,
+    4
+   ],
+   "best_epoch": 110,
+   "best_val_dice_0074": 0.6541274817136886,
+   "best_val_prec": 0.6541274817136886,
+   "best_val_rec": 0.6541274817136886,
+   "iterations": 3360,
+   "seconds": 28.4
+  },
+  {
+   "radii": [
+    1,
+    2,
+    4,
+    16
+   ],
+   "bp": [
+    3,
+    4
+   ],
+   "best_epoch": 20,
+   "best_val_dice_0074": 0.6394581451893019,
+   "best_val_prec": 0.6376861794250087,
+   "best_val_rec": 0.6412399860675723,
+   "iterations": 3360,
+   "seconds": 25.0
+  },
+  {
+   "radii": [
+    1,
+    2,
+    4,
+    8
+   ],
+   "bp": [
+    1,
+    4
+   ],
+   "best_epoch": 110,
+   "best_val_dice_0074": 0.6302110895513612,
+   "best_val_prec": 0.6384322134858232,
+   "best_val_rec": 0.6221990015093464,
+   "iterations": 3360,
+   "seconds": 25.9
+  },
+  {
+   "radii": [
+    1,
+    2,
+    4,
+    16
+   ],
+   "bp": [
+    1,
+    4
+   ],
+   "best_epoch": 70,
+   "best_val_dice_0074": 0.6165246819932314,
+   "best_val_prec": 0.6197067448680352,
+   "best_val_rec": 0.61337513061651,
+   "iterations": 3360,
+   "seconds": 26.3
+  },
+  {
+   "radii": [
+    1,
+    3,
+    6,
+    12
+   ],
+   "bp": [
+    1,
+    4
+   ],
+   "best_epoch": 50,
+   "best_val_dice_0074": 0.6149415153118204,
+   "best_val_prec": 0.6227380952380952,
+   "best_val_rec": 0.6073377452687797,
+   "iterations": 3360,
+   "seconds": 28.6
+  }
+ ],
+ "cases": {
+  "dentvoxel_0021": {
+   "case": "dentvoxel_0021",
+   "split": "train",
+   "crop_start_0p6mm": [
+    13,
+    22,
+    23
+   ],
+   "grid_96x96x64": {
+    "dice": 0.7143533371903434,
+    "precision": 0.7202248382649273,
+    "recall": 0.7085767946577629,
+    "f1": 0.7143533371903434,
+    "tp": 6791,
+    "fp": 2638,
+    "fn": 2793,
+    "pred_voxels": 9429,
+    "gt_voxels": 9584,
+    "total_voxels": 589824
+   },
+   "grid_192x192x128_nearest": {
+    "dice": 0.6940112415587216,
+    "precision": 0.6825750344681303,
+    "recall": 0.7058371946371288,
+    "f1": 0.6940112415587217,
+    "tp": 51488,
+    "fp": 23944,
+    "fn": 21458,
+    "pred_voxels": 75432,
+    "gt_voxels": 72946,
+    "total_voxels": 4718592
+   },
+   "vs_native_0p30mm_gt": {
+    "dice": 0.6881012160121815,
+    "precision": 0.6664777547990243,
+    "recall": 0.7111748469132441,
+    "f1": 0.6881012160121815,
+    "tp": 402190,
+    "fp": 201266,
+    "fn": 163339,
+    "pred_voxels": 603456,
+    "gt_voxels": 565529,
+    "total_voxels": 66598400,
+    "gt_tooth_voxels_outside_app_crop": 0,
+    "voxel_size_mm": 0.3
+   },
+   "oracle_ceiling_gt_vs_gt_at_192": {
+    "dice": 0.9129115480757662,
+    "precision": 0.8907293405676127,
+    "recall": 0.9362267979052998,
+    "f1": 0.9129115480757662,
+    "tp": 68294,
+    "fp": 8378,
+    "fn": 4652,
+    "pred_voxels": 76672,
+    "gt_voxels": 72946,
+    "total_voxels": 4718592
+   },
+   "grid_96x96x64_uncalibrated_prob_half": {
+    "dice": 0.5080104374175809,
+    "precision": 0.3474306328433818,
+    "recall": 0.9445951585976627,
+    "f1": 0.5080104374175809,
+    "tp": 9053,
+    "fp": 17004,
+    "fn": 531,
+    "pred_voxels": 26057,
+    "gt_voxels": 9584,
+    "total_voxels": 589824
+   },
+   "feature_file": "/tmp/ai_build/work/cache/dentvoxel_0021_feat.npy"
+  },
+  "dentvoxel_0047": {
+   "case": "dentvoxel_0047",
+   "split": "train",
+   "crop_start_0p6mm": [
+    9,
+    23,
+    27
+   ],
+   "grid_96x96x64": {
+    "dice": 0.6882515437114072,
+    "precision": 0.7169092755585647,
+    "recall": 0.661796875,
+    "f1": 0.6882515437114072,
+    "tp": 8471,
+    "fp": 3345,
+    "fn": 4329,
+    "pred_voxels": 11816,
+    "gt_voxels": 12800,
+    "total_voxels": 589824
+   },
+   "grid_192x192x128_nearest": {
+    "dice": 0.6696188649629156,
+    "precision": 0.6814594617467841,
+    "recall": 0.6581827098936355,
+    "f1": 0.6696188649629156,
+    "tp": 64417,
+    "fp": 30111,
+    "fn": 33454,
+    "pred_voxels": 94528,
+    "gt_voxels": 97871,
+    "total_voxels": 4718592
+   },
+   "vs_native_0p30mm_gt": {
+    "dice": 0.660523107715898,
+    "precision": 0.6641854794346649,
+    "recall": 0.6569009037286982,
+    "f1": 0.6605231077158981,
+    "tp": 502273,
+    "fp": 253951,
+    "fn": 262337,
+    "pred_voxels": 756224,
+    "gt_voxels": 764610,
+    "total_voxels": 66598400,
+    "gt_tooth_voxels_outside_app_crop": 0,
+    "voxel_size_mm": 0.3
+   },
+   "oracle_ceiling_gt_vs_gt_at_192": {
+    "dice": 0.9124835847426737,
+    "precision": 0.8923046875,
+    "recall": 0.9335962644705786,
+    "f1": 0.9124835847426738,
+    "tp": 91372,
+    "fp": 11028,
+    "fn": 6499,
+    "pred_voxels": 102400,
+    "gt_voxels": 97871,
+    "total_voxels": 4718592
+   },
+   "grid_96x96x64_uncalibrated_prob_half": {
+    "dice": 0.5406480184373447,
+    "precision": 0.38031661262635896,
+    "recall": 0.9346875,
+    "f1": 0.5406480184373447,
+    "tp": 11964,
+    "fp": 19494,
+    "fn": 836,
+    "pred_voxels": 31458,
+    "gt_voxels": 12800,
+    "total_voxels": 589824
+   },
+   "feature_file": "/tmp/ai_build/work/cache/dentvoxel_0047_feat.npy"
+  },
+  "dentvoxel_0074": {
+   "case": "dentvoxel_0074",
+   "split": "train",
+   "crop_start_0p6mm": [
+    11,
+    16,
+    22
+   ],
+   "grid_96x96x64": {
+    "dice": 0.6822913767188109,
+    "precision": 0.6554010695187166,
+    "recall": 0.7114826425171252,
+    "f1": 0.6822913767188108,
+    "tp": 6128,
+    "fp": 3222,
+    "fn": 2485,
+    "pred_voxels": 9350,
+    "gt_voxels": 8613,
+    "total_voxels": 589824
+   },
+   "grid_192x192x128_nearest": {
+    "dice": 0.6611172271742605,
+    "precision": 0.6222058823529412,
+    "recall": 0.7052200924312448,
+    "f1": 0.6611172271742605,
+    "tp": 46541,
+    "fp": 28259,
+    "fn": 19454,
+    "pred_voxels": 74800,
+    "gt_voxels": 65995,
+    "total_voxels": 4718592
+   },
+   "vs_native_0p30mm_gt": {
+    "dice": 0.6547574469467361,
+    "precision": 0.6063252005347594,
+    "recall": 0.7115987706742659,
+    "f1": 0.6547574469467361,
+    "tp": 362825,
+    "fp": 235575,
+    "fn": 147048,
+    "pred_voxels": 598400,
+    "gt_voxels": 509873,
+    "total_voxels": 66598400,
+    "gt_tooth_voxels_outside_app_crop": 0,
+    "voxel_size_mm": 0.3
+   },
+   "oracle_ceiling_gt_vs_gt_at_192": {
+    "dice": 0.9069451960355526,
+    "precision": 0.8878004179728317,
+    "recall": 0.9269338586256535,
+    "f1": 0.9069451960355526,
+    "tp": 61173,
+    "fp": 7731,
+    "fn": 4822,
+    "pred_voxels": 68904,
+    "gt_voxels": 65995,
+    "total_voxels": 4718592
+   },
+   "grid_96x96x64_uncalibrated_prob_half": {
+    "dice": 0.49289070604747665,
+    "precision": 0.3342990770249576,
+    "recall": 0.9377684894926275,
+    "f1": 0.49289070604747665,
+    "tp": 8077,
+    "fp": 16084,
+    "fn": 536,
+    "pred_voxels": 24161,
+    "gt_voxels": 8613,
+    "total_voxels": 589824
+   },
+   "feature_file": "/tmp/ai_build/work/cache/dentvoxel_0074_feat.npy"
+  },
+  "dentvoxel_0101": {
+   "case": "dentvoxel_0101",
+   "split": "held_out",
+   "crop_start_0p6mm": [
+    13,
+    19,
+    24
+   ],
+   "grid_96x96x64": {
+    "dice": 0.6670929660600098,
+    "precision": 0.8228370343404927,
+    "recall": 0.5609231532798412,
+    "f1": 0.6670929660600098,
+    "tp": 6781,
+    "fp": 1460,
+    "fn": 5308,
+    "pred_voxels": 8241,
+    "gt_voxels": 12089,
+    "total_voxels": 589824
+   },
+   "grid_192x192x128_nearest": {
+    "dice": 0.6549006492973832,
+    "precision": 0.7871314160902803,
+    "recall": 0.5607070696156714,
+    "f1": 0.6549006492973832,
+    "tp": 51894,
+    "fp": 14034,
+    "fn": 40657,
+    "pred_voxels": 65928,
+    "gt_voxels": 92551,
+    "total_voxels": 4718592
+   },
+   "vs_native_0p30mm_gt": {
+    "dice": 0.6509516546932989,
+    "precision": 0.7712068468632447,
+    "recall": 0.5631404940370541,
+    "f1": 0.6509516546932987,
+    "tp": 406753,
+    "fp": 120671,
+    "fn": 315541,
+    "pred_voxels": 527424,
+    "gt_voxels": 722294,
+    "total_voxels": 66598400,
+    "gt_tooth_voxels_outside_app_crop": 0,
+    "voxel_size_mm": 0.3
+   },
+   "oracle_ceiling_gt_vs_gt_at_192": {
+    "dice": 0.9132160010144613,
+    "precision": 0.8935706013731491,
+    "recall": 0.9337446380914307,
+    "f1": 0.9132160010144614,
+    "tp": 86419,
+    "fp": 10293,
+    "fn": 6132,
+    "pred_voxels": 96712,
+    "gt_voxels": 92551,
+    "total_voxels": 4718592
+   },
+   "grid_96x96x64_uncalibrated_prob_half": {
+    "dice": 0.6607611756145402,
+    "precision": 0.5349897540983607,
+    "recall": 0.8638431632062206,
+    "f1": 0.6607611756145402,
+    "tp": 10443,
+    "fp": 9077,
+    "fn": 1646,
+    "pred_voxels": 19520,
+    "gt_voxels": 12089,
+    "total_voxels": 589824
+   },
+   "onnx_numpy_prob_agreement": {
+    "input_shape": [
+     1,
+     6,
+     96,
+     96,
+     64
+    ],
+    "output_shape": [
+     1,
+     2,
+     96,
+     96,
+     64
+    ],
+    "opset": 17,
+    "ort_ops": [
+     "Conv",
+     "Relu",
+     "Softmax"
+    ],
+    "n_nodes": 6,
+    "ort_max_abs_diff_vs_numpy": 1.5795230865478516e-06
+   },
+   "feature_file": "/tmp/ai_build/work/cache/dentvoxel_0101_feat.npy"
+  }
+ },
+ "reference_dentalsegmentator_vs_gt": {
+  "dentvoxel_0021": {
+   "dice": 0.9644563040643601,
+   "precision": 0.9437020591813701,
+   "recall": 0.9861439466411095,
+   "f1": 0.9644563040643601,
+   "tp": 557693,
+   "fp": 33270,
+   "fn": 7836,
+   "pred_voxels": 590963,
+   "gt_voxels": 565529,
+   "total_voxels": 66598400,
+   "ds_labels_used": [
+    3,
+    4
+   ],
+   "ds_label_names": {
+    "3": "Upper Teeth",
+    "4": "Lower Teeth"
+   }
+  },
+  "dentvoxel_0047": {
+   "dice": 0.970857197347859,
+   "precision": 0.963155313751308,
+   "recall": 0.9786832502844588,
+   "f1": 0.9708571973478591,
+   "tp": 748311,
+   "fp": 28626,
+   "fn": 16299,
+   "pred_voxels": 776937,
+   "gt_voxels": 764610,
+   "total_voxels": 66598400,
+   "ds_labels_used": [
+    3,
+    4
+   ],
+   "ds_label_names": {
+    "3": "Upper Teeth",
+    "4": "Lower Teeth"
+   }
+  }
+ },
+ "reference_naive_hu_band": {
+  "dentvoxel_0021": {
+   "at_96_grid": {
+    "dice": 0.31122069850705936,
+    "precision": 0.18566132022245507,
+    "recall": 0.9613939899833055,
+    "f1": 0.3112206985070594,
+    "tp": 9214,
+    "fp": 40414,
+    "fn": 370,
+    "pred_voxels": 49628,
+    "gt_voxels": 9584,
+    "total_voxels": 589824
+   }
+  },
+  "dentvoxel_0047": {
+   "at_96_grid": {
+    "dice": 0.34715227774490987,
+    "precision": 0.21289888674536733,
+    "recall": 0.939765625,
+    "f1": 0.3471522777449099,
+    "tp": 12029,
+    "fp": 44472,
+    "fn": 771,
+    "pred_voxels": 56501,
+    "gt_voxels": 12800,
+    "total_voxels": 589824
+   }
+  },
+  "dentvoxel_0074": {
+   "at_96_grid": {
+    "dice": 0.2847069802810086,
+    "precision": 0.16724873096446702,
+    "recall": 0.9563450597933356,
+    "f1": 0.2847069802810086,
+    "tp": 8237,
+    "fp": 41013,
+    "fn": 376,
+    "pred_voxels": 49250,
+    "gt_voxels": 8613,
+    "total_voxels": 589824
+   }
+  },
+  "dentvoxel_0101": {
+   "at_96_grid": {
+    "dice": 0.4069214338281488,
+    "precision": 0.25984594929164184,
+    "recall": 0.9376292497311606,
+    "f1": 0.4069214338281488,
+    "tp": 11335,
+    "fp": 32287,
+    "fn": 754,
+    "pred_voxels": 43622,
+    "gt_voxels": 12089,
+    "total_voxels": 589824
+   }
+  }
+ },
+ "notes": [
+  "phase1: fit on 0021+0047 (111920 sampled voxels), monitor 0074 (43065 sampled voxels / full 96^3 grid scored), 3360 Adam iterations, best val Dice 0.6541 at epoch 110.  val metric = Dice at the per-case Dice-optimal logit threshold, i.e. the same threshold calibration folded into b3 later.",
+  "phase2: final refit on 0021+0047+0074 (154985 sampled voxels), 4180 Adam iterations, 110 epochs (chosen in phase 1)",
+  "calibration: threshold t*=1.817193 on (z1-z0) maximises pooled Dice over 0021+0047+0074 (0.6946); b3 = [0.028831, -0.028831] -> [0.028831, -1.846023].  dentvoxel_0101 was not used for this or for the epoch choice."
+ ],
+ "parity_fixtures": {
+  "case": "dentvoxel_0101",
+  "dir": "/Users/wangyao/androidproject/DcmtkDemo/cbctmeasure/src/host/ai/parity_ref",
+  "dicom_reread_equals_canonical": true,
+  "features_dicom_equal_features_nifti": "not run (work/cache missing)",
+  "feat_0101_raw_bytes": 14155776,
+  "prob_0101_raw_bytes": 4718592,
+  "ort_repeat_run_bit_exact": true,
+  "prob_raw_reread_bit_exact": true,
+  "components": {
+   "n_components_26conn": 36,
+   "n_tooth_voxels": 9931,
+   "n_background_components": 0,
+   "sizes_desc": [
+    5159,
+    2575,
+    668,
+    417,
+    230,
+    178,
+    129,
+    129,
+    116,
+    66,
+    33,
+    32,
+    26,
+    25,
+    23,
+    20,
+    18,
+    18,
+    11,
+    8,
+    7,
+    7,
+    6,
+    5,
+    4,
+    4,
+    3,
+    3,
+    3,
+    2,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "n_components_ge_30": 12,
+   "largest_15_sizes": [
+    5159,
+    2575,
+    668,
+    417,
+    230,
+    178,
+    129,
+    129,
+    116,
+    66,
+    33,
+    32,
+    26,
+    25,
+    23
+   ],
+   "sum_of_sizes": 9931,
+   "structure": "3x3x3 all-ones (26-connectivity), scipy.ndimage.label"
+  },
+  "lab_dice_96": {
+   "dice": 0.5555858310626703,
+   "precision": 0.6159500553821368,
+   "recall": 0.50599718752585,
+   "f1": 0.5555858310626705,
+   "tp": 6117,
+   "fp": 3814,
+   "fn": 5972,
+   "pred_voxels": 9931,
+   "gt_voxels": 12089,
+   "total_voxels": 589824
+  },
+  "lab_dice_192": {
+   "dice": 0.5474217873359729,
+   "precision": 0.592563689457255,
+   "recall": 0.5086708949660187,
+   "f1": 0.5474217873359729,
+   "tp": 47078,
+   "fp": 32370,
+   "fn": 45473,
+   "pred_voxels": 79448,
+   "gt_voxels": 92551,
+   "total_voxels": 4718592
+  },
+  "sha256": {
+   "feat_0101.raw": "e5dfe46dcb4d0607f2b2164f8d7e7a3c6da807d043a12fe2e445009e00e81a2b",
+   "prob_0101.raw": "3bc71ffa006a550332e20760b476ae0271b6b5e90dd93cb684e5326c8f09e4cc",
+   "lab_0101.raw": "d4c2e12b8fbf44f26addc439d65c6db37cb12732d8ebec5791b661a1704411ca",
+   "inst_0101.raw": "e23f8c9719829e123f1ceb7ab4f9f6ed2879b6ddbb096e6c0d0ec71e2410ff2a"
+  },
+  "build_seconds": 3.8
+ }
+}
