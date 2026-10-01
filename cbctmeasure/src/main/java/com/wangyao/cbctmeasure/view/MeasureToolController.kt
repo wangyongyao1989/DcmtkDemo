@@ -164,6 +164,7 @@ class MeasureToolController(
     fun undoPendingPoint() {
         if (pending.isNotEmpty()) pending.removeAt(pending.size - 1)
         liveScreen.clear()
+        stickyMissHint = null   // 同 discardDraft()：按钮不是 view 上的 DOWN，残留的"没点中"提示要主动清
         updateHint()
         pushDraft()
     }
@@ -180,6 +181,39 @@ class MeasureToolController(
         ringCenter = null
         sampling = false
         overlay.setDraft(null)
+    }
+
+    /**
+     * 「丢弃草稿」按钮专用：abortDraft() 只清数据不改文案，
+     * 而内部工具切换路径（switchState/setMeasureType/setAnnotationType）都在调用后自己 updateHint()，
+     * 于是按钮点完图形没了、提示却还停在「（6 点）」，用户以为没生效（本轮真机回归复现）。
+     *
+     * stickyMissHint 也要一起清：它是"上一次没点中"的残留提示，只在手指按下时才会被冲掉，
+     * 而按钮不是 view 上的 DOWN，不清就会让页面继续显示"当前切面未拾取到点"。
+     */
+    fun discardDraft() {
+        abortDraft()
+        stickyMissHint = null
+        updateHint()
+        pushDraft()
+    }
+
+    /**
+     * 「闭合路径」按钮：面积多边形原来只能靠点中起点闭合，容差是 2.0mm 世界距离，
+     * 切面放大后连一个屏幕像素都不到，点不中就永远收不了尾。这里给一条不依赖命中起点的路径。
+     * @return false 表示当前点数不足 3，草稿保持原样
+     */
+    fun closeAreaDraft(): Boolean {
+        if (pending.size < 3) {
+            setHint(if (pending.isEmpty()) "闭合无效：先在切面上点出至少 3 个点"
+            else "闭合无效：还需 ${3 - pending.size} 个点（当前 ${pending.size} 点）")
+            return false
+        }
+        val polygon = pending.toList()
+        pending.clear()
+        submitArea(polygon)
+        pushDraft()
+        return true
     }
 
     /** 提交后调用：刷新叠加层 + 通知列表 */
@@ -990,7 +1024,10 @@ class MeasureToolController(
             ToolState.MEASURE_ANGLE -> "依次点击 A / B(顶点) / C 三点（已取 ${pending.size}/3）"
             ToolState.MEASURE_VOLUME ->
                 if (isMprMode()) MPR_VOLUME_HINT else "按住拖动定义裁剪盒，松开自动计算体积"
-            ToolState.MEASURE_AREA -> "在切面上逐笔点出封闭路径（${pending.size} 点），点击起点闭合"
+            ToolState.MEASURE_AREA ->
+                // 起点 2.0mm 容差在放大视图里不到一个屏幕像素，所以把「闭合路径」按钮写进提示，
+                // 否则用户只能反复点起点试错（本轮真机回归反馈）
+                "在切面上逐笔点出封闭路径（${pending.size} 点），点击起点闭合，或按「闭合路径」直接提交"
             ToolState.ROI_EDIT -> "ROI 编辑：用参数面板调整，界面刷新叠加层"
             ToolState.IMPLANT_PLACE -> "点击牙槽嵴顶放置种植体入口点"
             ToolState.ANNOTATE -> when (annotationType) {
