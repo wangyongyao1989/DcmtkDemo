@@ -1,0 +1,20 @@
+# 派生物：跑一次 run_all.sh 就会重新生成，不入库。
+# 入库的是「输入 + 冻结产物」：raw/*.nii.gz（公开 DentVoxel，来源见 raw/README.md）、
+# gt/*.nii.gz、model/、metrics.json、以及设备链证据 parity_ref/device_*。
+app_volume/
+work/
+__pycache__/
+*.log
+
+# GT 掩膜的 .raw 与 .nii.gz 等价（由后者展开），只留小的那份
+gt/*.raw
+
+# 旧主机链（make_parity.py，主机轴序）的夹具：与设备链是两份不同的预测，
+# 需要时 python3 scripts/make_parity.py 重新生成；随包证据只认 device_*_0101.raw
+parity_ref/feat_*.raw
+parity_ref/prob_*.raw
+parity_ref/lab_*.raw
+parity_ref/inst_*.raw
+parity_ref/label_*.raw
+parity_ref/gt_*.raw
+parity_ref/summary.txt
