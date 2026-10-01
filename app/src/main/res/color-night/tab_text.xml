@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    夜间主题下的面板 tab 文字色（覆盖 color/tab_text.xml）。
+
+    基线未选中色是 #FF202124（近黑），那是给浅色背景用的。本页跑在夜间主题下
+    （设备 Night mode: yes，colorPrimary=purple_200），未选中的 tab 由 MaterialButton
+    画成约 10% alpha 的紫色底（实测像素 #1F1B24），近黑文字叠在上面几乎看不见——
+    真机回归截图里「5) AI 辅助分析 (Phase 2)」完全读不出来，用户不知道下面还有一个
+    面板可切。浅色主题不变，只补夜间配色。
+
+    注意目录：selector 是 color 类型的资源，夜间变体必须放 res/color-night/，
+    放 res/values-night/color/ 不会被合并（merged_res 里只会剩一个 tab_text）。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="#FFFFFFFF" android:state_selected="true" />
+    <item android:color="#FF9AA0A6" android:state_enabled="false" />
+    <item android:color="#FFE8EAED" />
+</selector>

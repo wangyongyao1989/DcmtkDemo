@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    CBCT Measure / AI 页的紧凑控件样式。
+
+    为什么集中在 styles.xml：这一轮把测量页与 AI 页都改成"多行小按钮 + 可折叠面板"，
+    如果在每个布局里重复写 height/textSize/inset，改一次要动几十处且容易漏。
+    注意 layout_width / layout_height / layout_weight 不写在 style 里（布局属性仍由
+    XML 显式给出），避免不同 inflate 路径对 style 内布局属性的处理差异。
+-->
+<resources>
+
+    <style name="SectionTitle">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FF8AB4F8</item>
+        <item name="android:paddingBottom">2dp</item>
+    </style>
+
+    <style name="HintText">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">#FF888888</item>
+        <item name="android:lineSpacingExtra">1dp</item>
+    </style>
+
+    <style name="RowLabel">
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- 小按钮：默认 Button 的 48dp 最小高度 + 6dp 上下 inset 是页面变高的主因 -->
+    <style name="CompactButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">6dp</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0</item>
+        <!-- Material 按钮默认全大写：中文标签里的英文/数字会被改成 "NECK_CT"、"(PHASE 2)"，
+             与串里写好的大小写不一致（真机回归看到的就是这个） -->
+        <item name="android:textAllCaps">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 面板切换用的假 tab：选中态由 setSelected() 驱动，见 CbctMeasureFragment.selectPanel() -->
+    <style name="TabButton" parent="CompactButton">
+        <item name="android:background">@drawable/bg_tab</item>
+        <item name="android:textColor">@color/tab_text</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="CompactRadio" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:paddingEnd">10dp</item>
+    </style>
+
+    <style name="CompactCheck" parent="Widget.MaterialComponents.CompoundButton.CheckBox">
+        <item name="android:minHeight">0dp</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- 可折叠区块的表头（5) Results 用它） -->
+    <style name="CollapsibleHeader">
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+    </style>
+
+</resources>
