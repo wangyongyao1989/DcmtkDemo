@@ -21,6 +21,7 @@ core 层不 include 任何 Android/VTK/DCMTK 头文件，因此可以在主机�
 | [`doc/TEST_REPORT.md`](doc/TEST_REPORT.md) | 验收 | 一期真机回归逐条结果（AC-01~AC-10 / PC-01~PC-05）、缺陷与修复、证据（日志/产物/截图） |
 | [`doc/AI_ONNX_TEST_REPORT.md`](doc/AI_ONNX_TEST_REPORT.md) | 验收（Phase 2） | **ONNX Runtime Android 模型推理**测试报告：运行时集成偏差记档（Prefab→dlopen）、牙科 CBCT 数据来源与划分纪律、AI-01 精度实测（F1 0.5828，**未达 PRD 0.85**）、AC-08 主机/真机奇偶校验 PASS、PC-05 延迟与体积取证、缺陷与修复 |
 | [`doc/UI_SPLIT_LAYOUT_REGRESSION_REPORT.md`](doc/UI_SPLIT_LAYOUT_REGRESSION_REPORT.md) | 验收（UI 重构轮） | AI 面板剥离 + 结果折叠 + 按钮布局这一轮的两轮真机记录：round5 全量回归、D-01~D-07 缺陷与代码修复、round6 逐条回测（R1~R16）、性能与内存取证、主机侧 `verify_all` 56/56、AC-08 复跑（两次独立导出逐字节相同） |
+| [`doc/ROUND7_FULL_DEVICE_REGRESSION_REPORT.md`](doc/ROUND7_FULL_DEVICE_REGRESSION_REPORT.md) | 验收（第 7 轮，纯回归） | HEAD `f418b5d` 零代码改动下的全量真机复测：A~J 十组场景逐条判定 + 测量族读数与主机侧算术核对、AC-08 第三次 PASS、PC-01~PC-05 数字；新增缺陷 **D-08~D-12**（神经管撤销结构性空操作、BACK 销毁会话、S-06 负间距被丢弃、AI 位点重复采纳、掩膜大实例把 PC-01 顶穿到 382 ms），并逐条标注证据是否落盘 |
 | [`src/host/ai/parity_ref/METRICS.md`](src/host/ai/parity_ref/METRICS.md) | 复现 | 冻结模型 `teeth_cnn v2` 的训练/标定契约、设备轴序依据、parity 夹具清单与判定规则（机器可读版在 `device_parity.json`） |
 | [`src/main/assets/dental_cbct/index.json`](src/main/assets/dental_cbct/index.json) | 数据来源 | 内置牙科 CBCT 病例的来源、体数据契约、train/val/test 角色、为什么有的病例不出包 |
 
@@ -144,7 +145,8 @@ cbctmeasure/
 │       ├── gt/                             # 专家 GT（.nii.gz，仅主机侧算 Dice，不进 APK；等价 .raw 属派生物）
 │       └── parity_ref/                     # 设备链夹具 device_*（随包证据）+ METRICS.md + device_parity.json
 └── doc/                                    # TEST_REPORT.md（一期真机回归）、AI_ONNX_TEST_REPORT.md（Phase 2 推理）、
-                                            # UI_SPLIT_LAYOUT_REGRESSION_REPORT.md（AI 剥离 + 布局重构轮）
+                                            # UI_SPLIT_LAYOUT_REGRESSION_REPORT.md（AI 剥离 + 布局重构轮）、
+                                            # ROUND7_FULL_DEVICE_REGRESSION_REPORT.md（第 7 轮全量回归，D-08~D-12）
 ```
 
 宿主接入在 `:app`，两个 Fragment 共用同一个 Native 会话：
@@ -436,6 +438,8 @@ AI 的输入是宿主 `MeasureSession` 里那份**零拷贝**体数据（`Volume
 3. **叠加层是 2D Canvas**：图元按世界坐标重投影，不随深度遮挡做剔除（种植体圆柱用轮廓 + 填充近似），与 PRD S-02 提到的「螺纹纹理 Actor」相比是简化实现。
 4. **双指手势无法用 adb 真实注入**：AC-10（描记过程中双指缩放/平移）只验证到状态机与代码路径，未做真机双指取证。
 5. **画面滚出可见区时证据图会全黑**：`SurfaceView` 不可见后渲染线程不出帧，`captureFrame()` 读到空 surface，而 `captureEvidence()` 仍返回一张合法（全黑）位图、日志照打 `evidence=true`。真机复现：可见 282,849 B / 有效像素 7.13%，不可见 7,760 B / 0%。当前只在 `USER.md` 给了操作规避（导出前把画面滚回来），**代码侧的全黑判空尚未实现**——要补的话改 `CbctMeasureView.captureEvidence()`：对合成位图做网格采样，全黑则返回 null 并提示「画面不可见，未取到证据图」。详见 `doc/TEST_REPORT.md` §4.4。
+6. **神经管描记无法撤销单点**（第 7 轮 D-08）：`undoPendingPoint()` 只弹未提交的草稿点，而 `commitNervePoint()` 每点一层就直接落 Native，所以 NERVE_TRACE 下点「撤销取点」是**结构性空操作**（logcat 无对应行）。Native 通道 `SurgeryPlanJni.removeNervePoint` 与 C++ 实现、JNI 注册全都在，只是**零个 Kotlin 调用点**。描记错一个点只能整条重画或「恢复归档」。
+7. **S-06 会丢弃负间距，且 -1.0 哨兵被当数值导出**（第 7 轮 D-10/D-11）：`ImplantPlanner::minSpacing` 用 `best=-1.0` 同时表示"无邻接"与"表面间距为负"，负值会被后续候选无条件覆盖；`evaluate` 的 `if (sp >= 0.0)` 又不让负间距参与判级，于是两植体重叠时 `level` 停在 SAFE，而 `-1.0` 一路写进 DICOM SR（真机日志：`#73 ... spacing=-1.00 level=0`，同几何的 `#177 ... spacing=80.96`）。另外 AI 位点可重复采纳同一位置（`#73`/`#177` 坐标逐字节相同且都标"安全"）。**这两条属临床判级口径，未经确认不改**，取证与修法建议见 `doc/ROUND7_FULL_DEVICE_REGRESSION_REPORT.md` §4。
 
 ### 7.3 AI-01 的精度局限与它对下游读数的污染（必读）
 
@@ -449,6 +453,8 @@ F1 0.5828 的根因是**数据量与模型容量**，不是链路：可用公开
 因此：**大实例的 M-04 体积 / M-08 骨密度不可用于单牙判断**；AI-03 的"净间隙"取相邻实例质心距离，实例被合并时间隙会虚高（真机候选里出现过解剖上不可能的 `间隙 88.1mm`、`48.8mm`，这类候选必须丢弃，而打分与 S-02~S-06 判级本身仍正确执行）。小实例（<~600 红体素）观感接近单颗牙，仍需肉眼核对叠加轮廓。
 
 另外两个已知的量化点：R-06 掩膜 ROI 的候选集**有**外层包围盒快速路径（`boundsMm` → `spatialBoundsAt`，见 §1.2），但被合并出的巨型实例其包围盒本身几乎横跨半个牙弓，裁剪收益有限——0021 的实例 #1 单次量化 178 / 162 ms（遍历 1,686,672 / 覆盖 100,696 app 体素，遍历量是覆盖量的 ~17 倍；其余 24 条遍历量只有 480~9,180，0~1 ms），是 PC-01 仅有的超标点（还缺的那一层是"按实例包围盒分块 + 只扫非零体素"）；主机 ORT 1.23.2 vs 真机 1.17.0，parity 在跨版本下 PASS，但升级设备端运行时应重跑 §5 的取证。完整数字、成因与改进路径见 `doc/AI_ONNX_TEST_REPORT.md` §6、§13。
+
+**第 7 轮补一个同源的新触发路径**：0101 上实例 #1 量化 117 / 108 ms（遍历 1,121,796 / 覆盖 39,216，比值 28.6×）同样超 PC-01，而**把两个大掩膜做组合 ROI** 时两个包围盒取并，遍历量直接叠到 1,494,600 → `ROI #234 组合 (1∪4)−7 analyze: ... in 382 ms`（预算 50 ms 的 7.6 倍）。数值口径本身是对的（并集体积恰等于两掩膜之和，说明二者在该盒内不相交），超标全在大盒重扫；缓解手段是"子 ROI 复用已算出的体素集合"或"分块 + 只扫非零"，本轮未改。口径提醒：§8.3 的 178/162 ms 与 100,696 覆盖是**训练例 0021**（`0021_measure.json`），本轮 39,216 覆盖 / 命名 `L2(#1)` 是**测试例 0101**，两者不是同一次运行，别读成"实例大小变了"；0101 侧的 4,927 红体素 × 0.216 × 8 与 parity 夹具逐项一致。详见 `doc/ROUND7_FULL_DEVICE_REGRESSION_REPORT.md` §3、D-12。
 
 ---
 
