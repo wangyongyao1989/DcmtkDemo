@@ -377,6 +377,22 @@ bool readImageUids(const std::string &path, std::string &outSopClass, std::strin
 }
 
 /** 种植体入口点/角度的可读中文描述（A 类文本项，不参与数值解析） */
+/** 冠方参考的来源描述（P-09）：让 SR 读者知道 S-11/S-12 是从哪个对象算出来的 */
+std::string crownRefText(const Implant &im)
+{
+    std::ostringstream os;
+    switch (im.crownRefKind) {
+        case CROWN_SPHERE_ROI: os << "R-04 球面 ROI #" << im.crownRefId; break;
+        case CROWN_ANNOTATION: os << "A-* 标注 #" << im.crownRefId; break;
+        case CROWN_MANUAL:     os << "手工坐标"; break;
+        default:               os << "未设置"; break;
+    }
+    os << " 中心(mm): " << MeasureMath::format(im.crownCenter.x) << ", "
+       << MeasureMath::format(im.crownCenter.y) << ", "
+       << MeasureMath::format(im.crownCenter.z);
+    return os.str();
+}
+
 std::string implantText(const Implant &im)
 {
     std::ostringstream os;
@@ -387,6 +403,10 @@ std::string implantText(const Implant &im)
        << MeasureMath::format(im.yawDeg)
        << "\n直径/全长/深度(mm): " << MeasureMath::format(im.diaMm) << " / "
        << MeasureMath::format(im.lengthMm) << " / " << MeasureMath::format(im.depthMm);
+    // P-09：型号编号直接进"发现"文本，读片端不需要另一条内容项就能对上产品目录
+    if (!im.sku.empty()) os << "\n型号: " << im.sku;
+    if (im.crownRefKind != CROWN_NONE)
+        os << "\n冠方参考: " << crownRefText(im);
     return os.str();
 }
 
@@ -394,11 +414,12 @@ std::string implantText(const Implant &im)
 std::string impressionText(const std::vector<SrMeasureItem> &items,
                            const std::vector<Implant> &implants)
 {
-    size_t red = 0, yellow = 0;
+    size_t red = 0, yellow = 0, crown = 0;
     for (size_t i = 0; i < implants.size(); ++i) {
         if (!implants[i].visible) {
             continue;
         }
+        if (implants[i].crownMeasured) ++crown;   // P-09：有冠方参考的颗数
         if (implants[i].level == DANGER_RED) {
             ++red;
         } else if (implants[i].level == WARN_YELLOW) {
@@ -415,6 +436,12 @@ std::string impressionText(const std::vector<SrMeasureItem> &items,
         os << "存在 " << yellow << " 处临界（阈值~阈值×1.2）位置，建议结合临床复核。";
     } else {
         os << "全部种植体位置满足骨高度/骨宽度/神经管距离/间距四项阈值。";
+    }
+    // P-09：结论里必须点明 S-11/S-12 只有数值没有判级，避免"报告没报红"
+    // 被读成"冠偏差也合格"。
+    if (crown > 0) {
+        os << " 另有 " << crown << " 颗给出了冠方参考（S-11 水平偏差 / S-12 成角偏差"
+           << "仅报数值，判级阈值待 PRD 定值）。";
     }
     return os.str();
 }
@@ -630,10 +657,37 @@ bool writeSrFile(const std::string &outPath,
                     w.addNum(cHeight(), im.boneHeightMm, unitCodeFor("mm"), "S-03 沿轴可用骨高度");
                     w.addNum(localCode("BONEW", "Bone width"), im.boneWidthMm, unitCodeFor("mm"),
                              "S-04 颊舌向骨宽度");
-                    w.addNum(cDistance(), im.nerveDistMm, unitCodeFor("mm"),
-                             "S-05 桩体与下颌神经管最短距离");
-                    w.addNum(cDistance(), im.minSpacingMm, unitCodeFor("mm"),
-                             "S-06 与相邻种植体最短间距");
+                    // D-10 修复：S-05/S-06 的"未测量"改读 measured 字段，不再靠数值符号。
+                    // 原来无条件 addNum，导致 SR 里出现 `NUM Distance = -1.0 mm`，
+                    // 读片端会把它当成一次真实的负距离测量（第 7 轮真机取证到的就是这条）。
+                    // 现在未测量的项写成文字说明；真正测出来的负间距（表面重叠）照实写 NUM。
+                    if (im.nerveMeasured) {
+                        w.addNum(cDistance(), im.nerveDistMm, unitCodeFor("mm"),
+                                 "S-05 桩体与下颌神经管最短距离");
+                    } else {
+                        w.addText(cAnnotation(), "S-05 未测量：无可见神经管描记，不参与判级");
+                    }
+                    if (im.spacingMeasured) {
+                        w.addNum(cDistance(), im.minSpacingMm, unitCodeFor("mm"),
+                                 "S-06 与相邻种植体最短表面间距");
+                    } else {
+                        w.addText(cAnnotation(), "S-06 未测量：方案内无其它种植体，不参与判级");
+                    }
+                    // P-09 修复导向（crown-down）偏差：S-11 水平偏移 / S-12 成角。
+                    // 数值照实写 NUM，但 qualifier 里必须带上"阈值待 PRD 定值、
+                    // 不参与 S-02 判级"，否则读片端看到 1.8mm 会自行脑补一个结论。
+                    if (im.crownMeasured) {
+                        w.addNum(cDistance(), im.crownOffsetMm, unitCodeFor("mm"),
+                                 "S-11 冠中心到植体轴线的水平偏差（判级阈值待 PRD 定值，不参与 S-02）");
+                        w.addNum(cAngle(), im.crownAngleDeg, unitCodeFor("deg"),
+                                 std::string("S-12 植体轴与冠方参考的成角偏差（") +
+                                 (im.crownAxisFromReference ? "冠长轴来自标注两端点"
+                                                            : "参考未给冠长轴，按入口→冠中心连线") +
+                                 "；判级阈值待 PRD 定值，不参与 S-02）");
+                    } else {
+                        w.addText(cAnnotation(),
+                                  "S-11/S-12 未测量：未设置冠方参考（R-04 球面 ROI 或 A-* 标注）");
+                    }
                     w.addCode(localCode("SECLVL", "Safety level"), safetyLevelCode(im.level));
                     if (!im.warnText.empty()) {
                         w.addText(cAnnotation(), im.warnText);

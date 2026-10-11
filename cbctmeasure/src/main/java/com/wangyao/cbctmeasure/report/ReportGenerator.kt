@@ -206,10 +206,19 @@ class ReportGenerator(private val context: Context) {
         implants: List<com.wangyao.cbctmeasure.model.ImplantItem>,
         nerves: List<com.wangyao.cbctmeasure.model.NervePathItem>,
     ) {
-        pager.section(headPaint, "四、种植体规划与安全评估（S-01 ~ S-06）")
+        pager.section(headPaint, "四、种植体规划与安全评估（S-01 ~ S-06 · S-11 ~ S-12）")
         if (implants.isEmpty()) {
             pager.drawText(dimPaint, "（本次无种植体）")
         } else {
+            // P-09：报告必须自证型号库的版本口径 —— 通用名义尺寸不等于任何厂商目录
+            // （generic 由 Native 从数据本身派生：所有型号 vendor 为空即通用，
+            //  所以随包的通用资产也会被写成"通用"，不会冒充厂商目录）
+            pager.drawText(
+                dimPaint,
+                if (SurgeryPlanJni.libraryIsGeneric())
+                    "型号库：通用名义尺寸目录（非厂商商品数据，不可直接作为采购依据）"
+                else "型号库：外部资产目录 implant_models.json（商品数据由资产提供）"
+            )
             pager.tableHeader(
                 colPaint,
                 arrayOf("序号", "名称", "规格 mm", "入口(mm)", "骨高", "骨宽", "神经", "间距", "判定"),
@@ -225,8 +234,8 @@ class ReportGenerator(private val context: Context) {
                         String.format(Locale.US, "%.1f,%.1f,%.1f", im.entry.x, im.entry.y, im.entry.z),
                         String.format(Locale.US, "%.1f", im.boneHeightMm),
                         String.format(Locale.US, "%.1f", im.boneWidthMm),
-                        String.format(Locale.US, "%.1f", im.nerveDistMm),
-                        String.format(Locale.US, "%.1f", im.minSpacingMm),
+                        im.nerveDistText(),
+                        im.spacingText(),
                         SafetyLevel.label(im.level),
                     )
                 )
@@ -234,6 +243,20 @@ class ReportGenerator(private val context: Context) {
                 if (im.warnText.isNotEmpty()) {
                     pager.drawText(dimPaint, "    提示：${im.warnText}")
                 }
+                // P-09：型号与 S-11/S-12 同样单独成行（列宽放不下中文长串）
+                pager.drawText(
+                    dimPaint,
+                    "    型号：${im.sku.ifEmpty { "自由参数（未从型号库选取）" }} · ${im.crownText()}" +
+                            (if (im.crownMeasured)
+                                " · 冠中心沿轴 %.1fmm".format(im.crownAlongAxisMm) else "")
+                )
+            }
+            if (implants.any { it.crownMeasured }) {
+                pager.drawText(
+                    dimPaint,
+                    "注：S-11 冠轴水平偏差 / S-12 成角偏差只给数值，判级阈值待 PRD 定值，" +
+                            "不参与 S-02 的安全色判定。"
+                )
             }
         }
         if (nerves.isNotEmpty()) {

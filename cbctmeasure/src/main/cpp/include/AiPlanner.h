@@ -27,6 +27,7 @@ struct AiCandidate {
     Vec3 axis;                     // 建议轴向（指向根方，单位向量）
     double pitchDeg = 0.0, yawDeg = 0.0;
     double diaMm = 4.0, lengthMm = 10.0, depthMm = 8.0;   // 建议规格
+    std::string sku;                // P-09：型号库编号（空 = 骨量包络里没有可用型号，退回连续取值）
     double meanHuUnderGap = 0.0;   // 间隙下方骨小梁区的平均 HU（骨密度线索）
     int score = 0;                 // 0~100 规则打分，降序输出
     std::string reason;            // 中文理由（推荐依据 / 淘汰原因，进报告）
