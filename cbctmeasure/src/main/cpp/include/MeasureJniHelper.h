@@ -72,6 +72,11 @@ namespace MeasureJniHelper {
     struct MeasureSession {
         explicit MeasureSession(const CbctVolume *volume) {
             mgr.bindVolume(volume);
+            // P-09：冠方参考可以来自 A-* 标注，而标注存在本会话的 annos 里。
+            // 这里注入的是"只读借用"的指针（mgr 不持有所有权）；成员声明顺序保证
+            // annos 在 mgr 之后构造，但取地址发生在两者都构造完成的构造函数体内，
+            // 因此安全。会话内两者同生同死，指针不会悬垂。
+            mgr.setAnnotationStore(&annos);
         }
 
         MeasurementManager mgr;
@@ -83,6 +88,27 @@ namespace MeasureJniHelper {
          * ORT 类型（OrtEngine 用 pimpl），所以本头依然能被非 Android 环境包含。
          */
         OrtEngine ort;
+        /**
+         * AI-02 下颌管：第二个 ORT 会话（升级建议 P-01）。
+         *
+         * 为什么不复用同一个 OrtEngine 换模型文件：牙齿掩膜与下颌管掩膜要同时在场
+         * —— AI-03 推荐读牙弓，S-05 读神经管，一次推理一个模型时另一个就没了；
+         * 而且两个模型的标定阈值不同（各自在验证集上标定），塞进同一条
+         * nativeRunSegment 的参数里就会有两个含义，报告里的"阈值"不再单点。
+         * 每个 OrtEngine 只多一个 ORT Session（我们的网络 3.5KB 权重 + 一份
+         * 14MB 临时特征张量，且牙齿那份在推理结束即释放），代价可控。
+         *
+         * canalRes 是"模型原始输出"的取证依据；落进会话的临床对象是
+         * MeasurementManager::adoptCanalTracks 生成的 NervePath，两者分得很清。
+         */
+        OrtEngine canalOrt;
+        bool canalReady = false;
+        std::string canalModelName;
+        /** 主机 canal_cnn.json 标定值，由 Kotlin 传入；<=0 时 AiEngine 退回 0.5 平票线 */
+        double canalThreshold = 0.0;
+        AiResult canalRes;
+        std::vector<float> canalParityFeat;
+        std::vector<float> canalParityProb;
         /**
          * 奇偶校验（AC-08）用的中间量。只有 nativeRunSegment(keepParity=true) 才留，
          * 平时为空 —— 一份 feat 是 14MB，不该常驻。

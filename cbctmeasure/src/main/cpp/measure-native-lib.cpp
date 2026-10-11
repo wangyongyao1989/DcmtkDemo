@@ -24,6 +24,7 @@
 #include "include/MeasureJniHelper.h"
 #include "include/MeasureMath.h"
 #include "include/MeasurePicker.h"
+#include "include/ImplantLibrary.h"
 #include "include/SrReport.h"
 
 #define TAG "CbctMeasureJni"
@@ -653,6 +654,9 @@ Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_clearPlan(JNIEnv *env, jclass cl
     if (!s) return;
     while (!s->mgr.implants().empty()) s->mgr.removeImplant(s->mgr.implants().front().id);
     while (!s->mgr.nervePaths().empty()) s->mgr.removeNervePath(s->mgr.nervePaths().front().id);
+    // P-10：风险条目引用的是刚被删掉的神经管 id。不一起清的话，"清空方案"之后
+    // 报告里还能看到指向不存在路径的风险行。
+    s->mgr.clearNerveRisks();
     s->invalidate();
 }
 
@@ -671,10 +675,168 @@ Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_safetyThresholds(JNIEnv *env, jc
     return toJDoubleArray(env, out);
 }
 
+// -----------------------------------------------------------------------------
+// P-09 植体型号库（进程内共享，不挂在会话上：型号目录与具体体数据无关）
+// -----------------------------------------------------------------------------
+
+/**
+ * loadModelLibrary(json): 用资产内容覆盖当前型号库。
+ * 返回载入条数；-1 表示解析失败且**保留原库不变**（避免"资产写坏 ->
+ * 推荐突然没有型号可匹配"这种静默降级）。
+ */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_loadModelLibrary(JNIEnv *env, jclass clazz,
+                                                                jstring models_json) {
+    JniStr text(env, models_json);
+    std::string err;
+    const int n = ImplantLibrary::shared().loadFromJson(text.c() ? text.c() : "", &err);
+    LOGD("loadModelLibrary: n=%d err=%s", n, err.c_str());
+    return n;
+}
+
+/**
+ * dumpModelLibrary(): {kind, generic, builtin, count, models:[...]}，UI 与归档取证共用。
+ * generic 由数据派生（vendor 全空 = 通用名义尺寸），builtin 只说来源是内置表还是资产；
+ * 报告文案读 generic，见 ImplantLibrary.h 的理由。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_dumpModelLibrary(JNIEnv *env, jclass clazz) {
+    ImplantLibrary &lib = ImplantLibrary::shared();
+    bool ok = false;
+    Json root = Json::parse(lib.dumpJson(), &ok);
+    if (!ok || !root.isObject()) return toJString(env, "{}");
+    root.set("count", Json::makeNumber((double) lib.count()));
+    return JSON_STR(env, root);
+}
+
+/** useBuiltinModelLibrary(): 回到内置通用阶梯（资产缺失/加载失败时的兜底），返回条数 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_useBuiltinModelLibrary(JNIEnv *env, jclass clazz) {
+    ImplantLibrary::shared().loadBuiltin();
+    return (jint) ImplantLibrary::shared().count();
+}
+
+/**
+ * fitImplantModel(maxDiaMm, maxLenMm): 骨量包络内可选的最长型号（AI-03 同一口径）。
+ * 返回 {found, sku, vendor, series, connection, diaMm, lengthMm, platformMm, abutmentMm, generic}；
+ * found=false 时其余字段缺省，调用方据此显示"该骨量放不进任何已知型号"。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_fitImplantModel(JNIEnv *env, jclass clazz,
+                                                               jdouble max_dia_mm,
+                                                               jdouble max_len_mm) {
+    const ImplantModelSpec *m = ImplantLibrary::shared().fitMatch(max_dia_mm, max_len_mm);
+    Json o = Json::makeObject();
+    o.set("found", Json::makeBool(m != nullptr));
+    if (m != nullptr) {
+        o.set("sku", Json::makeString(m->sku));
+        // 厂商字段必须一起回传：UI 上的"候选型号"若把厂商目录显示成空厂商，
+        // 读者会以为它是通用名义尺寸，反之亦然（generic 同理，逐条派生）。
+        o.set("vendor", Json::makeString(m->vendor));
+        o.set("series", Json::makeString(m->series));
+        o.set("connection", Json::makeString(m->connection));
+        o.set("diaMm", Json::makeNumber(m->diaMm));
+        o.set("lengthMm", Json::makeNumber(m->lengthMm));
+        o.set("platformMm", Json::makeNumber(m->platformMm));
+        o.set("abutmentMm", Json::makeNumber(m->abutmentMm));
+        o.set("note", Json::makeString(m->note));
+        o.set("generic", Json::makeBool(m->generic()));
+    }
+    return JSON_STR(env, o);
+}
+
+// -----------------------------------------------------------------------------
+// P-10 第三磨牙 ↔ 下牙槽神经风险度量
+//
+// 一律返回 JSON 而不是拆成一堆标量返回值：失败时 UI 需要显示 error 原文
+// （"没有 AI-01 牙根掩膜"这类），布尔 + 单值会把原因丢掉。
+// -----------------------------------------------------------------------------
+
+/**
+ * assessNerveRisk(handle, instanceId, nervePathId): 计算一条并入库（同组合覆盖）。
+ * 返回该条目的 JSON；输入不可用时 measured=false + error，条目**不**入库。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_assessNerveRisk(JNIEnv *env, jclass clazz,
+                                                                jlong handle, jint instance_id,
+                                                                jint nerve_path_id) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return toJString(env, "{\"measured\":false,\"error\":\"会话已失效\"}");
+    ThirdMolarRisk r;
+    const bool ok = s->mgr.assessNerveRisk((int) instance_id, (int) nerve_path_id, r);
+    // 失败也要把结构体回传：measured=false 时 UI 显示 error，而不是"点了没反应"
+    Json j = NerveRisk::toJson(r);
+    j.set("stored", Json::makeBool(ok));
+    j.set("gradingCaveat", Json::makeString(NerveRisk::gradingCaveat()));
+    s->invalidate();
+    return JSON_STR(env, j);
+}
+
+/** assessAllNerveRisks(handle): 下颌弓全部实例 × 会话内全部神经管，返回入库条数 */
+extern "C" JNIEXPORT jint JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_assessAllNerveRisks(JNIEnv *env, jclass clazz,
+                                                                    jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return 0;
+    const int n = s->mgr.assessAllNerveRisks();
+    s->invalidate();
+    return (jint) n;
+}
+
+/** dumpNerveRisks(handle): {count, gradingCaveat, risks:[...]}（UI 列表与报告共用） */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_dumpNerveRisks(JNIEnv *env, jclass clazz,
+                                                               jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    Json root = Json::makeObject();
+    if (!s) {
+        root.set("count", Json::makeNumber(0));
+        root.set("risks", Json::makeArray());
+        return JSON_STR(env, root);
+    }
+    root.set("count", Json::makeNumber((double) s->mgr.nerveRisks().size()));
+    root.set("gradingCaveat", Json::makeString(NerveRisk::gradingCaveat()));
+    root.set("risks", NerveRisk::listJson(s->mgr.nerveRisks()));
+    return JSON_STR(env, root);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_removeNerveRisk(JNIEnv *env, jclass clazz,
+                                                                jlong handle, jint id) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return JNI_FALSE;
+    const bool ok = s->mgr.removeNerveRisk((int) id);
+    s->invalidate();
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_clearNerveRisks(JNIEnv *env, jclass clazz,
+                                                                jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return;
+    s->mgr.clearNerveRisks();
+    s->invalidate();
+}
+
+/** nerveRiskSummary(handle): 一行结论 + 判读口径，供 Toast/日志直接显示 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_nerveRiskSummary(JNIEnv *env, jclass clazz,
+                                                                 jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    Json root = Json::makeObject();
+    if (!s) return JSON_STR(env, root);
+    Json arr = Json::makeArray();
+    const std::vector<ThirdMolarRisk> &risks = s->mgr.nerveRisks();
+    for (size_t i = 0; i < risks.size(); ++i) arr.push(Json::makeString(risks[i].summaryText()));
+    root.set("summaries", arr);
+    root.set("gradingCaveat", Json::makeString(NerveRisk::gradingCaveat()));
+    return JSON_STR(env, root);
+}
+
 // =============================================================================
 // AnnotationJni —— A-01 ~ A-07
 // =============================================================================
-
 extern "C" JNIEXPORT jint JNICALL
 Java_com_wangyao_cbctmeasure_jni_AnnotationJni_addAnnotation(JNIEnv *env, jclass clazz,
                                                              jlong handle, jstring anno_json) {
@@ -971,6 +1133,27 @@ static const JNINativeMethod kPlanMethods[] = {
                 (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_clearPlan},
         {"safetyThresholds", "()[D",
                 (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_safetyThresholds},
+        {"loadModelLibrary", "(Ljava/lang/String;)I",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_loadModelLibrary},
+        {"dumpModelLibrary", "()Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_dumpModelLibrary},
+        {"useBuiltinModelLibrary", "()I",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_useBuiltinModelLibrary},
+        {"fitImplantModel",  "(DD)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_fitImplantModel},
+        // P-10：风险度量一律回 JSON —— 失败时 error 原文要能显示到界面上
+        {"assessNerveRisk",  "(JII)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_assessNerveRisk},
+        {"assessAllNerveRisks", "(J)I",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_assessAllNerveRisks},
+        {"dumpNerveRisks",   "(J)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_dumpNerveRisks},
+        {"nerveRiskSummary", "(J)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_nerveRiskSummary},
+        {"removeNerveRisk",  "(JI)Z",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_removeNerveRisk},
+        {"clearNerveRisks",  "(J)V",
+                (void *) Java_com_wangyao_cbctmeasure_jni_SurgeryPlanJni_clearNerveRisks},
 };
 
 static const JNINativeMethod kAnnoMethods[] = {

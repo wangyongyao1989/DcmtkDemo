@@ -74,6 +74,9 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         core/MeasureMath.cpp
         core/RoiExtractor.cpp
         core/ImplantPlanner.cpp
+        # core/ImplantLibrary.cpp（P-09 植体型号库）同样是纯 C++：内置通用名义尺寸梯
+        # 与资产目录解析都在主机侧单测覆盖（见 src/host group14），真机与主机共用。
+        core/ImplantLibrary.cpp
         core/AnnotationStore.cpp
         core/MeasurePicker.cpp
         core/MeasurementManager.cpp
@@ -84,6 +87,13 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         core/AiCore.cpp
         core/AiEngine.cpp
         core/AiPlanner.cpp
+        # core/NerveAutoTracker.cpp（AI-02 下颌管掩膜 -> 神经管中心线）同样是纯 C++：
+        # 26 邻域连通域 + 逐截面质心折线 + 中位内切半径，规则与主机 scripts/canal.py
+        # 的 centerlines() 一一对应，可在 src/host 单测里逐点复算。
+        core/NerveAutoTracker.cpp
+        # core/NerveRisk.cpp（P-10 第三磨牙-下颌管风险度量）同为纯 C++：
+        # 点到折线、掩膜 AABB 剪枝、管壁区间骨取样都在 src/host group15 逐值核对。
+        core/NerveRisk.cpp
         # ai/OrtEngine.cpp 是全工程唯一 include ONNX Runtime 头文件、唯一 dlopen
         # libonnxruntime.so 的翻译单元（理由见 ai/OrtEngine.h 顶部：1.17.0 的 AAR
         # 没有 prefab 模块，CMake 侧 find_package 走不通）。

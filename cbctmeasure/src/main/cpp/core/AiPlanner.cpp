@@ -11,6 +11,7 @@
 #include "include/AiPlanner.h"
 
 #include "include/AiCore.h"
+#include "include/ImplantLibrary.h"
 #include "include/ImplantPlanner.h"
 
 #include <android/log.h>
@@ -179,6 +180,21 @@ namespace AiPlanner {
                 double len = c.boneHeightMm - kNerveClearanceMm;
                 if (len > 13.0) len = 13.0;
                 if (len < 6.0) len = 6.0;
+                // P-09：把"连续长度 + 四档直径"换成型号库里的真实可采购型号。
+                // 骨量包络的口径与上面完全一致（可用直径 = 骨宽 - 两侧壁厚；
+                // 可用长度 = 骨高 - 神经安全余量），换的只是"取值必须落在目录里"。
+                // 库内没有任何型号塞得进这个包络时退回原来的阶梯值，并在理由里写明
+                // "无匹配型号" —— 这不是降级成静默行为，报告里看得见。
+                const ImplantModelSpec *fit =
+                        ImplantLibrary::shared().fitMatch(c.boneWidthMm - kMinWallMm,
+                                                           c.boneHeightMm - kNerveClearanceMm);
+                if (fit != nullptr) {
+                    dia = fit->diaMm;
+                    len = fit->lengthMm;
+                    c.sku = fit->sku;
+                } else {
+                    c.sku.clear();
+                }
                 c.diaMm = dia;
                 c.lengthMm = len;
                 c.depthMm = std::min(len, std::max(0.0, c.boneHeightMm - kNerveClearanceMm));
@@ -204,11 +220,14 @@ namespace AiPlanner {
                 sc += (c.nerveDistMm >= 0.0) ? 15.0 * std::min(1.0, c.nerveDistMm / 5.0) : 5.0;
                 c.score = (int) (sc + 0.5);
 
-                char buf[256];
+                char buf[384];
                 snprintf(buf, sizeof(buf),
-                         "%s缺牙间隙 %.1fmm（AI#%d↔#%d）；骨高 %.1f / 骨宽 %.1f / 间隙下 HU %.0f；建议 Ø%.1f×%.1fmm",
+                         "%s缺牙间隙 %.1fmm（AI#%d↔#%d）；骨高 %.1f / 骨宽 %.1f / 间隙下 HU %.0f；"
+                         "建议 %s Ø%.1f×%.1fmm",
                          a == 0 ? "上颌" : "下颌", gap, A.id, B.id,
-                         c.boneHeightMm, c.boneWidthMm, c.meanHuUnderGap, c.diaMm, c.lengthMm);
+                         c.boneHeightMm, c.boneWidthMm, c.meanHuUnderGap,
+                         c.sku.empty() ? "无匹配型号（按骨量包络连续取值）" : c.sku.c_str(),
+                         c.diaMm, c.lengthMm);
                 c.reason = buf;
                 if (c.boneHeightMm < ImplantPlanner::kMinBoneHeightMm) {
                     c.reason += "；骨高不足，需植骨或改短桩";
@@ -242,6 +261,7 @@ namespace AiPlanner {
         out.lengthMm = c.lengthMm;
         out.depthMm = c.depthMm;
         out.axis = c.axis;
+        out.sku = c.sku;   // P-09：采纳落库时带上型号编号，报告与归档能追到具体型号
     }
 
     Json candidatesJson(const std::vector<AiCandidate> &list) {
@@ -267,6 +287,7 @@ namespace AiPlanner {
             o.set("pitch", Json::makeNumber(c.pitchDeg));
             o.set("yaw", Json::makeNumber(c.yawDeg));
             o.set("dia", Json::makeNumber(c.diaMm));
+            o.set("sku", Json::makeString(c.sku));
             o.set("length", Json::makeNumber(c.lengthMm));
             o.set("depth", Json::makeNumber(c.depthMm));
             o.set("meanHu", Json::makeNumber(c.meanHuUnderGap));

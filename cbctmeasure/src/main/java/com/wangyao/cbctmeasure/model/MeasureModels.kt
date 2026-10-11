@@ -2,6 +2,7 @@ package com.wangyao.cbctmeasure.model
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 /**
  * 测量数据的 Kotlin 侧镜像。
@@ -19,6 +20,12 @@ import org.json.JSONObject
 data class WorldPoint(val x: Double, val y: Double, val z: Double) {
 
     fun toJsonArray(): JSONArray = JSONArray().put(x).put(y).put(z)
+
+    /**
+     * 是否恰为原点。原生侧把"零向量"当作"没有这个量"（冠中心、冠长轴都这样表达），
+     * UI 过滤候选对象时必须用同一个判据，否则会出现"列表里有 ROI #3、原生却解析不出参考"。
+     */
+    fun isZero(): Boolean = x == 0.0 && y == 0.0 && z == 0.0
 
     companion object {
         val ZERO = WorldPoint(0.0, 0.0, 0.0)
@@ -280,6 +287,24 @@ data class ImplantItem(
     val boneWidthMm: Double = 0.0,
     val nerveDistMm: Double = 0.0,
     val minSpacingMm: Double = 0.0,
+    // D-10（第 8 轮）：S-05/S-06 是否真的测到了值。修复后 minSpacingMm 可以合法为负
+    // （负 = 两植体表面重叠，判级直接红），所以"-1.0"只代表"没有邻居/没有描记"，
+    // UI 与报告必须读这两个布尔位，不能再用符号猜。
+    val nerveMeasured: Boolean = false,
+    val spacingMeasured: Boolean = false,
+    // ---- P-09 型号库 + 冠方参考（crown-down）----
+    /** 型号库编号；空 = 自由参数，不是目录里可采购的型号 */
+    val sku: String = "",
+    /** 冠方参考来源：0 无 / 1 R-04 球面 ROI / 2 A-* 标注 / 3 手工坐标（CrownRefKind） */
+    val crownRefKind: Int = CrownRefKind.NONE,
+    val crownRefId: Int = 0,
+    /** Native 解析出的冠中心（只读回显；写入只有 kind=3 才用得上） */
+    val crownCenter: WorldPoint = WorldPoint.ZERO,
+    val crownOffsetMm: Double = 0.0,
+    val crownAngleDeg: Double = 0.0,
+    val crownAlongAxisMm: Double = 0.0,
+    val crownMeasured: Boolean = false,
+    val crownAxisFromReference: Boolean = false,
     val level: Int = SafetyLevel.GREEN,
     val warnText: String = "",
 ) {
@@ -300,9 +325,41 @@ data class ImplantItem(
         put("boneWidthMm", boneWidthMm)
         put("nerveDistMm", nerveDistMm)
         put("minSpacingMm", minSpacingMm)
+        put("nerveMeasured", nerveMeasured)
+        put("spacingMeasured", spacingMeasured)
+        put("sku", sku)
+        put("crownRefKind", crownRefKind)
+        put("crownRefId", crownRefId)
+        put("crownCenter", crownCenter.toJsonArray())
         put("level", level)
         put("warnText", warnText)
     }
+
+    /**
+     * D-10（第 8 轮）：S-05/S-06 的显示口径。
+     * 未测量必须是文字，不能再印成 "-1.0"——那会被读成一个真实的负距离；
+     * 而真正测到的负间距（表面重叠）要照实显示负值，它是判红依据。
+     */
+    fun nerveDistText(): String =
+        if (nerveMeasured) String.format(Locale.US, "%.1f", nerveDistMm) else "未测"
+
+    fun spacingText(): String =
+        if (spacingMeasured) String.format(Locale.US, "%.1f", minSpacingMm) else "无邻"
+
+    /**
+     * P-09：S-11/S-12 的显示口径与 D-10 同构 —— 没有冠方参考时必须写"未设参考"，
+     * 绝不能印 "0.0mm / 0.0°"，那看起来像"零偏差 = 完美"，实际上什么都没测。
+     */
+    fun crownText(): String = if (!crownMeasured) "S-11/S-12 未设冠方参考" else
+        String.format(
+            Locale.US,
+            "S-11 %.1fmm / S-12 %.1f°%s",
+            crownOffsetMm, crownAngleDeg,
+            if (crownAxisFromReference) "" else "（成角按入口→冠中心）"
+        )
+
+    /** 冠方参考来源的文字（弹窗与报告同一措辞） */
+    fun crownRefText(): String = CrownRefKind.label(crownRefKind, crownRefId)
 
     companion object {
         fun from(j: JSONObject): ImplantItem = ImplantItem(
@@ -320,6 +377,20 @@ data class ImplantItem(
             boneWidthMm = j.optDouble("boneWidthMm", 0.0),
             nerveDistMm = j.optDouble("nerveDistMm", 0.0),
             minSpacingMm = j.optDouble("minSpacingMm", 0.0),
+            // 缺字段 = 第 7 轮及以前的归档/JSON，当时"未测量"只能用负哨兵表达，
+            // 所以兼容默认值按符号推断；新数据一律以 Native 写出的布尔位为准。
+            nerveMeasured = j.optBoolean("nerveMeasured", j.optDouble("nerveDistMm", 0.0) >= 0.0),
+            spacingMeasured = j.optBoolean("spacingMeasured",
+                j.optDouble("minSpacingMm", 0.0) >= 0.0),
+            sku = j.optString("sku"),
+            crownRefKind = j.optInt("crownRefKind", CrownRefKind.NONE),
+            crownRefId = j.optInt("crownRefId", 0),
+            crownCenter = WorldPoint.from(j.optJSONArray("crownCenter")),
+            crownOffsetMm = j.optDouble("crownOffsetMm", 0.0),
+            crownAngleDeg = j.optDouble("crownAngleDeg", 0.0),
+            crownAlongAxisMm = j.optDouble("crownAlongAxisMm", 0.0),
+            crownMeasured = j.optBoolean("crownMeasured", false),
+            crownAxisFromReference = j.optBoolean("crownAxisFromReference", false),
             level = j.optInt("level", SafetyLevel.GREEN),
             warnText = j.optString("warnText"),
         )
@@ -328,6 +399,25 @@ data class ImplantItem(
             val arr = root?.optJSONArray("implants") ?: return emptyList()
             return (0 until arr.length()).map { from(arr.getJSONObject(it)) }
         }
+    }
+}
+
+/**
+ * 冠方参考来源（P-09；与 core 的 CrownRefKind 一一对应，跨语言只传 int）。
+ * 可选来源只有模块里已存在的临床对象：R-04 球面 ROI 与 A-* 标注 ——
+ * 不新增第三种"专用取点工具"，因此不需要动 9 态手势机（AC-10）。
+ */
+object CrownRefKind {
+    const val NONE = 0
+    const val SPHERE_ROI = 1
+    const val ANNOTATION = 2
+    const val MANUAL = 3
+
+    fun label(kind: Int, refId: Int): String = when (kind) {
+        SPHERE_ROI -> "R-04 球面 ROI #$refId"
+        ANNOTATION -> "A-* 标注 #$refId"
+        MANUAL -> "手工坐标"
+        else -> "未设置"
     }
 }
 
@@ -352,6 +442,125 @@ data class NervePathItem(
 
         fun list(root: JSONObject?): List<NervePathItem> {
             val arr = root?.optJSONArray("nervePaths") ?: return emptyList()
+            return (0 until arr.length()).map { from(arr.getJSONObject(it)) }
+        }
+    }
+}
+
+/**
+ * 第三磨牙 ↔ 下牙槽神经风险条目（P-10；对应 core/NerveRisk.h 的 ThirdMolarRisk）。
+ *
+ * 刻意**没有** level / 判级字段：PRD 未给阻生牙的风险阈值（决策点 4「不自定数字」），
+ * 这里只承载几何事实 + 口径说明。判读口径字符串随每条一起回传，
+ * UI/报告/SR 三处共用同一句，避免任何一处的排版把"这只是距离"读成"这是风险等级"。
+ */
+data class NerveRiskItem(
+    val id: Int = 0,
+    val instanceId: Int = 0,
+    val nervePathId: Int = 0,
+    val toothName: String = "",
+    val nerveName: String = "",
+    val nerveSource: String = "",
+    val createdAt: Long = 0L,
+    val measured: Boolean = false,
+    val minDistMm: Double = -1.0,
+    val contact: Boolean = false,
+    val withinCanalRadius: Boolean = false,
+    val nearestRoot: WorldPoint = WorldPoint(0.0, 0.0, 0.0),
+    val nearestCanal: WorldPoint = WorldPoint(0.0, 0.0, 0.0),
+    val rootVoxels: Long = 0L,
+    val canalRadiusMm: Double = 0.0,
+    val cortexMeasured: Boolean = false,
+    val cortexPresent: Boolean = false,
+    val cortexGapMm: Double = 0.0,
+    val cortexBoneThresholdHu: Double = 200.0,
+    val fovXMm: Double = 0.0,
+    val fovYMm: Double = 0.0,
+    val fovZMm: Double = 0.0,
+    val spacingX: Double = 0.0,
+    val spacingY: Double = 0.0,
+    val spacingZ: Double = 0.0,
+    val doseText: String = "",
+    val seriesUid: String = "",
+    val manufacturer: String = "",
+    val error: String = "",
+    val gradingCaveat: String = "",
+) {
+    /** 一行结论（与 Native summaryText 同口径，Native 已给原文时优先显示原文） */
+    fun summary(): String {
+        if (!measured) return "未测量：${error.ifEmpty { "输入不可用" }}"
+        val tail = when {
+            contact -> "（接触）"
+            withinCanalRadius -> "（进入管腔半径 ${"%.1f".format(canalRadiusMm)}mm 内）"
+            else -> ""
+        }
+        val cortex = if (!cortexMeasured) "；管壁区间无可取样段"
+        else "；管壁${if (cortexPresent) "采到骨" else "未采到骨"}，最长非骨段 " +
+                "${"%.1f".format(cortexGapMm)}mm"
+        return "${toothName.ifEmpty { "牙 #$instanceId" }} ↔ " +
+                "${nerveName.ifEmpty { "神经管 #$nervePathId" }}：" +
+                "根面(体素球心)最近距离 ${"%.1f".format(minDistMm)}mm$tail$cortex"
+    }
+
+    /** 距离显示：未测量既不是 -1 也不是 0（0 只属于"确实接触"） */
+    fun distText(): String = if (measured) "%.2f".format(minDistMm) else "未测"
+
+    fun cortexText(): String =
+        if (!cortexMeasured) "无区间"
+        else (if (cortexPresent) "有骨" else "无骨") + " ${"%.1f".format(cortexGapMm)}mm"
+
+    /** 来源一行（FOV / 间距 / 剂量口径）：报告与 UI 都显示，便于回查原始序列 */
+    fun provenanceText(): String = buildString {
+        append("FOV %.0f×%.0f×%.0fmm".format(fovXMm, fovYMm, fovZMm))
+        append(" · 体素 %.2f/%.2f/%.2fmm".format(spacingX, spacingY, spacingZ))
+        if (manufacturer.isNotEmpty()) append(" · $manufacturer")
+        if (seriesUid.isNotEmpty()) append(" · Series $seriesUid")
+        if (doseText.isNotEmpty()) append(" · $doseText")
+    }
+
+    companion object {
+        private fun pt(j: JSONObject, key: String): WorldPoint {
+            val a = j.optJSONArray(key) ?: return WorldPoint(0.0, 0.0, 0.0)
+            return WorldPoint(a.optDouble(0, 0.0), a.optDouble(1, 0.0), a.optDouble(2, 0.0))
+        }
+
+        fun from(j: JSONObject): NerveRiskItem = NerveRiskItem(
+            id = j.optInt("id"),
+            instanceId = j.optInt("instanceId"),
+            nervePathId = j.optInt("nervePathId"),
+            toothName = j.optString("toothName"),
+            nerveName = j.optString("nerveName"),
+            nerveSource = j.optString("nerveSource"),
+            createdAt = j.optLong("createdAt"),
+            measured = j.optBoolean("measured", false),
+            minDistMm = j.optDouble("minDistMm", -1.0),
+            contact = j.optBoolean("contact", false),
+            withinCanalRadius = j.optBoolean("withinCanalRadius", false),
+            nearestRoot = pt(j, "nearestRoot"),
+            nearestCanal = pt(j, "nearestCanal"),
+            rootVoxels = j.optLong("rootVoxels"),
+            canalRadiusMm = j.optDouble("canalRadiusMm", 0.0),
+            cortexMeasured = j.optBoolean("cortexMeasured", false),
+            cortexPresent = j.optBoolean("cortexPresent", false),
+            cortexGapMm = j.optDouble("cortexGapMm", 0.0),
+            cortexBoneThresholdHu = j.optDouble("cortexBoneThresholdHu", 200.0),
+            fovXMm = j.optDouble("fovXMm", 0.0),
+            fovYMm = j.optDouble("fovYMm", 0.0),
+            fovZMm = j.optDouble("fovZMm", 0.0),
+            spacingX = j.optDouble("spacingX", 0.0),
+            spacingY = j.optDouble("spacingY", 0.0),
+            spacingZ = j.optDouble("spacingZ", 0.0),
+            doseText = j.optString("doseText"),
+            seriesUid = j.optString("seriesUid"),
+            manufacturer = j.optString("manufacturer"),
+            error = j.optString("error"),
+            gradingCaveat = j.optString("gradingCaveat"),
+        )
+
+        /** 键名两种都认：dumpNerveRisks 用 risks，plan.json 用 nerveRisks */
+        fun list(root: JSONObject?): List<NerveRiskItem> {
+            val arr = root?.optJSONArray("risks") ?: root?.optJSONArray("nerveRisks")
+                ?: return emptyList()
             return (0 until arr.length()).map { from(arr.getJSONObject(it)) }
         }
     }

@@ -25,12 +25,14 @@
 // ============================================================================
 
 #include "include/AnnotationStore.h"
+#include "include/ImplantLibrary.h"
 #include "include/ImplantPlanner.h"
 #include "include/Json.h"
 #include "include/MeasureMath.h"
 #include "include/MeasurePicker.h"
 #include "include/MeasureTypes.h"
 #include "include/MeasurementManager.h"
+#include "include/NerveAutoTracker.h"
 #include "include/RoiExtractor.h"
 #include "include/VolumeRef.h"
 #include "include/CbctVolume.h"          // 主机桩件版
@@ -1756,6 +1758,1531 @@ static void group11AiMaskReuse() {
 }
 
 // ============================================================================
+// 组 12 · AI-02 下颌管中心线追踪（升级建议 P-01，core/NerveAutoTracker.cpp）
+//
+// 这里的期望值全部是解析常量：合成"管腔"是沿某一根轴、截面为 13 体素对称圆盘
+// 的直管，所以
+//   - 每层截面质心 == 圆心（圆盘对称）-> 折线点可逐层解析写出；
+//   - 每层截面积 = 13 体素 × 1 mm² -> 半径 = sqrt(13/π)，中位数与均值相同；
+//   - 体素数 = 13 × 层数；分组数 = 层数。
+// 于是规则 a)~e) 每一条都能被单个数字卡住，而不是"看起来差不多"。
+// ============================================================================
+
+/** 13 体素的对称圆盘偏移（dp²+dq²<=4）：dp 求和后为 0，质心不偏 */
+static const int kCanalDisc[13][2] = {
+        {0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {1, -1}, {-1, 1}, {-1, -1},
+        {2, 0}, {-2, 0}, {0, 2}, {0, -2},
+};
+/** 截面积 13 mm² 的等效圆半径（规则 e 的解析值 = sqrt(13/pi)） */
+static const double kCanalRadiusMm = 2.034214472564;
+
+/** 下颌管合成掩膜的网格：抽稀 == 体数据 == 模型网格（32³，1 mm 体素） */
+static void canalGrid(AiResult &ai, int dim) {
+    ai.ok = true;
+    ai.grid.appDim[0] = ai.grid.appDim[1] = ai.grid.appDim[2] = dim;
+    ai.grid.appSpacing[0] = ai.grid.appSpacing[1] = ai.grid.appSpacing[2] = 1.0;
+    ai.grid.factor[0] = ai.grid.factor[1] = ai.grid.factor[2] = 1;
+    ai.grid.redDim[0] = ai.grid.redDim[1] = ai.grid.redDim[2] = dim;
+    ai.grid.modelDim[0] = ai.grid.modelDim[1] = ai.grid.modelDim[2] = dim;
+    ai.grid.spacing[0] = ai.grid.spacing[1] = ai.grid.spacing[2] = 1.0;
+    const size_t n = (size_t) dim * dim * dim;
+    ai.label.assign(n, 0);
+    ai.inst.assign(n, 0);
+    ai.hu.assign(n, 0.0f);
+}
+
+/**
+ * 沿 axis 铺一条直管：axial 索引 lo..hi，另两根轴的圆心 (c1,c2)。
+ * 返回写入的体素数（= 13 × 层数），调用方据此核对 track 的 voxels。
+ */
+static long long addCanalTube(AiResult &ai, int axis, int lo, int hi, int c1, int c2,
+                              short inst) {
+    long long n = 0;
+    for (int a = lo; a <= hi; ++a) {
+        for (int q = 0; q < 13; ++q) {
+            int i = 0, j = 0, k = 0;
+            if (axis == 0) { i = a; j = c1 + kCanalDisc[q][0]; k = c2 + kCanalDisc[q][1]; }
+            else if (axis == 1) { j = a; i = c1 + kCanalDisc[q][0]; k = c2 + kCanalDisc[q][1]; }
+            else { k = a; i = c1 + kCanalDisc[q][0]; j = c2 + kCanalDisc[q][1]; }
+            const long long t = ai.grid.redIndex(i, j, k);
+            ai.label[(size_t) t] = 1;
+            if (ai.inst[(size_t) t] == 0) ai.inst[(size_t) t] = inst;
+            ++n;
+        }
+    }
+    return n;
+}
+
+static void group12CanalTracking() {
+    beginGroup("组 12 · AI-02 下颌管中心线追踪与安全判级联动（P-01）");
+
+    // ---- 无掩膜：不报错，追出 0 条，文案如实说明"以手工描记为准" ----
+    {
+        AiResult none;
+        const std::vector<NerveTrack> tr = NerveAutoTracker::track(none);
+        checkEqInt("空结果不追出管道", (long long) tr.size(), 0);
+        const std::string txt = NerveAutoTracker::summaryText(tr, 0.8, false);
+        checkHas("无管道时文案承认手工为准", txt, "手工描记");
+    }
+
+    // ---- 右管 22 层 / 左管 20 层 + 6 体素散点：a)b)c)d)e) 一次覆盖 ----
+    {
+        AiResult ai;
+        canalGrid(ai, 32);
+        const long long rightN = addCanalTube(ai, 0, 4, 25, 16, 10, 1);   // 286 体素
+        const long long leftN = addCanalTube(ai, 0, 6, 25, 8, 10, 2);     // 260 体素
+        // 散点：26 邻域内不与任何管相接的一小段（6 体素 < MIN_CANAL_VOXELS）
+        for (int k = 2; k <= 7; ++k) {
+            const long long t = ai.grid.redIndex(29, 29, k);
+            ai.label[(size_t) t] = 1; ai.inst[(size_t) t] = 3;
+        }
+        ai.toothVoxels = (long long) (rightN + leftN + 6);
+        checkEqInt("夹具：右管 22 层 × 13 = 286", rightN, 286);
+        checkEqInt("夹具：左管 20 层 × 13 = 260", leftN, 260);
+
+        const std::vector<NerveTrack> tr = NerveAutoTracker::track(ai);
+        // a) 散点剔除 + 只有两条进结果
+        checkEqInt("26 邻域连通域：6 体素散点被剔除，剩 2 条", (long long) tr.size(), 2);
+        if (tr.size() == 2) {
+            // b) 体素数降序
+            checkEqInt("b) 降序第 1 条 = 右管体素数", tr[0].voxels, 286);
+            checkEqInt("b) 降序第 2 条 = 左管体素数", tr[1].voxels, 260);
+            // c) 描记轴 = bbox 跨度最大的轴（这里 x 跨 22、y/z 各跨 5）
+            checkEqInt("c) 描记轴是 x（跨度最大）", tr[0].traceAxis, 0);
+            checkAbs("c) extentVox[x] = 22", tr[0].extentVox[0], 22.0, 1e-9);
+            checkAbs("c) extentVox[y] = 5", tr[0].extentVox[1], 5.0, 1e-9);
+            checkAbs("c) extentVox[z] = 5", tr[0].extentVox[2], 5.0, 1e-9);
+            // d) 逐层质心 + (index+0.5)*spacing 的同一 convention
+            checkEqInt("d) 折线点数 == 分组数 == 层数", (long long) tr[0].points.size(), 22);
+            checkEqInt("d) groupsUsed 与点数一致", tr[0].groupsUsed, 22);
+            checkAbs("d) 首点 x = (4+0.5)*1.0", tr[0].points[0].x, 4.5, 1e-9);
+            checkAbs("d) 首点 y = 圆心 16.5", tr[0].points[0].y, 16.5, 1e-9);
+            checkAbs("d) 首点 z = 圆心 10.5", tr[0].points[0].z, 10.5, 1e-9);
+            checkAbs("d) 末点 x = (25+0.5)*1.0", tr[0].points[21].x, 25.5, 1e-9);
+            bool asc = true;
+            for (size_t q = 1; q < tr[0].points.size(); ++q) {
+                if (!(tr[0].points[q].x > tr[0].points[q - 1].x)) asc = false;
+            }
+            checkTrue("d) 折线按描记轴坐标升序", asc);
+            // e) 半径 = 中位数 sqrt(13*1/π)
+            checkAbs("e) 实测半径 = sqrt(13/π)", tr[0].radiusMm, kCanalRadiusMm, 1e-6);
+            // b) 的次键：最小线性索引必须与网格自算值一致（主机/真机同序的依据）。
+            // 期望点 = (i=4, j=c1-2, k=c2)：圆盘偏移里 dj=-2 时只有 dk=0，
+            // 所以该层最小的 (j,k) 是 (14,10) 而不是 (14,8) —— 线性索引
+            // (i*dim+j)*dim+k 先按 i、再按 j、再按 k 比较。
+            checkAbs("b) minLinearIndex = redIndex(4,14,10)",
+                     (double) tr[0].minLinearIndex, (double) ai.grid.redIndex(4, 14, 10), 0.0);
+            printf("        右管：voxels=%lld 半径=%.4fmm 轴=%d 点数=%zu\n",
+                   tr[0].voxels, tr[0].radiusMm, tr[0].traceAxis, tr[0].points.size());
+            const std::string txt = NerveAutoTracker::summaryText(tr, 0.8, true);
+            checkHas("摘要含条数", txt, "2 条");
+            checkHas("摘要含标定阈值", txt, "0.80");
+            checkHas("摘要声明半径是实测中位数", txt, "实测截面中位数");
+        }
+        // 显式入参覆盖默认常量（真机取证要能改阈值/候选数而不重编）
+        checkEqInt("minVoxels=300 时两条都不够格",
+                   (long long) NerveAutoTracker::track(ai, 300, 0).size(), 0);
+        checkEqInt("maxCandidates=1 时只留最大的一条",
+                   (long long) NerveAutoTracker::track(ai, 0, 1).size(), 1);
+    }
+
+    // ---- 沿 z 的管：证明 c) 不是写死某根轴 ----
+    {
+        AiResult ai;
+        canalGrid(ai, 32);
+        addCanalTube(ai, 2, 4, 25, 16, 10, 1);
+        const std::vector<NerveTrack> tr = NerveAutoTracker::track(ai);
+        checkEqInt("沿 z 铺管仍追出 1 条", (long long) tr.size(), 1);
+        if (!tr.empty()) {
+            checkEqInt("c) 描记轴随伸展方向改成 z", tr[0].traceAxis, 2);
+            checkAbs("d) 首点 z = 4.5", tr[0].points[0].z, 4.5, 1e-9);
+            checkAbs("d) 首点 x = 圆心 16.5", tr[0].points[0].x, 16.5, 1e-9);
+            checkAbs("d) 首点 y = 圆心 10.5", tr[0].points[0].y, 10.5, 1e-9);
+            checkAbs("e) 半径与轴向无关", tr[0].radiusMm, kCanalRadiusMm, 1e-6);
+        }
+    }
+
+    // ---- 候选上限 8 > 6：b) 的并列次键决定留下哪 6 条 ----
+    {
+        AiResult ai;
+        canalGrid(ai, 32);
+        const int cj[4] = {4, 12, 20, 28};
+        const int ck[2] = {4, 20};
+        std::vector<long long> mins;
+        for (int a = 0; a < 4; ++a)
+            for (int b = 0; b < 2; ++b) {
+                addCanalTube(ai, 0, 4, 25, cj[a], ck[b], (short) (a * 2 + b + 1));
+                // 同上：dj=-2 那一列只有 dk=0，故最小体素 = (4, cj-2, ck)
+                mins.push_back(ai.grid.redIndex(4, cj[a] - 2, ck[b]));
+            }
+        std::sort(mins.begin(), mins.end());
+        const std::vector<NerveTrack> tr = NerveAutoTracker::track(ai);
+        checkEqInt("8 条等体素管截断到 CANAL_MAX_CANDIDATES",
+                   (long long) tr.size(), AiConst::CANAL_MAX_CANDIDATES);
+        bool ordered = true, matches = true;
+        for (size_t i = 0; i < tr.size(); ++i) {
+            if (i > 0 && !(tr[i].minLinearIndex > tr[i - 1].minLinearIndex)) ordered = false;
+            if (tr[i].minLinearIndex != mins[i]) matches = false;
+            if (tr[i].voxels != 286) matches = false;
+        }
+        checkTrue("b) 并列时按最小线性索引升序", ordered);
+        checkTrue("b) 保留的正是索引最小的 6 条", matches);
+    }
+
+    // ---- toPaths：命名前缀 = 身份、颜色、半径钳位 ----
+    {
+        NerveTrack t;
+        t.points.push_back(Vec3(1.0, 2.0, 3.0));
+        t.points.push_back(Vec3(4.0, 2.0, 3.0));
+        t.voxels = 130;
+        t.traceAxis = 0;
+        t.groupsUsed = 2;
+        std::vector<NerveTrack> tr;
+        t.radiusMm = kCanalRadiusMm;
+        tr.push_back(t);
+        t.radiusMm = 9.0;                                   // 病态偏大
+        tr.push_back(t);
+        t.radiusMm = 0.05;                                  // 病态偏小
+        tr.push_back(t);
+        const std::vector<NervePath> paths = NerveAutoTracker::toPaths(tr);
+        checkEqInt("toPaths 与 tracks 同条数", (long long) paths.size(), 3);
+        checkEqStr("第 1 条名称 = CANAL_AUTO_NOTE + 序号",
+                   paths[0].name, std::string(AiConst::CANAL_AUTO_NOTE) + " 1");
+        checkEqStr("第 3 条名称序号递增",
+                   paths[2].name, std::string(AiConst::CANAL_AUTO_NOTE) + " 3");
+        checkEqInt("颜色 = AiConst::CANAL_COLOR",
+                   (long long) paths[0].color, (long long) (int) AiConst::CANAL_COLOR);
+        checkAbs("实测半径原样进 NervePath", paths[0].radiusMm, kCanalRadiusMm, 1e-9);
+        checkAbs("病态大半径钳到 6.0", paths[1].radiusMm, 6.0, 1e-12);
+        checkAbs("病态小半径钳到 0.4", paths[2].radiusMm, 0.4, 1e-12);
+        checkTrue("visible 默认打开", paths[0].visible);
+        checkEqInt("点数透传", (long long) paths[0].points.size(), 2);
+        checkTrue("isAutoNerveName 认得自己的前缀",
+                  MeasurementManager::isAutoNerveName(paths[0].name));
+        checkTrue("手描名字不被误认",
+                  !MeasurementManager::isAutoNerveName(std::string("左下颌管（手描）")));
+    }
+
+    // ---- tracksJson：AC-08-2 逐点比对的取证面 ----
+    {
+        AiResult ai;
+        canalGrid(ai, 32);
+        addCanalTube(ai, 0, 4, 25, 16, 10, 1);
+        addCanalTube(ai, 0, 6, 25, 8, 10, 2);
+        const Json arr = NerveAutoTracker::tracksJson(NerveAutoTracker::track(ai));
+        bool pok = false;
+        const Json back = Json::parse(arr.dump(false), &pok);
+        checkTrue("tracksJson 可再解析", pok);
+        checkEqInt("JSON 两条管道", (long long) back.size(), 2);
+        if (back.size() == 2) {
+            checkTrue("带 traceAxisName", back[0].has("traceAxisName"));
+            checkEqStr("描记轴名 = x", back[0].at("traceAxisName").asString(), "x");
+            checkEqInt("pointsMm 22 点", (long long) back[0].at("pointsMm").size(), 22);
+            checkAbs("首点 x 逐字段可取",
+                     back[0].at("pointsMm")[0][0].asNumber(), 4.5, 1e-9);
+            checkAbs("首点 y 逐字段可取",
+                     back[0].at("pointsMm")[0][1].asNumber(), 16.5, 1e-9);
+            checkAbs("radiusMm 与结构体一致",
+                     back[0].at("radiusMm").asNumber(), kCanalRadiusMm, 1e-6);
+        }
+    }
+
+    // ---- adoptCanalTracks：进既有 addNervePath 通道，手描不被清理，重跑幂等 ----
+    {
+        Synth sy;
+        sy.build(32, 32, 32, 1.0, 1.0, 1.0, -1000.0f);
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+
+        NervePath manual;
+        manual.name = "左下颌管（手描）";
+        manual.radiusMm = 1.5;
+        manual.points.push_back(Vec3(4.5, 24.5, 20.5));
+        manual.points.push_back(Vec3(25.5, 24.5, 20.5));
+        const int manualId = mgr.addNervePath(manual);
+        checkTrue("手描神经管可先建", manualId > 0);
+
+        AiResult ai;
+        canalGrid(ai, 32);
+        addCanalTube(ai, 0, 4, 25, 16, 10, 1);
+        addCanalTube(ai, 0, 6, 25, 8, 10, 2);
+
+        checkEqInt("首次 adopt：新增 2 条", mgr.adoptCanalTracks(ai), 2);
+        checkEqInt("会话内自动神经管 = 2", mgr.autoNerveCount(), 2);
+        checkEqInt("手描 1 + 自动 2 = 3 条", (long long) mgr.nervePaths().size(), 3);
+        checkEqInt("canalTracks() 保留原始折线", (long long) mgr.canalTracks().size(), 2);
+
+        AiResult ai2;
+        canalGrid(ai2, 32);
+        addCanalTube(ai2, 0, 4, 25, 16, 10, 1);
+        addCanalTube(ai2, 0, 6, 25, 8, 10, 2);
+        checkEqInt("重跑 adopt：仍 2 条（替换而非叠加）", mgr.adoptCanalTracks(ai2), 2);
+        checkEqInt("重跑后总数仍 3", (long long) mgr.nervePaths().size(), 3);
+
+        bool manualAlive = false;
+        for (size_t i = 0; i < mgr.nervePaths().size(); ++i) {
+            if (mgr.nervePaths()[i].id == manualId) manualAlive = true;
+        }
+        checkTrue("重跑不删手描", manualAlive);
+
+        checkEqInt("clearCanalTracks 移除 2 条", mgr.clearCanalTracks(), 2);
+        checkEqInt("清除后只剩手描", (long long) mgr.nervePaths().size(), 1);
+        checkEqInt("再清一次没有可移除的", mgr.clearCanalTracks(), 0);
+
+        AiResult empty;
+        checkEqInt("空掩膜 adopt：0 条且不动旧数据", mgr.adoptCanalTracks(empty), 0);
+        checkEqInt("手描仍在", (long long) mgr.nervePaths().size(), 1);
+    }
+
+    // ---- S-05 联动：半径来自掩膜实测，并会改变安全判级 ----
+    {
+        Synth sy;
+        sy.build(32, 32, 32, 1.0, 1.0, 1.0, -1000.0f);
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        AiResult ai;
+        canalGrid(ai, 32);
+        addCanalTube(ai, 0, 4, 25, 16, 10, 1);      // 中心线 y=16.5, z=10.5
+        mgr.adoptCanalTracks(ai);
+        checkEqInt("取到自动管道", (long long) mgr.nervePaths().size(), 1);
+        if (mgr.nervePaths().size() != 1) return;
+
+        VolumeRef vol; vol.bind(&sy.cv);
+        ImplantPlanner planner(vol);
+        Implant im;
+        im.id = 1;
+        im.entry = Vec3(10.5, 20.5, 15.5);          // 桩体在管道颊侧 4.0mm 处竖直向下
+        im.pitchDeg = 0.0; im.yawDeg = 0.0;
+        im.depthMm = 6.0; im.lengthMm = 10.0; im.diaMm = 4.0;
+        ImplantPlanner::refreshGeometry(im);
+        const double d = planner.nerveDistance(im, mgr.nervePaths()[0]);
+        checkAbs("S-05 用实测半径：4.0 - sqrt(13/π)", d, 4.0 - kCanalRadiusMm, 1e-6);
+        printf("        S-05 实测神经距离 %.4f mm（半径 %.4f mm 来自掩膜）\n", d,
+               mgr.nervePaths()[0].radiusMm);
+
+        NervePath fallback;
+        fallback.id = 99; fallback.radiusMm = 1.5;
+        fallback.points = mgr.nervePaths()[0].points;
+        checkAbs("同一折线若用默认半径 1.5 则是 2.5",
+                 planner.nerveDistance(im, fallback), 2.5, 1e-9);
+        // 同一个解剖位置，两种半径给出不同颜色：这正是 P-01 要改掉的经验值
+        checkEqInt("实测半径 1.97mm 判红",
+                   ImplantPlanner::safetyLevel(12.0, 8.0, 4.0 - kCanalRadiusMm, true, -1.0, false),
+                   DANGER_RED);
+        checkEqInt("默认半径 1.5mm 判绿",
+                   ImplantPlanner::safetyLevel(12.0, 8.0, 2.5, true, -1.0, false), SAFE_GREEN);
+    }
+
+    // ---- 判级开关：默认"只画不判"，打开后同一颗种植体必须从绿翻红 ----
+    //
+    // 这一段是 P-01 的收口证据。主机准入门禁没过（parity_ref/metrics_canal.json
+    // 的 probe_axis_agreement：16 条探针平均偏 7.81mm、最大 18.16mm，而 S-05 红档
+    // 判据只有 2.0mm），所以自动管道必须先能画出来、又不能直接影响颜色。
+    // 夹具刻意让"骨高骨宽全绿 + 自动管道判红 + 手描管道判绿"同时成立，
+    // 于是等级每翻一次都只有一个可能原因：判级输入里有没有那条自动管道。
+    {
+        Synth sy;
+        sy.build(60, 60, 60, 0.4, 0.4, 0.4, 0.0f);
+        // 骨块三边各 40 个体素（16mm），入口 z=21.0 上方留软组织：
+        //   骨高 ~15.8 >= 1.2*10、骨宽 ~16 >= 1.2*6 -> 除神经管外全部绿
+        sy.fillBox(10, 12, 10, 49, 52, 49, 1000.0f);
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        checkTrue("autoNerveFeedsGrading 默认 false", !mgr.autoNerveFeedsGrading());
+
+        Implant im; im.id = 1;
+        im.entry = Vec3(12.0, 20.5, 21.0);          // 轴线 = (12, 20.5, 21 -> 10)
+        im.pitchDeg = 0.0; im.yawDeg = 0.0;
+        im.depthMm = 6.0; im.lengthMm = 11.0; im.diaMm = 4.0;
+        const int imId = mgr.addImplant(im);
+        checkEqInt("夹具：种植体 1 颗", (long long) mgr.implants().size(), 1);
+        // 下面用引用读同一行：本轮不再 addImplant，vector 不会扩容，引用有效
+        const Implant &row = mgr.implants()[0];
+        checkTrue("夹具：骨高给到绿档（否则翻红无法归因于神经管）", row.boneHeightMm >= 12.0);
+        checkTrue("夹具：骨宽给到绿档", row.boneWidthMm >= 7.2);
+        printf("        判级开关夹具：骨高 %.3f mm / 骨宽 %.3f mm\n", row.boneHeightMm,
+               row.boneWidthMm);
+
+        AiResult ai;
+        canalGrid(ai, 32);
+        addCanalTube(ai, 0, 4, 25, 16, 10, 1);      // 中心线 y=16.5 z=10.5，离轴线 4.0mm
+        checkEqInt("adopt：1 条自动管道进会话", mgr.adoptCanalTracks(ai), 1);
+
+        // 关闭（默认）：管道照样在会话里（叠加层/归档/报告都读 nerves_），
+        // 但 evaluate 拿到的判级输入是空的 -> S-05 写回 -1，等级仍是绿
+        checkEqInt("关闭：判级输入 0 条", (long long) mgr.nervesForGrading().size(), 0);
+        checkEqInt("关闭：会话内仍有 1 条（预览不丢）", (long long) mgr.nervePaths().size(), 1);
+        checkEqInt("关闭：等级绿", row.level, SAFE_GREEN);
+        checkAbs("关闭：S-05 未参与判定写回 -1", row.nerveDistMm, -1.0, 0.0);
+
+        // 显式采纳：判级输入只多了那一条自动管道，等级必须立刻翻红
+        mgr.setAutoNerveFeedsGrading(true);
+        checkTrue("打开：autoNerveFeedsGrading=true", mgr.autoNerveFeedsGrading());
+        checkEqInt("打开：判级输入 = 会话内全部", (long long) mgr.nervesForGrading().size(),
+                   (long long) mgr.nervePaths().size());
+        checkEqInt("打开：等级红", row.level, DANGER_RED);
+        checkAbs("打开：S-05 = 4.0 - 实测半径", row.nerveDistMm, 4.0 - kCanalRadiusMm, 1e-6);
+        checkHas("打开：告警文案点名神经管", row.warnText, "神经管");
+
+        // 翻回去必须同样立即生效：否则界面上的勾选状态与行的颜色会长期矛盾
+        mgr.setAutoNerveFeedsGrading(false);
+        checkEqInt("再关：回到绿", row.level, SAFE_GREEN);
+        checkAbs("再关：S-05 又变回 -1", row.nerveDistMm, -1.0, 0.0);
+
+        // 手描管道不受开关影响 —— 这是这个开关最关键的安全边界：
+        // 关掉它只能关掉"AI 生成的"，绝不能把医生自己描的也一起屏蔽掉。
+        // 手描放在桩体尖端下方 5.0mm（默认半径 1.5）-> 表面 3.5mm，本身判绿，
+        // 于是"关=绿 / 开=红"仍然只能由那条 1.97mm 的自动管道解释。
+        NervePath manual;
+        manual.name = "手描下颌管";                  // 不带 AiConst::CANAL_AUTO_NOTE 前缀
+        manual.radiusMm = 1.5;
+        manual.points.push_back(Vec3(2.0, 20.5, 5.0));
+        manual.points.push_back(Vec3(24.0, 20.5, 5.0));
+        const int manualId = mgr.addNervePath(manual);
+        checkTrue("手描可建", manualId > 0);
+        checkEqInt("手描 + 自动 = 2 条", (long long) mgr.nervePaths().size(), 2);
+        checkEqInt("关闭：判级输入只剩手描 1 条", (long long) mgr.nervesForGrading().size(), 1);
+        checkEqInt("关闭：手描照样判级（绿）", row.level, SAFE_GREEN);
+        checkAbs("关闭：S-05 用手描 = 5.0 - 1.5", row.nerveDistMm, 3.5, 1e-9);
+        mgr.setAutoNerveFeedsGrading(true);
+        checkEqInt("打开：判级输入 2 条", (long long) mgr.nervesForGrading().size(), 2);
+        checkEqInt("打开：取更近的自动管道判红", row.level, DANGER_RED);
+        checkAbs("打开：S-05 = min(3.5, 1.97)", row.nerveDistMm, 4.0 - kCanalRadiusMm, 1e-6);
+
+        // 归档往返：来源标记靠名称前缀，必须在 planJson 落盘/读回之后依旧成立，
+        // 否则重启后自动管道会悄悄变成"手描"并直接进判级（危险方向）。
+        // 同时故意让 mgr2 用默认值恢复：采纳开关是"本次会话医生确认过"的语义，
+        // 不随归档持久化，恢复后必须重新勾选一次。
+        const Json plan = mgr.planJson();
+        MeasurementManager mgr2;
+        mgr2.bindVolume(&sy.cv);
+        checkTrue("planFromJson 往返成功", mgr2.planFromJson(plan));
+        checkTrue("恢复后开关回到默认 false（采纳不持久化）", !mgr2.autoNerveFeedsGrading());
+        checkEqInt("恢复后自动管道仍被识别为自动", mgr2.autoNerveCount(), 1);
+        checkEqInt("恢复后共 2 条管道", (long long) mgr2.nervePaths().size(), 2);
+        checkEqInt("恢复后判级输入只剩手描", (long long) mgr2.nervesForGrading().size(), 1);
+        checkEqInt("恢复后等级绿", mgr2.findImplant(imId) ? mgr2.findImplant(imId)->level : -99,
+                   SAFE_GREEN);
+        mgr2.setAutoNerveFeedsGrading(true);
+        checkEqInt("恢复后重新打开照样翻红", mgr2.findImplant(imId)->level, DANGER_RED);
+    }
+}
+
+// ============================================================================
+// 13) D-10 回归：S-06 的负间距必须参与判级，"未测量"与负值哨兵分离（第 8 轮）
+// ============================================================================
+//
+// 第 7 轮真机取证到的现象（ROUND7_FULL_DEVICE_REGRESSION_REPORT.md §4 D-10）：
+//   同几何的 #73 报 spacing=-1.00、#177 报 spacing=80.96，两枚重叠种植体都判"安全"。
+// 根因有两条叠加：
+//   a) minSpacing() 用 best=-1.0 同时表示"没有邻居"和"表面间距为负"，
+//      于是一旦算出负值，后面的候选全部被当成"第一个候选"无条件覆盖（顺序决定结果）；
+//   b) evaluate() 用 `if (sp >= 0.0)` 决定 spacingMeasured，等于"重叠不判级"。
+// 本组把这两条分别钉死，并验证归档往返不再靠符号猜（决策 4：判级阈值仍是 PRD 的 3.0mm，
+// 这里没有新增任何临床数字，只是让"已经测出来的负值"进入既有判级）。
+static void group13SpacingRegression() {
+    beginGroup("组13 D-10 —— S-06 负间距判级 / 未测量哨兵分离");
+
+    Synth sy;
+    sy.build(60, 60, 60, 0.4, 0.4, 0.4, 0.0f);
+    sy.fillBox(10, 12, 10, 49, 52, 49, 1000.0f);       // 与组12 同一块 16mm 见方的骨
+    VolumeRef vol; vol.bind(&sy.cv);
+    ImplantPlanner planner(vol);
+    const std::vector<NervePath> noNerve;              // 只看间距这一条腿
+
+    Implant a; a.id = 1; a.name = "A"; a.entry = Vec3(12.0, 20.5, 21.0);
+    a.pitchDeg = 0.0; a.yawDeg = 0.0; a.depthMm = 6.0; a.lengthMm = 11.0; a.diaMm = 4.0;
+    Implant b = a; b.id = 2; b.name = "B";              // 与 A 完全同位 = #73/#177 的形状
+    Implant far; far.id = 3; far.name = "FAR";
+    far.entry = Vec3(12.0, 20.5, 90.0);                 // 同轴但远在 FOV 外：只造间距，不造骨
+    far.pitchDeg = 0.0; far.yawDeg = 0.0; far.depthMm = 6.0; far.lengthMm = 11.0; far.diaMm = 4.0;
+    ImplantPlanner::refreshGeometry(a);
+    ImplantPlanner::refreshGeometry(b);
+    ImplantPlanner::refreshGeometry(far);
+
+    // ---- a) 夹具本身要给到绿档，否则后面的红无法归因于间距 ----
+    {
+        Implant solo = a;
+        std::vector<Implant> only; only.push_back(solo);
+        const ImplantSafety s = planner.evaluate(solo, noNerve, only);
+        checkTrue("夹具：单颗时骨高进绿档", s.boneHeightMm >= 12.0);
+        checkTrue("夹具：单颗时骨宽进绿档", s.boneWidthMm >= 7.2);
+        checkTrue("D-10b：没有邻居 -> spacingMeasured=false", !s.spacingMeasured);
+        checkEqInt("D-10b：未测量仍回填 -1.0 供显示（值本身不是判据）",
+                   (long long) (solo.minSpacingMm == -1.0 ? 1 : 0), 1);
+        checkEqInt("D-10b：无神经管描记 -> nerveMeasured=false", (long long) s.nerveMeasured, 0);
+        checkEqInt("夹具：单颗等级为绿", solo.level, SAFE_GREEN);
+    }
+
+    // ---- b) 重叠 = 负表面间距，且与遍历顺序无关（D-10a 的核心）----
+    {
+        bool found = false;
+        std::vector<Implant> o1; o1.push_back(a); o1.push_back(b); o1.push_back(far);
+        std::vector<Implant> o2; o2.push_back(a); o2.push_back(far); o2.push_back(b);
+        const double v1 = planner.minSpacing(a, o1, &found);
+        checkTrue("重叠邻居存在 -> found=true", found);
+        checkAbs("同位两枚：表面间距 = 0 - (4+4)/2 = -4.0", v1, -4.0, 1e-12);
+        const double v2 = planner.minSpacing(a, o2, &found);
+        checkAbs("D-10a 回归：远邻放在重叠邻居之前，最小间距仍是 -4.0", v2, -4.0, 1e-12);
+        checkTrue("修复后 found 与数值符号解耦（-4 也算 measured）", found);
+        std::vector<Implant> alone; alone.push_back(a);
+        checkAbs("只有自身时返回 -1.0（未测量哨兵保留）", planner.minSpacing(a, alone, &found),
+                 -1.0, 0.0);
+        checkEqInt("只有自身时 found=false", (long long) found, 0);
+    }
+
+    // ---- c) 判级：重叠必须进 S-06 并判红，文案写"重叠" ----
+    {
+        Implant subj = a;
+        std::vector<Implant> all; all.push_back(subj); all.push_back(b); all.push_back(far);
+        const ImplantSafety s = planner.evaluate(subj, noNerve, all);
+        checkTrue("D-10b：负间距照样 spacingMeasured=true（旧代码这里直接丢弃）", s.spacingMeasured);
+        checkAbs("判级读到的就是 -4.0", s.spacingMm, -4.0, 1e-12);
+        checkEqInt("重叠 -> DANGER_RED", subj.level, DANGER_RED);
+        checkTrue("告警文案含「重叠」", subj.warnText.find("重叠") != std::string::npos);
+        printf("        warnText = %s\n", subj.warnText.c_str());
+        // 第 7 轮的可观测签名：#177 因为顺序效应拿到 80.96 并停在 SAFE。
+        // 修复后同一形状的另一枚（b）也必须读 -4.0 并判红。
+        Implant other = b;
+        std::vector<Implant> all2; all2.push_back(a); all2.push_back(other); all2.push_back(far);
+        planner.evaluate(other, noNerve, all2);
+        checkAbs("D-10a：同位那枚的另一侧也读 -4.0（不再被大间距顶掉）", other.minSpacingMm, -4.0, 1e-12);
+        checkEqInt("D-10a：另一侧同样判红", other.level, DANGER_RED);
+    }
+
+    // ---- d) 归档往返：measured 必须随 planJson 落盘，负间距不能被"恢复"成未测量 ----
+    {
+        MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+        Implant m1 = a; m1.id = 0; m1.name = "A";
+        Implant m2 = b; m2.id = 0; m2.name = "B";
+        const int idA = mgr.addImplant(m1);
+        const int idB = mgr.addImplant(m2);
+        checkTrue("两枚重叠种植体都入库", idA > 0 && idB > 0);
+        checkEqInt("会话里 2 枚", (long long) mgr.implants().size(), 2);
+        const Implant &rowA = *mgr.findImplant(idA);
+        checkAbs("Manager 路径同样测出 -4.0", rowA.minSpacingMm, -4.0, 1e-12);
+        checkEqInt("Manager 路径判红", rowA.level, DANGER_RED);
+
+        const Json plan = mgr.planJson();
+        MeasurementManager mgr2; mgr2.bindVolume(&sy.cv);
+        checkTrue("planFromJson 往返成功", mgr2.planFromJson(plan));
+        const Implant *restored = mgr2.findImplant(idA);
+        checkTrue("恢复后能找到 A", restored != nullptr);
+        if (restored) {
+            checkTrue("D-10：恢复后 spacingMeasured 仍为 true（不再靠符号猜）",
+                      restored->spacingMeasured);
+            checkAbs("恢复后数值不变", restored->minSpacingMm, -4.0, 1e-9);
+            checkEqInt("恢复后等级仍为红", restored->level, DANGER_RED);
+        }
+    }
+
+    // ---- e) 旧归档（第 7 轮格式，没有 measured 字段）的兼容推断 ----
+    {
+        Json legacy = Json::makeObject();
+        legacy.set("id", Json::makeNumber(73));
+        legacy.set("minSpacingMm", Json::makeNumber(-1.0));
+        legacy.set("nerveDistMm", Json::makeNumber(37.3));
+        Implant out;
+        MeasurementManager::implantFromJson(legacy, out);
+        checkEqInt("旧归档：minSpacingMm=-1 推断为未测量", (long long) out.spacingMeasured, 0);
+        checkEqInt("旧归档：nerveDistMm=37.3 推断为已测量", (long long) out.nerveMeasured, 1);
+
+        Json legacy2 = Json::makeObject();
+        legacy2.set("id", Json::makeNumber(74));
+        legacy2.set("minSpacingMm", Json::makeNumber(3.5));
+        legacy2.set("nerveDistMm", Json::makeNumber(-1.0));
+        Implant out2;
+        MeasurementManager::implantFromJson(legacy2, out2);
+        checkEqInt("旧归档：3.5 推断为已测量", (long long) out2.spacingMeasured, 1);
+        checkEqInt("旧归档：神经 -1 推断为未测量", (long long) out2.nerveMeasured, 0);
+
+        // 新写入必须带字段：否则上面这套推断会在"负间距"上退化回 bug
+        Implant nw; nw.id = 75; nw.minSpacingMm = -4.0; nw.spacingMeasured = true;
+        nw.nerveDistMm = -1.0; nw.nerveMeasured = false;
+        const Json j = MeasurementManager::implantToJson(nw);
+        Implant back; MeasurementManager::implantFromJson(j, back);
+        checkTrue("新归档：负间距 + measured=true 原样读回",
+                  back.spacingMeasured && back.minSpacingMm == -4.0);
+        checkEqInt("新归档：未测量的神经距离保持 false", (long long) back.nerveMeasured, 0);
+    }
+}
+
+
+// ============================================================================
+// 组 14：P-09 —— 植体型号库（ImplantLibrary）与修复导向（crown-down）偏差 S-11/S-12
+//
+// 三件必须守住的事：
+//   1) 型号库的**来源可审计**：内置通用阶梯与随包 assets/implant_models.json 必须是
+//      同一套口径；资产写坏时库不能悄悄变空（否则 AI-03 的推荐口径静默漂移）。
+//   2) S-11/S-12 的**解析值**：期望值全部手算（点到无限长直线的距离、两直线夹角折到
+//      [0,90]），不引入任何新的临床阈值。
+//   3) **用户决策点 4 的红线**：加了冠方参考之后 S-02 的颜色等级必须一字不变，
+//      文案里必须出现"判级阈值待 PRD 定值"。
+// ============================================================================
+
+/** 读主机上的随包资产（-DCBCT_MEASURE_REPO_ROOT 由 build_and_run.sh 传入） */
+static std::string readAssetText(const std::string &path, bool *ok) {
+    *ok = false;
+    std::string out;
+    FILE *f = std::fopen(path.c_str(), "rb");
+    if (f == nullptr) return out;
+    char buf[4096];
+    size_t n = 0;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    *ok = true;
+    return out;
+}
+
+static void group14ImplantLibraryAndCrown() {
+    beginGroup("组14 P-09 —— 植体型号库 / crown-down 偏差（S-11 · S-12）");
+
+    ImplantLibrary &lib = ImplantLibrary::shared();
+
+    // ---- a) 内置通用库：只有体直径与桩体长度是确定的，其余一律不编造 ----
+    lib.loadBuiltin();
+    checkTrue("任何时刻都有库（AI-03 不会因为忘记加载资产而退化成连续长度）",
+              lib.count() > 0);
+    checkEqInt("内置通用库 5 直径 × 4 长度 = 20 档", (long long) lib.count(), 20);
+    checkTrue("内置表来源标记 builtin=true", lib.isBuiltin());
+    checkTrue("内置表数据口径 generic=true", lib.isGeneric());
+    {
+        const ImplantModelSpec *m = lib.bySku("GEN-4.1-11.5");
+        checkTrue("bySku 命中 GEN-4.1-11.5", m != nullptr);
+        if (m != nullptr) {
+            checkAbs("命中项体直径", m->diaMm, 4.1, 1e-12);
+            checkAbs("命中项桩体长度", m->lengthMm, 11.5, 1e-12);
+            checkTrue("通用库 vendor 留空（凭记忆填厂商目录等于编造）", m->vendor.empty());
+            checkTrue("平台直径不编造（0 = 资产未提供）", m->platformMm == 0.0);
+            checkTrue("基台高度不编造（0 = 资产未提供）", m->abutmentMm == 0.0);
+        }
+        checkTrue("未知 sku 返回 nullptr 而不是猜一个", lib.bySku("GEN-9.9-99") == nullptr);
+        checkTrue("空 sku 不查表", lib.bySku("") == nullptr);
+    }
+
+    // ---- b) fitMatch：骨量包络内选型，取最长（同长取较粗）----
+    {
+        const ImplantModelSpec *fit = lib.fitMatch(4.2, 12.0);
+        checkTrue("Ø<=4.2 且 L<=12 有解", fit != nullptr);
+        if (fit != nullptr)
+            checkEqStr("包络内取最长档，同长再取较粗 -> GEN-4.1-11.5", fit->sku, "GEN-4.1-11.5");
+
+        const ImplantModelSpec *tight = lib.fitMatch(4.05, 9.0);
+        checkTrue("窄包络有解", tight != nullptr);
+        if (tight != nullptr)
+            checkEqStr("Ø<=4.05（放不下 4.1）且 L<=9.0 -> 最长 8.5 里取较粗 GEN-3.8-8.5",
+                       tight->sku, "GEN-3.8-8.5");
+
+        checkTrue("骨宽放不下最窄的桩 -> nullptr（调用方按\"需植骨/改方案\"处理）",
+                  lib.fitMatch(3.0, 20.0) == nullptr);
+        checkTrue("骨高放不下最短的桩 -> nullptr", lib.fitMatch(6.0, 6.0) == nullptr);
+        // 边界必须含等号：恰好等于某档的库值不能被判成"放不下"
+        const ImplantModelSpec *edge = lib.fitMatch(3.4, 7.0);
+        checkTrue("包络边界取等号（Ø3.4×7 正好放得进 3.4/7.0 的包络）", edge != nullptr);
+        if (edge != nullptr) checkEqStr("边界命中的就是那一档", edge->sku, "GEN-3.4-7");
+    }
+
+    // ---- c) nearestMatch：把连续值落到真实存在的档位 ----
+    {
+        // 代价 = |Δ直径|/0.5 + |Δ长度|/1.0。Ø4.2×11.0 的候选里
+        // GEN-4.1-11.5 = 0.2 + 0.5 = 0.7 是最小值（GEN-4.1-10 = 1.2，GEN-3.8-11.5 = 1.3）。
+        const ImplantModelSpec *n = lib.nearestMatch(4.2, 11.0);
+        checkTrue("最近档存在", n != nullptr);
+        if (n != nullptr) checkEqStr("Ø4.2×11.0 -> GEN-4.1-11.5", n->sku, "GEN-4.1-11.5");
+        const ImplantModelSpec *big = lib.nearestMatch(9.9, 40.0);
+        checkTrue("超出库范围的输入也能落档", big != nullptr);
+        if (big != nullptr) checkEqInt("落档结果仍在库内（长度取最大档 15）",
+                                      (long long) (big->lengthMm == 15.0 ? 1 : 0), 1);
+    }
+
+    // ---- d) 空库行为：清空后一律 nullptr，不猜型号 ----
+    {
+        lib.clear();
+        checkEqInt("clear() 后条数为 0", (long long) lib.count(), 0);
+        checkTrue("空库 fitMatch 返回 nullptr", lib.fitMatch(5.0, 15.0) == nullptr);
+        checkTrue("空库 nearestMatch 返回 nullptr", lib.nearestMatch(4.0, 10.0) == nullptr);
+        // 空库的 generic 口径：宁可说"通用"，也不给读者一个假的商品依据
+        checkTrue("空库仍按 generic 处理", lib.isGeneric());
+        lib.loadBuiltin();
+        checkEqInt("恢复内置表", (long long) lib.count(), 20);
+    }
+
+    // ---- e) 资产解析：坏资产不能把库清空（否则推荐口径静默漂移）----
+    {
+        std::string err;
+        checkEqInt("非法文本 -> -1", (long long) lib.loadFromJson("{ this is not json", &err), -1);
+        checkEqInt("解析失败后条数不变", (long long) lib.count(), 20);
+        checkTrue("失败原因写进 err 供 UI 直接展示", !err.empty());
+        checkEqInt("空 models -> -1", (long long) lib.loadFromJson("{\"models\":[]}", &err), -1);
+        checkEqInt("缺 models 键 -> -1", (long long) lib.loadFromJson("{\"kind\":\"x\"}", &err), -1);
+        checkEqInt("失败路径不改动库来源标记", (long long) (lib.isBuiltin() ? 1 : 0), 1);
+
+        const std::string vendorAsset =
+                "{\"kind\":\"cbctmeasure.implant-models\",\"models\":["
+                "{\"sku\":\"AC-375-10\",\"vendor\":\"ACME\",\"series\":\"S1\","
+                "\"connection\":\"internal\",\"diaMm\":3.75,\"lengthMm\":10.0,"
+                "\"platformMm\":4.8,\"abutmentMm\":2.5,\"note\":\"厂商目录示例\"},"
+                "{\"sku\":\"BAD\",\"vendor\":\"ACME\",\"diaMm\":0.0,\"lengthMm\":8.0},"
+                "{\"vendor\":\"ACME\",\"diaMm\":4.3,\"lengthMm\":8.5}"
+                "]}";
+        err.clear();
+        const int n = lib.loadFromJson(vendorAsset, &err);
+        checkEqInt("三条里只有两条合法（Ø0 的那条丢掉，否则 S-04 的\"骨宽>=直径\"恒真）",
+                   (long long) n, 2);
+        checkTrue("Ø0 条目不会污染告警：库里查不到 BAD", lib.bySku("BAD") == nullptr);
+        checkTrue("厂商资产 -> builtin=false", !lib.isBuiltin());
+        checkTrue("有 vendor 的资产 -> generic=false（可以当商品型号读）", !lib.isGeneric());
+        {
+            const ImplantModelSpec *a = lib.bySku("AC-375-10");
+            checkTrue("厂商 sku 原样保留", a != nullptr);
+            if (a != nullptr) {
+                checkAbs("直径逐值保留", a->diaMm, 3.75, 1e-12);
+                checkAbs("平台直径来自资产（内置库故意不给）", a->platformMm, 4.8, 1e-12);
+                checkAbs("基台高度来自资产", a->abutmentMm, 2.5, 1e-12);
+                checkEqStr("连接方式文字保留", a->connection, "internal");
+            }
+            checkTrue("缺 sku 的条目自动编号而不是丢弃",
+                      lib.bySku("AC-375-10") != nullptr && lib.count() == 2);
+        }
+        // dumpJson -> loadFromJson 往返：字段不能丢，generic/builtin 口径不能串
+        {
+            const std::string dumped = lib.dumpJson();
+            checkEqInt("dump 后重载条数一致", (long long) lib.loadFromJson(dumped, &err), 2);
+            bool ok = false;
+            const Json root = Json::parse(dumped, &ok);
+            checkTrue("dump 是合法对象", ok && root.isObject());
+            if (ok) {
+                checkEqInt("dump 里 generic=false（数据口径）",
+                           (long long) (root.at("generic").asBool(true) ? 0 : 1), 1);
+                checkEqInt("dump 里 builtin=false（来源口径）",
+                           (long long) (root.at("builtin").asBool(true) ? 0 : 1), 1);
+                const ImplantModelSpec *b = lib.bySku("AC-375-10");
+                checkTrue("往返后平台直径仍在", b != nullptr && b->platformMm == 4.8);
+            }
+        }
+        checkEqInt("裸数组形式资产也能读",
+                   (long long) lib.loadFromJson("[{\"diaMm\":5.0,\"lengthMm\":9.5}]", &err), 1);
+        lib.loadBuiltin();
+        checkTrue("恢复内置表（后续用例与真机默认口径一致）", lib.isBuiltin());
+        checkEqInt("恢复后 20 档", (long long) lib.count(), 20);
+    }
+
+    // ---- f) 随包资产与内置阶梯必须同一套口径（可审计性）----
+    {
+#ifdef CBCT_MEASURE_REPO_ROOT
+        bool ok = false;
+        const std::string path = std::string(CBCT_MEASURE_REPO_ROOT) +
+                "/cbctmeasure/src/main/assets/implant_models.json";
+        const std::string text = readAssetText(path, &ok);
+        if (!ok) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "%s 读不到（随包资产的口径检查没跑成）", path.c_str());
+            noteFinding("随包 implant_models.json 不可读", buf);
+        } else {
+            std::vector<ImplantModelSpec> builtin = lib.specs();   // 先留一份内置表快照
+            std::string err;
+            const int n = lib.loadFromJson(text, &err);
+            checkEqInt("随包资产解析出 20 档", (long long) n, 20);
+            // 这是最关键的一条：随包资产是"通用名义尺寸"，vendor 全空，
+            // 所以 generic 必须仍为 true —— 否则报告会把通用阶梯印成厂商目录。
+            checkTrue("随包资产 generic=true（不是厂商商品数据）", lib.isGeneric());
+            checkTrue("随包资产 builtin=false（来源是 json 资产）", !lib.isBuiltin());
+            size_t mismatch = 0;
+            const std::vector<ImplantModelSpec> &asset = lib.specs();
+            if (asset.size() == builtin.size()) {
+                for (size_t i = 0; i < asset.size(); ++i) {
+                    if (asset[i].sku != builtin[i].sku ||
+                        std::fabs(asset[i].diaMm - builtin[i].diaMm) > 1e-12 ||
+                        std::fabs(asset[i].lengthMm - builtin[i].lengthMm) > 1e-12) {
+                        ++mismatch;
+                    }
+                }
+            } else {
+                mismatch = (size_t) -1;
+            }
+            char detail[192];
+            snprintf(detail, sizeof(detail),
+                     "不一致的档数 = %zu（资产与内置阶梯必须是同一套 sku/Ø/长度）", mismatch);
+            if (mismatch == 0) pass("资产与内置通用阶梯逐档一致");
+            else fail("资产与内置通用阶梯逐档一致", detail);
+            lib.loadBuiltin();
+        }
+#else
+        noteFinding("随包 implant_models.json 口径检查", "编译时未给 -DCBCT_MEASURE_REPO_ROOT");
+#endif
+    }
+
+    // ---- g) S-11 / S-12 的解析值（纯几何，不碰体数据）----
+    {
+        Implant im;
+        im.id = 1;
+        im.entry = Vec3(10.0, 10.0, 10.0);
+        im.pitchDeg = 0.0;                    // axis = (0,0,-1)：指向根方
+        im.yawDeg = 0.0;
+        im.lengthMm = 11.0;
+        im.diaMm = 4.1;
+        ImplantPlanner::refreshGeometry(im);
+        checkAbs("夹具：axis 指向根方 z", im.axis.z, -1.0, 1e-12);
+
+        double off = -999.0, ang = -999.0, along = -999.0;
+        bool fromRef = true;
+
+        // g1) 零向量 = 没有参考。世界原点恰好是首体素中心，若把它当参考，
+        //     S-11 会凭空多出一个十几毫米的假偏差，所以这里必须返回 false。
+        checkEqInt("crownCenter 为零向量 -> 未测量",
+                   (long long) (ImplantPlanner::crownDeviation(im, Vec3(), Vec3(),
+                                                               &off, &ang, &along, &fromRef)
+                                ? 1 : 0), 0);
+
+        // g2) 完全对齐：冠中心正好在轴线的冠方延长线上 -> S-11=0、S-12=0。
+        //     （修复前这里读 180°：axis 指向根方、toCrown 指向冠方天然反向，
+        //       折到 [0,90] 才是"偏离轴线多少度"的本意。）
+        checkTrue("对齐参考：测得到",
+                  ImplantPlanner::crownDeviation(im, Vec3(10.0, 10.0, 12.0), Vec3(),
+                                                 &off, &ang, &along, &fromRef));
+        checkAbs("g2 S-11 水平偏差 = 0", off, 0.0, 1e-12);
+        checkAbs("g2 S-12 成角偏差 = 0（不是 180）", ang, 0.0, 1e-9);
+        checkAbs("g2 沿轴投影：冠方为负 -> -2", along, -2.0, 1e-12);
+        checkEqInt("g2 单点参考 -> crownAxisFromReference=false", (long long) (fromRef ? 1 : 0), 0);
+
+        // g3) 侧方 2mm 的冠中心：点到无限长直线的距离就是 2.0
+        //     （用点到**线段**的距离会退化成"到入口点的距离"=2.83，故头文件强调无限延长线）
+        ImplantPlanner::crownDeviation(im, Vec3(12.0, 10.0, 12.0), Vec3(), &off, &ang,
+                                       &along, &fromRef);
+        checkAbs("g3 S-11 = 2.0（侧方偏移）", off, 2.0, 1e-12);
+        checkAbs("g3 S-12 = 45°（偏移 2mm、冠方 2mm）", ang, 45.0, 1e-9);
+
+        // g4) 冠中心落在入口平面的侧方：连线与轴线垂直 -> 90°，
+        //     这是"参考点画在种植体颈部平面上"的退化情形，按定义如实读 90°。
+        ImplantPlanner::crownDeviation(im, Vec3(12.0, 10.0, 10.0), Vec3(), &off, &ang,
+                                       &along, &fromRef);
+        checkAbs("g4 S-11 = 2.0", off, 2.0, 1e-12);
+        checkAbs("g4 S-12 = 90°（连线与轴线垂直）", ang, 90.0, 1e-9);
+        checkAbs("g4 沿轴投影 = 0（同平面）", along, 0.0, 1e-12);
+
+        // g5) 有冠长轴（A-02/A-03 两点标注）：轴倾斜 15°
+        const double t15 = 15.0 * kPi / 180.0;
+        ImplantPlanner::crownDeviation(im, Vec3(10.0, 10.0, 12.0),
+                                       Vec3(std::sin(t15), 0.0, std::cos(t15)),
+                                       &off, &ang, &along, &fromRef);
+        checkAbs("g5 S-11 = 0（冠中心在轴线上）", off, 0.0, 1e-12);
+        checkAbs("g5 S-12 = 15°（冠长轴倾斜）", ang, 15.0, 1e-9);
+        checkEqInt("g5 冠长轴来自参考 -> crownAxisFromReference=true", (long long) (fromRef ? 1 : 0), 1);
+
+        // g6) 冠长轴反向（标注首末点谁在冠方不可知）：折到 [0,90] -> 仍是 15°
+        ImplantPlanner::crownDeviation(im, Vec3(10.0, 10.0, 12.0),
+                                       Vec3(-std::sin(t15), 0.0, -std::cos(t15)),
+                                       &off, &ang, &along, &fromRef);
+        checkAbs("g6 反向冠长轴读同一个角（无向直线）", ang, 15.0, 1e-9);
+
+        // g7) 斜向植入：yaw=90 时 axis = 绕 Y 转 (0,0,-1) -> (-1,0,0)? 见 axisFromAngles。
+        //     这里只用一条性质：S-11 与参考的**垂直**距离无关yaw，取一个明确点核对。
+        {
+            Implant tilted = im;
+            tilted.yawDeg = 90.0;
+            ImplantPlanner::refreshGeometry(tilted);
+            double ax = tilted.axis.x, az = tilted.axis.z;
+            checkAbs("g7 yaw=90：axis 单位长", std::sqrt(ax * ax + az * az), 1.0, 1e-12);
+            // 冠中心沿 axis 方向放在冠方 2mm（axis 指向根方，故 entry - axis*2）
+            const Vec3 crown = tilted.entry - tilted.axis * 2.0;
+            ImplantPlanner::crownDeviation(tilted, crown, Vec3(), &off, &ang, &along, &fromRef);
+            checkAbs("g7 沿斜轴对齐：S-11 = 0", off, 0.0, 1e-12);
+            checkAbs("g7 沿斜轴对齐：S-12 = 0", ang, 0.0, 1e-9);
+            checkAbs("g7 沿轴投影 = -2", along, -2.0, 1e-9);
+        }
+    }
+
+    // ---- h) evaluate()：S-11/S-12 回填、且**不参与判级**（决策点 4）----
+    {
+        Synth sy;
+        sy.build(60, 60, 60, 0.4, 0.4, 0.4, 0.0f);
+        sy.fillBox(10, 12, 10, 49, 52, 49, 1000.0f);      // 与组13 同一块骨
+        VolumeRef vol; vol.bind(&sy.cv);
+        ImplantPlanner planner(vol);
+        const std::vector<NervePath> noNerve;
+
+        Implant base;
+        base.id = 1; base.name = "A";
+        base.entry = Vec3(12.0, 20.5, 21.0);
+        base.pitchDeg = 0.0; base.yawDeg = 0.0;
+        base.depthMm = 6.0; base.lengthMm = 11.0; base.diaMm = 4.1;
+        base.sku = "GEN-4.1-11.5";
+
+        Implant noRef = base;
+        std::vector<Implant> all1; all1.push_back(noRef);
+        const ImplantSafety s1 = planner.evaluate(noRef, noNerve, all1);
+        checkEqInt("h1 没有冠方参考 -> crownMeasured=false", (long long) (s1.crownMeasured ? 1 : 0), 0);
+        checkAbs("h1 未测量时偏差回填 0（不能当\"0 偏差\"读）", noRef.crownOffsetMm, 0.0, 0.0);
+        checkTrue("h1 未测量时告警不提 S-11", noRef.warnText.find("S-11") == std::string::npos);
+
+        Implant withRef = base;
+        withRef.crownRefKind = CROWN_MANUAL;
+        withRef.crownCenter = Vec3(14.0, 20.5, 23.0);     // 侧方 2mm、冠方 2mm
+        std::vector<Implant> all2; all2.push_back(withRef);
+        const ImplantSafety s2 = planner.evaluate(withRef, noNerve, all2);
+        checkTrue("h2 有参考 -> crownMeasured=true", s2.crownMeasured);
+        checkAbs("h2 S-11 = 2.0", s2.crownOffsetMm, 2.0, 1e-12);
+        checkAbs("h2 S-12 = 45°", s2.crownAngleDeg, 45.0, 1e-9);
+        checkAbs("h2 沿轴 = -2", s2.crownAlongAxisMm, -2.0, 1e-9);
+        checkTrue("h2 告警含 S-11/S-12", withRef.warnText.find("S-11") != std::string::npos);
+        checkHas("h2 告警写明阈值待 PRD 定值", withRef.warnText, "判级阈值待 PRD 定值");
+        checkTrue("h2 告警写明成角按入口→冠中心连线", withRef.warnText.find("入口→冠中心") != std::string::npos);
+        // 决策点 4 的红线：加参考不能改颜色等级
+        checkEqInt("h3 加冠方参考后 S-02 等级不变（不参与判级）", withRef.level, noRef.level);
+        checkAbs("h3 骨高不变", s2.boneHeightMm, s1.boneHeightMm, 1e-12);
+        checkAbs("h3 骨宽不变", s2.boneWidthMm, s1.boneWidthMm, 1e-12);
+        // 结尾分隔符不能留在文案里（会一路印进 PDF/SR 行尾）
+        const bool tailSep = withRef.warnText.size() >= 2 &&
+                withRef.warnText.compare(withRef.warnText.size() - 2, 2, "; ") == 0;
+        checkTrue("h4 告警结尾不带 \"; \"", !tailSep);
+    }
+
+    // ---- i) 冠方参考的解析：R-04 球面 / A-* 标注 / 引用失效 ----
+    {
+        Synth sy;
+        sy.build(60, 60, 60, 0.4, 0.4, 0.4, 0.0f);
+        sy.fillBox(10, 12, 10, 49, 52, 49, 1000.0f);
+
+        RoiDef sphere;
+        sphere.type = ROI_SPHERE;
+        sphere.name = "牙冠中心";
+        sphere.sphereCenter = Vec3(14.0, 20.5, 23.0);
+        sphere.sphereRadius = 3.0;
+
+        AnnotationStore store;
+        Annotation line;
+        line.type = AN_LINE;
+        line.text = "冠长轴";
+        line.points.push_back(Vec3(14.0, 20.5, 23.0));    // 冠中心
+        line.points.push_back(Vec3(14.0, 20.5, 15.0));    // 根方端点 -> 冠长轴沿 z
+        const int lineId = store.add(line);
+        checkTrue("夹具：A-02 标注入库", lineId > 0);
+
+        Annotation ring;
+        ring.type = AN_RING;
+        ring.points.push_back(Vec3(15.0, 20.5, 23.0));
+        ring.points.push_back(Vec3(13.0, 20.5, 23.0));    // 圆心 (14,20.5,23)
+        const int ringId = store.add(ring);
+
+        Implant im;
+        im.name = "A";
+        im.entry = Vec3(12.0, 20.5, 21.0);
+        im.pitchDeg = 0.0; im.yawDeg = 0.0;
+        im.depthMm = 6.0; im.lengthMm = 11.0; im.diaMm = 4.1;
+
+        // i1) R-04 球面：取球心，没有冠长轴
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            im.crownRefKind = CROWN_SPHERE_ROI;
+            const int roiId = mgr.addRoi(sphere);
+            Implant a = im; a.crownRefId = roiId;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("球面参考：解析成功", row != nullptr && row->crownMeasured);
+            if (row != nullptr) {
+                checkAbs("球心即冠中心 x", row->crownCenter.x, 14.0, 1e-9);
+                checkAbs("S-11 = 2.0（入口 x=12 -> 球心 x=14）", row->crownOffsetMm, 2.0, 1e-9);
+                checkEqInt("球面不给冠长轴 -> crownAxisFromReference=false",
+                           (long long) (row->crownAxisFromReference ? 1 : 0), 0);
+            }
+            // 引用失效（ROI 被删）：必须回到"未测量"，不能继续用上次解析出的旧坐标
+            checkTrue("删除球面 ROI", mgr.removeRoi(roiId));
+            mgr.recomputePlan();
+            const Implant *gone = mgr.findImplant(id);
+            checkTrue("i2 引用失效后 S-11/S-12 变回未测量（不缓存旧坐标）",
+                      gone != nullptr && !gone->crownMeasured);
+            if (gone != nullptr) {
+                checkAbs("失效后偏差清零", gone->crownOffsetMm, 0.0, 0.0);
+                checkTrue("失效后冠中心清零", gone->crownCenter.length() < 1e-12);
+            }
+        }
+
+        // i3) A-* 标注：首点=冠中心，>=2 点时首->末视为冠长轴
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            mgr.setAnnotationStore(&store);
+            Implant a = im;
+            a.crownRefKind = CROWN_ANNOTATION; a.crownRefId = lineId;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("标注参考：解析成功", row != nullptr && row->crownMeasured);
+            if (row != nullptr) {
+                checkAbs("首点即冠中心 x", row->crownCenter.x, 14.0, 1e-9);
+                checkAbs("S-11 = 2.0", row->crownOffsetMm, 2.0, 1e-9);
+                checkAbs("两点给出冠长轴（沿 z）-> S-12 = 0", row->crownAngleDeg, 0.0, 1e-9);
+                checkEqInt("冠长轴来自参考 -> crownAxisFromReference=true",
+                           (long long) (row->crownAxisFromReference ? 1 : 0), 1);
+            }
+            // 标注被删掉后同样要回到未测量
+            checkTrue("删除标注", store.remove(lineId));
+            mgr.recomputePlan();
+            const Implant *after = mgr.findImplant(id);
+            checkTrue("i4 标注失效 -> S-11/S-12 未测量", after != nullptr && !after->crownMeasured);
+        }
+
+        // i5) A-05 环形：points 是环上采样点，必须取圆心而不是首点
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            mgr.setAnnotationStore(&store);
+            Implant a = im;
+            a.crownRefKind = CROWN_ANNOTATION; a.crownRefId = ringId;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("环形参考：解析成功", row != nullptr && row->crownMeasured);
+            if (row != nullptr) {
+                checkAbs("环形取圆心（首点会把参考放到环边缘，差一个半径）",
+                         row->crownCenter.x, 14.0, 1e-12);
+                checkAbs("S-11 = 2.0（圆心 x=14）", row->crownOffsetMm, 2.0, 1e-9);
+                checkEqInt("环形不给冠长轴", (long long) (row->crownAxisFromReference ? 1 : 0), 0);
+            }
+        }
+
+        // i6) 未注入标注存储（主机单测/旧会话）：kind=2 解析失败并写清原因，不影响其它指标
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            Implant a = im;
+            a.crownRefKind = CROWN_ANNOTATION; a.crownRefId = ringId;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("i6 未注入 annos_ 时不崩、也不冒充测到",
+                      row != nullptr && !row->crownMeasured);
+            if (row != nullptr) {
+                checkAbs("其它指标照常：骨高 > 0", row->boneHeightMm > 0.0 ? 1.0 : 0.0, 1.0, 0.0);
+                checkTrue("等级仍按 S-03~S-06 判", row->level == SAFE_GREEN ||
+                          row->level == WARN_YELLOW || row->level == DANGER_RED);
+            }
+        }
+
+        // i7) kind=1 但引用的是非球面 ROI（用户把 ROI 改了类型）：同样按未测量处理
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            RoiDef box; box.type = ROI_BOX; box.boxMin = Vec3(4, 4, 4); box.boxMax = Vec3(20, 20, 20);
+            const int boxId = mgr.addRoi(box);
+            Implant a = im;
+            a.crownRefKind = CROWN_SPHERE_ROI; a.crownRefId = boxId;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("i7 引用非球面 ROI -> 未测量", row != nullptr && !row->crownMeasured);
+        }
+
+        // i8) 引用 id 不存在（会话恢复后对象没了）
+        {
+            MeasurementManager mgr; mgr.bindVolume(&sy.cv);
+            Implant a = im;
+            a.crownRefKind = CROWN_SPHERE_ROI; a.crownRefId = 99999;
+            const int id = mgr.addImplant(a);
+            const Implant *row = mgr.findImplant(id);
+            checkTrue("i8 悬空引用 -> 未测量", row != nullptr && !row->crownMeasured);
+        }
+    }
+
+    // ---- j) 归档往返：sku 与冠方参考必须落得回 ----
+    {
+        Synth sy;
+        sy.build(60, 60, 60, 0.4, 0.4, 0.4, 0.0f);
+        sy.fillBox(10, 12, 10, 49, 52, 49, 1000.0f);
+        AnnotationStore store;
+        Annotation line;
+        line.type = AN_LINE;
+        line.points.push_back(Vec3(14.0, 20.5, 23.0));
+        line.points.push_back(Vec3(14.0, 20.5, 15.0));
+        const int lineId = store.add(line);
+
+        MeasurementManager mgr; mgr.bindVolume(&sy.cv); mgr.setAnnotationStore(&store);
+        Implant a;
+        a.name = "A"; a.sku = "GEN-4.1-11.5";
+        a.entry = Vec3(12.0, 20.5, 21.0);
+        a.pitchDeg = 0.0; a.yawDeg = 0.0; a.depthMm = 6.0; a.lengthMm = 11.0; a.diaMm = 4.1;
+        a.crownRefKind = CROWN_ANNOTATION; a.crownRefId = lineId;
+        const int id = mgr.addImplant(a);
+        const Implant *row = mgr.findImplant(id);
+        checkTrue("夹具：写盘前已测到 S-11", row != nullptr && row->crownMeasured);
+
+        const Json plan = mgr.planJson();
+        MeasurementManager mgr2; mgr2.bindVolume(&sy.cv);
+        AnnotationStore store2;      // 空存储：恢复后引用应失效（真实场景是标注也一并恢复）
+        mgr2.setAnnotationStore(&store2);
+        checkTrue("j1 归档往返成功", mgr2.planFromJson(plan));
+        const Implant *back = mgr2.findImplant(id);
+        checkTrue("j1 恢复后能找到植体", back != nullptr);
+        if (back != nullptr) {
+            checkEqStr("j2 型号 sku 原样恢复", back->sku, "GEN-4.1-11.5");
+            checkEqInt("j2 参考类型恢复", back->crownRefKind, CROWN_ANNOTATION);
+            checkEqInt("j2 参考 id 恢复", back->crownRefId, lineId);
+            // 参考对象不在同一份标注存储里 -> 重新解析为未测量，而不是沿用旧偏差
+            checkTrue("j3 标注未随归档恢复时，S-11/S-12 报未测量而不是旧值", !back->crownMeasured);
+        }
+
+        // j4) plan.json 自证型号库口径
+        {
+            bool ok = false;
+            const Json root = Json::parse(plan.dump(), &ok);
+            checkTrue("plan.json 可解析", ok);
+            if (ok) {
+                const Json &libJ = root.at("modelLibrary");
+                checkEqInt("modelLibrary.count 与内置表一致",
+                           (long long) libJ.at("count").asNumber(-1), 20);
+                checkEqInt("modelLibrary.generic=true（内置通用阶梯）",
+                           (long long) (libJ.at("generic").asBool(false) ? 1 : 0), 1);
+                checkEqInt("modelLibrary.builtin=true",
+                           (long long) (libJ.at("builtin").asBool(false) ? 1 : 0), 1);
+            }
+        }
+
+        // j5) 第 7 轮及以前的归档（完全没有这些键）：不得凭空认为"测过"
+        {
+            Json legacy = Json::makeObject();
+            legacy.set("id", Json::makeNumber(88));
+            legacy.set("entry", Json::makeArray());
+            Implant out;
+            MeasurementManager::implantFromJson(legacy, out);
+            checkEqInt("legacy 无 sku -> 空（UI 写\"自由参数\"）", (long long) (out.sku.empty() ? 1 : 0), 1);
+            checkEqInt("legacy 无 crownRefKind -> CROWN_NONE", out.crownRefKind, CROWN_NONE);
+            checkEqInt("legacy 无 crownMeasured -> false（绝不因为有数值就当测过）",
+                       (long long) (out.crownMeasured ? 1 : 0), 0);
+            checkTrue("legacy 冠中心为 0 向量", out.crownCenter.length() < 1e-12);
+        }
+    }
+}
+
+
+// ============================================================================
+// 组 15 · P-10 第三磨牙 ↔ 下牙槽神经风险度量（core/NerveRisk.cpp）
+//
+// 夹具复用组 11/14 的合成掩膜（buildTwoToothAi）：实例 #1 是 i/j/k ∈ [4,13]
+// 的 10×10×10 立方，抽稀体素球心因此精确落在 4.5 … 13.5，间距 1.0 mm。
+// 于是"掩膜球心 ↔ 折线"的最小距离可以解析写出（下面每条都是 2.0 / 3.5 这种
+// 手算得到的数），而不需要拿另一个易错的实现当参考。
+//
+// 每条 case 卡的是一件真会出错的事：
+//   a) 折线端点外（foot 不在线段内）时距离仍然是垂足到端点的长度；
+//   b) 剪枝（包围盒 + AABB 下界）会不会把真正的最近点剪掉；
+//   c) 接触必须读 0 —— 按"到掩膜表面的距离"实现的话接触会得到正数；
+//   d) 皮质骨的"最长连续非骨段"必须区分全长缺失与中段缺失；
+//   e) 输入不可用时报未测量，而不是把 -1 当距离印进报告。
+// ============================================================================
+
+/** 两点折线（世界 mm）；radiusMm 用调用方给的口径，name 决定手描/AI-02 */
+static NervePath riskNerve(const Vec3 &a, const Vec3 &b, double radiusMm,
+                           const std::string &name) {
+    NervePath p;
+    p.name = name;
+    p.radiusMm = radiusMm;
+    p.visible = true;
+    p.color = (int) 0xFFFF1744U;
+    p.points.push_back(a);
+    p.points.push_back(b);
+    return p;
+}
+
+/**
+ * 暴力参照：不看包围盒、不剪枝，遍历整张掩膜网格求最小球心距。
+ * 存在的意义是"剪枝实现错了也能被发现"——被测实现与参照实现是两套循环。
+ */
+static double bruteMaskPolylineDist(const AiResult &ai, int instanceId,
+                                    const std::vector<Vec3> &poly, Vec3 *root) {
+    double best = 1e300;
+    const AiGrid &g = ai.grid;
+    for (int i = 0; i < g.redDim[0]; ++i)
+        for (int j = 0; j < g.redDim[1]; ++j)
+            for (int k = 0; k < g.redDim[2]; ++k) {
+                const long long t = g.redIndex(i, j, k);
+                if (t < 0 || (size_t) t >= ai.inst.size()) continue;
+                if ((int) ai.inst[(size_t) t] != instanceId) continue;
+                const Vec3 p = g.redToWorld(i, j, k);
+                for (size_t q = 0; q + 1 < poly.size(); ++q) {
+                    const Vec3 &a = poly[q], &b = poly[q + 1];
+                    const Vec3 ab = b - a;
+                    const double len2 = ab.dot(ab);
+                    double t2 = len2 > 1e-12 ? (p - a).dot(ab) / len2 : 0.0;
+                    if (t2 < 0.0) t2 = 0.0;
+                    if (t2 > 1.0) t2 = 1.0;
+                    const Vec3 foot = a + ab * t2;
+                    const Vec3 d = p - foot;
+                    const double dist = std::sqrt(d.dot(d));
+                    if (dist < best) {
+                        best = dist;
+                        if (root) *root = p;
+                    }
+                }
+            }
+    return best;
+}
+
+static void group15NerveRisk() {
+    beginGroup("组15 P-10 —— 第三磨牙↔下颌管风险度量（距离/接触/管壁皮质骨）");
+
+    ImplantLibrary::shared().loadBuiltin();   // 与组14 的后置状态隔离
+
+    Synth sy;
+    sy.build(32, 32, 32, 1.0, 1.0, 1.0, -1000.0f);
+    sy.cv.manufacturer = "ACME-HostStub";
+    sy.cv.seriesInstanceUID = "1.2.826.0.1.3.1.1.1.9.9.15";
+    sy.fillBox(4, 4, 4, 13, 13, 13, 1500.0f);          // 与实例 #1 同位的 HU 块
+
+    AiResult ai;
+    buildTwoToothAi(ai);                                // #1: 4..13, #2: 20..27 × k6..13
+    VolumeRef vol;
+    vol.bind(&sy.cv);
+
+    // ---- a) 非接触的解析最小距离 ----
+    //     折线沿 +y 从 (9.5,15.5,9.5) 起，掩膜最大球心 y=13.5 -> 距离正好 2.0，
+    //     且垂足落在线段端点（foot 不在线段内部），这一步专门卡"点到直线 vs 点到线段"。
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        const NervePath p = riskNerve(a, b, 0.5, "手描下颌管");
+        const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1, p, "手工描记");
+        checkTrue("a1 有掩膜+折线 -> 已测量", r.measured);
+        checkTrue("a1 折线顶点不在掩膜里 -> 非接触", !r.contact);
+        checkAbs("a1 最小距离解析值 2.0mm", r.minDistMm, 2.0, 1e-9);
+        checkAbs("a1 最近根面点 x", r.nearestRoot.x, 9.5, 1e-9);
+        checkAbs("a1 最近根面点 y（掩膜最大球心）", r.nearestRoot.y, 13.5, 1e-9);
+        checkAbs("a1 最近管点 = 折线端点（垂足在线段外）", r.nearestCanal.y, 15.5, 1e-9);
+        checkEqInt("a1 参与计算的掩膜体素数 = 实例体素数 1000", r.rootVoxels, 1000);
+        checkEqInt("a1 实例体素数与掩膜一致（取证字段自证）", ai.instances[0].voxels, 1000);
+        checkTrue("a1 半径 0.5 < 距离 2.0 -> 未进入管腔", !r.withinCanalRadius);
+        checkTrue("a1 皮质骨区间可取样（0.5..1.5）", r.cortexMeasured);
+        checkEqStr("a1 来源如实写手工描记", r.nerveSource, std::string("手工描记"));
+        checkHas("a1 结论行含最近距离", r.summaryText(), "最近距离");
+
+        Vec3 bruteRoot;
+        const double brute = bruteMaskPolylineDist(ai, 1, p.points, &bruteRoot);
+        checkAbs("a2 剪枝/包围盒结果 == 全网格暴力参照", r.minDistMm, brute, 1e-9);
+        checkAbs("a2 暴力参照本身就是 2.0", brute, 2.0, 1e-9);
+    }
+
+    // ---- a3) 折线中段最近（垂足在线段内部）+ 斜向折线的剪枝核对 ----
+    {
+        const Vec3 a(0.5, 17.0, 3.0), b(20.5, 17.0, 16.0);
+        const NervePath p = riskNerve(a, b, 1.5, "手描下颌管");
+        const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1, p, "手工描记");
+        Vec3 bruteRoot;
+        const double brute = bruteMaskPolylineDist(ai, 1, p.points, &bruteRoot);
+        checkTrue("a3 斜折线也测到了", r.measured);
+        checkAbs("a3 剪枝未漏掉真正的最近点", r.minDistMm, brute, 1e-9);
+        checkTrue("a3 最近点确实来自折线内部（距端点 > 0.5mm）", r.minDistMm < 3.6);
+        printf("        a3 实测 %.6f / 暴力 %.6f（参照最近根面点 %.1f,%.1f,%.1f）\n",
+               r.minDistMm, brute, bruteRoot.x, bruteRoot.y, bruteRoot.z);
+    }
+
+    // ---- b) 接触：折线顶点落进掩膜体素 -> 距离 0，不是"到表面的正数" ----
+    {
+        const Vec3 inside(9.5, 9.5, 9.5), outside(9.5, 15.5, 9.5);
+        const NervePath p = riskNerve(inside, outside, 1.5, "手描下颌管");
+        const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1, p, "手工描记");
+        checkTrue("b1 折线顶点在掩膜体内 -> 判为接触", r.contact);
+        checkTrue("b1 已测量", r.measured);
+        checkAbs("b1 接触时距离写 0（不是掩膜表面距离）", r.minDistMm, 0.0, 1e-12);
+        checkTrue("b1 接触即视为进入管腔半径", r.withinCanalRadius);
+        checkEqInt("b1 接触分支仍统计掩膜体素数（不写 0 让人以为没数据）", r.rootVoxels, 1000);
+        checkTrue("b1 根面已在管腔内 -> 管壁区间无可取样段", !r.cortexMeasured);
+        checkHas("b1 未取样原因写明管腔半径", r.error, "管腔半径");
+        checkHas("b1 结论行标出接触", r.summaryText(), "接触");
+    }
+
+    // ---- c) 管腔半径口径的边界：<= 算进入 ----
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        const ThirdMolarRisk tight = NerveRisk::assess(vol, ai, 1,
+                                                       riskNerve(a, b, 2.0, "手描"), "手工描记");
+        const ThirdMolarRisk loose = NerveRisk::assess(vol, ai, 1,
+                                                       riskNerve(a, b, 1.99, "手描"), "手工描记");
+        checkAbs("c1 距离仍是 2.0（半径不参与距离计算）", tight.minDistMm, 2.0, 1e-9);
+        checkTrue("c1 半径 2.0 == 距离 2.0 -> 边界算进入（<=）", tight.withinCanalRadius);
+        checkTrue("c2 半径 1.99 < 距离 2.0 -> 未进入", !loose.withinCanalRadius);
+        checkAbs("c2 当时用的半径随条目记录，换半径要重算", loose.canalRadiusMm, 1.99, 1e-9);
+    }
+
+    // ---- d) 管壁区间里的皮质骨取样（三档解析对照）----
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        // 射线上取样点依次是 y=15.0 / 14.5 / 14.0（step=0.5，tStart=0.5）
+        {
+            const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1,
+                                                       riskNerve(a, b, 0.5, "手描"), "手工描记");
+            checkTrue("d1 取到 3 个样点", r.cortexMeasured);
+            checkTrue("d1 全程 -1000HU -> 未采到骨", !r.cortexPresent);
+            checkAbs("d1 最长连续非骨段 = 3×0.5 = 1.5mm", r.cortexGapMm, 1.5, 1e-9);
+            checkHas("d1 结论行如实说\"未采到骨\"", r.summaryText(), "未采到骨");
+        }
+        sy.fillBox(8, 14, 8, 11, 15, 11, 1000.0f);     // 皮质骨薄板覆盖整段区间
+        {
+            const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1,
+                                                       riskNerve(a, b, 0.5, "手描"), "手工描记");
+            checkTrue("d2 已测量", r.measured);
+            checkTrue("d2 骨板在区间内 -> 采到骨", r.cortexPresent);
+            checkAbs("d2 三个样点全是骨 -> 非骨段 0mm", r.cortexGapMm, 0.0, 1e-9);
+            checkAbs("d2 骨口径写 200HU（PRD R-01 同源）", r.cortexBoneThresholdHu, 200.0, 1e-12);
+            checkHas("d2 结论行含\"采到骨\"", r.summaryText(), "采到骨");
+        }
+        for (int k = 8; k <= 11; ++k)
+            for (int j = 15; j <= 15; ++j)
+                for (int i = 8; i <= 11; ++i) sy.set(i, j, k, -1000.0f);   // 只留 j=14 一层
+        {
+            const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1,
+                                                       riskNerve(a, b, 0.5, "手描"), "手工描记");
+            // y=15.0 -> j15 空气；y=14.5 -> (1000 + -1000)/2 = 0 < 200；y=14.0 -> 骨
+            checkTrue("d3 中段插值掉到阈值以下 -> 仍算采到骨（端点命中）", r.cortexPresent);
+            checkAbs("d3 最长连续非骨段 = 前两段 1.0mm", r.cortexGapMm, 1.0, 1e-9);
+        }
+    }
+
+    // ---- e) 输入不可用：一律 measured=false + 原因，绝不产出数字 ----
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        VolumeRef novol;                                  // 未绑定
+        const ThirdMolarRisk g1 = NerveRisk::assess(novol, ai, 1,
+                                                    riskNerve(a, b, 1.5, "手描"), "手工描记");
+        checkTrue("e1 无体数据 -> 未测量", !g1.measured);
+        checkHas("e1 原因写明体数据未绑定", g1.error, "体数据未绑定");
+        checkAbs("e1 距离保持 -1（不是 0 也不是猜值）", g1.minDistMm, -1.0, 1e-12);
+
+        AiResult nomask;                                  // 空结果
+        const ThirdMolarRisk g2 = NerveRisk::assess(vol, nomask, 1,
+                                                    riskNerve(a, b, 1.5, "手描"), "手工描记");
+        checkTrue("e2 无 AI-01 掩膜 -> 未测量", !g2.measured);
+        checkHas("e2 原因写明缺牙根掩膜", g2.error, "掩膜");
+
+        const NervePath onePoint = riskNerve(a, a, 1.5, "手描");
+        NervePath truncated = onePoint;
+        truncated.points.pop_back();                      // 只剩 1 点
+        const ThirdMolarRisk g4 = NerveRisk::assess(vol, ai, 1, truncated, "手工描记");
+        checkTrue("e3 折线少于 2 点 -> 未测量", !g4.measured);
+        checkHas("e3 原因写明折线点数不足", g4.error, "2 点");
+
+        const ThirdMolarRisk g5 = NerveRisk::assess(vol, ai, 99,
+                                                    riskNerve(a, b, 1.5, "手描"), "手工描记");
+        checkTrue("e4 实例不在结果里 -> 未测量", !g5.measured);
+        checkHas("e4 原因写明实例不存在", g5.error, "不在当前推理结果里");
+        checkEqInt("e4 掩膜体素数 0（与接触时的 1000 形成对照）", g5.rootVoxels, 0);
+
+        checkHas("e5 未测量的结论行以\"未测量\"开头", g4.summaryText(), "未测量");
+    }
+
+    // ---- f) 来源可复核字段（FOV / 间距 / 剂量口径）----
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        const ThirdMolarRisk r = NerveRisk::assess(vol, ai, 1,
+                                                   riskNerve(a, b, 1.5, "手描"), "手工描记");
+        checkAbs("f1 FOV X = 32 体素 × 1.0mm", r.fovXMm, 32.0, 1e-9);
+        checkAbs("f1 FOV Y", r.fovYMm, 32.0, 1e-9);
+        checkAbs("f1 FOV Z", r.fovZMm, 32.0, 1e-9);
+        checkAbs("f1 体素间距 Z 如实记录", r.spacingZ, 1.0, 1e-12);
+        checkHas("f2 剂量：本序列没这些字段时如实写未携带", r.doseText, "未携带");
+        checkEqStr("f3 序列 UID 随行（可回查原始 DICOM）", r.seriesUid,
+                   std::string("1.2.826.0.1.3.1.1.1.9.9.15"));
+        checkEqStr("f3 设备厂商随行", r.manufacturer, std::string("ACME-HostStub"));
+        checkHas("f4 判读口径单独成句，且明说不参与 S-02",
+                 std::string(NerveRisk::gradingCaveat()), "不参与 S-02");
+        checkHas("f4 判读口径明说阈值待 PRD", std::string(NerveRisk::gradingCaveat()), "PRD");
+    }
+
+    // ---- g) JSON 逐字段往返（归档/报告/SR 共用同一份序列化）----
+    {
+        const Vec3 a(9.5, 15.5, 9.5), b(9.5, 20.5, 9.5);
+        ThirdMolarRisk src = NerveRisk::assess(vol, ai, 1,
+                                               riskNerve(a, b, 0.5, "手描"), "手工描记");
+        src.id = 77;
+        src.createdAt = 1700000000123LL;
+        const std::string text = NerveRisk::toJson(src).dump(false);
+        bool ok = false;
+        const Json back = Json::parse(text, &ok);
+        checkTrue("g1 序列化文本可再解析", ok);
+        ThirdMolarRisk out;
+        NerveRisk::fromJson(back, out);
+        checkEqInt("g2 id 往返", out.id, 77);
+        checkEqInt("g2 createdAt 往返（毫秒级不丢位）", out.createdAt, 1700000000123LL);
+        checkEqInt("g3 instanceId", out.instanceId, 1);
+        checkAbs("g3 minDistMm", out.minDistMm, src.minDistMm, 1e-9);
+        checkEqInt("g3 measured", out.measured ? 1 : 0, 1);
+        checkEqInt("g3 contact", out.contact ? 1 : 0, 0);
+        checkEqInt("g4 cortexMeasured/cortexPresent 两个布尔都要各归各",
+                   (long long) ((out.cortexMeasured && out.cortexPresent) ? 1 : 0), 1);
+        checkAbs("g4 cortexGapMm", out.cortexGapMm, src.cortexGapMm, 1e-9);
+        checkAbs("g5 canalRadiusMm", out.canalRadiusMm, 0.5, 1e-12);
+        checkEqInt("g5 rootVoxels 不截断", out.rootVoxels, 1000);
+        checkAbs("g6 最近点坐标往返", out.nearestRoot.y, 13.5, 1e-9);
+        checkAbs("g6 管侧最近点往返", out.nearestCanal.y, 15.5, 1e-9);
+        checkEqStr("g7 doseText 原文往返", out.doseText, src.doseText);
+        checkAbs("g7 fov 往返", out.fovZMm, 32.0, 1e-9);
+        checkHas("g8 判读口径随条目入档（三年后还能知道它没有阈值）", text, "gradingCaveat");
+
+        // 旧归档：完全没有 P-10 字段 -> 结构体默认值，且不得"看起来像测过"
+        ThirdMolarRisk legacy;
+        const Json emptyObj = Json::parse("{}", &ok);
+        NerveRisk::fromJson(emptyObj, legacy);
+        checkTrue("g9 空对象读出来 measured=false", !legacy.measured);
+        checkAbs("g9 距离保持默认 -1", legacy.minDistMm, -1.0, 1e-12);
+        checkAbs("g10 骨口径缺省时回填 200HU（取样口径不能空着）",
+                 legacy.cortexBoneThresholdHu, 200.0, 1e-12);
+    }
+
+    // ---- h) 管理器：入库、去重覆盖、牙位名、arch 过滤、失效 ----
+    {
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        mgr.adoptAiResult(ai);
+        const int nerveId = mgr.addNervePath(riskNerve(Vec3(9.5, 15.5, 9.5),
+                                                       Vec3(9.5, 20.5, 9.5), 1.5, "手描下颌管"));
+        checkTrue("h1 神经管已入库", nerveId > 0);
+
+        ThirdMolarRisk r;
+        checkTrue("h2 单条评估成功", mgr.assessNerveRisk(1, nerveId, r));
+        checkEqInt("h2 会话里 1 条风险", (long long) mgr.nerveRisks().size(), 1);
+        checkTrue("h2 条目 id 由管理器分配", r.id > 0);
+        checkTrue("h2 createdAt 非 0（报告按时间排序用）", r.createdAt > 0);
+        checkAbs("h2 数值与 core 层同一条算式", r.minDistMm, 2.0, 1e-9);
+
+        ThirdMolarRisk r2;
+        checkTrue("h3 重复评估仍成功", mgr.assessNerveRisk(1, nerveId, r2));
+        checkEqInt("h3 同组合覆盖而不是加行", (long long) mgr.nerveRisks().size(), 1);
+        checkEqInt("h3 沿用原 id（报告不会长出两份同形状的行）", r2.id, r.id);
+
+        const int otherNerve = mgr.addNervePath(riskNerve(Vec3(24.5, 29.5, 10.5),
+                                                          Vec3(24.5, 31.5, 10.5), 1.5, "手描 II"));
+        ThirdMolarRisk r3;
+        checkTrue("h4 不同实例 × 不同路径可并存", mgr.assessNerveRisk(2, otherNerve, r3));
+        checkEqInt("h4 会话里 2 条", (long long) mgr.nerveRisks().size(), 2);
+        checkTrue("h5 删除单条生效", mgr.removeNerveRisk(r3.id));
+        checkEqInt("h5 删除后 1 条", (long long) mgr.nerveRisks().size(), 1);
+        checkTrue("h5 删不存在的 id 返回 false", !mgr.removeNerveRisk(999999));
+
+        // 未知神经管 id：返回 false 且带原因（UI 要显示"点了没反应"的那一句）
+        ThirdMolarRisk bad;
+        checkTrue("h6 不存在的神经管 -> false", !mgr.assessNerveRisk(1, 999999, bad));
+        checkHas("h6 原因写明路径不在会话里", bad.error, "不在会话里");
+        checkTrue("h6 失败的组合不入库", (long long) mgr.nerveRisks().size() == 1);
+    }
+
+    // ---- h7) 牙位名回填：AI 掩膜落库为 ROI 后，风险行用临床名字 ----
+    {
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        mgr.adoptAiResult(ai);
+        mgr.aiAutoMeasure(true);
+        const int nerveId = mgr.addNervePath(riskNerve(Vec3(9.5, 15.5, 9.5),
+                                                       Vec3(9.5, 20.5, 9.5), 1.5, "手描"));
+        ThirdMolarRisk r;
+        checkTrue("h7 评估成功", mgr.assessNerveRisk(1, nerveId, r));
+        checkHas("h7 牙位名取掩膜 ROI 名（AI 牙 U…）", r.toothName, "AI 牙");
+        checkHas("h7 ROI 名里带实例号，报告能对回 #1", r.toothName, "#1");
+    }
+
+    // ---- h8) 一键评估的牙弓过滤 ----
+    {
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        mgr.adoptAiResult(ai);                 // #1 arch=0（上颌）/ #2 arch=1（下颌）
+        // 一键评估不需要点名路径，所以这里只入库不取 id
+        mgr.addNervePath(riskNerve(Vec3(24.5, 29.5, 10.5),
+                                   Vec3(24.5, 31.5, 10.5), 1.5, "手描"));
+        const int n = mgr.assessAllNerveRisks();
+        checkEqInt("h8 下颌弓 1 颗 × 1 条路径 -> 1 条", n, 1);
+        checkTrue("h8 入库的是下颌那颗（arch==1）",
+                  !mgr.nerveRisks().empty() && mgr.nerveRisks()[0].instanceId == 2);
+
+        // 没有神经管路径时不产条目，日志给原因（不是静默 0）
+        MeasurementManager mgr0;
+        mgr0.bindVolume(&sy.cv);
+        mgr0.adoptAiResult(ai);
+        checkEqInt("h9 无路径 -> 0 条", mgr0.assessAllNerveRisks(), 0);
+
+        // 牙弓判不出来（arch=-1）时的退化路径：全口评估，但条目要说清口径
+        AiResult unknownArch;
+        buildTwoToothAi(unknownArch);
+        for (size_t i = 0; i < unknownArch.instances.size(); ++i)
+            unknownArch.instances[i].arch = -1;
+        MeasurementManager mgrU;
+        mgrU.bindVolume(&sy.cv);
+        mgrU.adoptAiResult(unknownArch);
+        mgrU.addNervePath(riskNerve(Vec3(24.5, 29.5, 10.5), Vec3(24.5, 31.5, 10.5), 1.5, "手描"));
+        checkEqInt("h10 arch 未知 -> 退化为一颗都不漏（2 实例各 1 条）",
+                   mgrU.assessAllNerveRisks(), 2);
+
+        // 重跑推理（掩膜换了）：旧风险数字必须作废，而不是继续显示上一轮的距离
+        const size_t before = mgr.nerveRisks().size();
+        checkTrue("h11 clearAi 前有条目", before > 0);
+        mgr.clearAi();
+        checkEqInt("h11 重推后风险条目清空（依赖掩膜的数字不能留旧值）",
+                   (long long) mgr.nerveRisks().size(), 0);
+    }
+
+    // ---- h12) AI-02 自动管道的来源文案（门禁未过这件事要一路跟到报告）----
+    {
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        mgr.adoptAiResult(ai);
+        const int autoId = mgr.addNervePath(riskNerve(Vec3(9.5, 15.5, 9.5),
+                                                      Vec3(9.5, 20.5, 9.5), 1.5,
+                                                      std::string(AiConst::CANAL_AUTO_NOTE) + " #1"));
+        ThirdMolarRisk r;
+        checkTrue("h12 自动管道也能评估", mgr.assessNerveRisk(1, autoId, r));
+        checkHas("h12 来源写明是 AI-02 自动结果", r.nerveSource, "AI-02");
+        checkHas("h12 来源同时写明本轮只作预览", r.nerveSource, "预览");
+        checkHas("h13 结论行里有神经管名字", r.summaryText(), "AI-02");
+    }
+
+    // ---- i) plan.json：随归档走 + 旧归档兼容 ----
+    {
+        MeasurementManager mgr;
+        mgr.bindVolume(&sy.cv);
+        mgr.adoptAiResult(ai);
+        const int nerveId = mgr.addNervePath(riskNerve(Vec3(9.5, 15.5, 9.5),
+                                                       Vec3(9.5, 20.5, 9.5), 0.5, "手描下颌管"));
+        ThirdMolarRisk r;
+        checkTrue("i1 评估成功（写盘前夹具已就绪）", mgr.assessNerveRisk(1, nerveId, r));
+
+        const Json plan = mgr.planJson();
+        bool ok = false;
+        const Json root = Json::parse(plan.dump(false), &ok);
+        checkTrue("i2 plan.json 可解析", ok);
+        const Json &arr = root.at("nerveRisks");
+        checkTrue("i3 归档里有 nerveRisks 数组", arr.isArray());
+        checkEqInt("i3 条数与内存一致", (long long) arr.size(), 1);
+        checkAbs("i4 归档内数值未失真", arr[0].at("minDistMm").asNumber(-99), 2.0, 1e-9);
+
+        MeasurementManager mgr2;
+        mgr2.bindVolume(&sy.cv);
+        checkTrue("i5 恢复归档成功", mgr2.planFromJson(plan));
+        checkEqInt("i6 风险条目随归档恢复", (long long) mgr2.nerveRisks().size(), 1);
+        if (!mgr2.nerveRisks().empty()) {
+            const ThirdMolarRisk &b = mgr2.nerveRisks()[0];
+            checkEqInt("i7 id 原样恢复（不重新编号）", b.id, r.id);
+            checkAbs("i7 距离原样恢复", b.minDistMm, 2.0, 1e-9);
+            checkAbs("i7 皮质骨缺口原样恢复", b.cortexGapMm, r.cortexGapMm, 1e-9);
+            checkEqStr("i8 剂量口径原文恢复", b.doseText, r.doseText);
+            // 恢复后的 mgr2 没有 AI 掩膜：条目按原值留着，但绝不能被"顺手重算"改写
+            mgr2.recomputePlan();
+            checkTrue("i9 recomputePlan 不重算风险（没有掩膜就会把数字刷成未测量）",
+                      !mgr2.nerveRisks().empty() &&
+                      mgr2.nerveRisks()[0].measured &&
+                      std::fabs(mgr2.nerveRisks()[0].minDistMm - 2.0) < 1e-9);
+        }
+        // 恢复归档后再评估同一会话的另一个组合：id 不得与已恢复的条目撞号
+        mgr2.adoptAiResult(ai);              // 恢复的归档本身不带掩膜，先补上
+        ThirdMolarRisk again;
+        const int nid2 = mgr2.addNervePath(riskNerve(Vec3(24.5, 29.5, 10.5),
+                                                     Vec3(24.5, 31.5, 10.5), 1.5, "手描 II"));
+        const bool okAgain = mgr2.assessNerveRisk(2, nid2, again);
+        checkTrue("i10 恢复后可继续新增评估", okAgain);
+        checkEqInt("i11 新条目 id 不与恢复条目重复", (long long) (again.id != r.id ? 1 : 0), 1);
+        checkEqInt("i11 会话里共 2 条", (long long) mgr2.nerveRisks().size(), 2);
+
+        // 第 7 轮及以前的归档：完全没有 nerveRisks 键
+        Json legacy = Json::makeObject();
+        legacy.set("implants", Json::makeArray());
+        legacy.set("nervePaths", Json::makeArray());
+        MeasurementManager mgrL;
+        mgrL.bindVolume(&sy.cv);
+        checkTrue("i12 旧归档仍能载入", mgrL.planFromJson(legacy));
+        checkEqInt("i12 旧归档读出 0 条风险（而不是 1 条来源不明的条目）",
+                   (long long) mgrL.nerveRisks().size(), 0);
+    }
+}
+
+
+// ============================================================================
 // 入口
 // ============================================================================
 
@@ -1775,6 +3302,10 @@ int main() {
     group9Picker();
     group10Orthodontics();
     group11AiMaskReuse();
+    group12CanalTracking();
+    group13SpacingRegression();
+    group14ImplantLibraryAndCrown();
+    group15NerveRisk();
 
     printf("\n================ PRD §6 精度实测汇总 ================\n");
     printf("  AC-01 距离  最坏绝对误差 = %.3e mm（要求 <= 0.1 mm）%s\n",

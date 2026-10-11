@@ -1,14 +1,20 @@
 package com.example.dcmtkdemo.fragment
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Bundle
+import android.text.InputType
 import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -33,6 +39,7 @@ import com.wangyao.cbctmeasure.jni.SurgeryPlanJni
 import com.wangyao.cbctmeasure.model.AnnotationItem
 import com.wangyao.cbctmeasure.model.AnnotationType
 import com.wangyao.cbctmeasure.model.CombineOp
+import com.wangyao.cbctmeasure.model.CrownRefKind
 import com.wangyao.cbctmeasure.model.MeasurePlane
 import com.wangyao.cbctmeasure.model.MeasureType
 import com.wangyao.cbctmeasure.model.OverlayOwner
@@ -44,6 +51,7 @@ import com.wangyao.cbctmeasure.model.ToolState
 import com.wangyao.cbctmeasure.model.VolumeInfo
 import com.wangyao.cbctmeasure.model.WorldPoint
 import com.wangyao.cbctmeasure.report.ReportExporter
+import com.wangyao.cbctmeasure.store.ImplantModelAssets
 import com.wangyao.cbctmeasure.store.MeasurementStore
 import com.wangyao.cbctmeasure.view.MeasureToolController
 import kotlinx.coroutines.Dispatchers
@@ -933,10 +941,17 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
                 MeasureRow(
                     ownerKind = OverlayOwner.IMPLANT,
                     id = im.id,
-                    title = "#${im.id} ${im.name.ifEmpty { "种植体" }}（${SafetyLevel.label(im.level)}）",
+                    title = "#${im.id} ${im.name.ifEmpty { "种植体" }}" +
+                            // P-09：型号编号进标题，列表里就能看出这颗是不是"可采购型号"
+                            (if (im.sku.isEmpty()) "" else " · ${im.sku}") +
+                            "（${SafetyLevel.label(im.level)}）",
                     value = "骨高 %.1f / 骨宽 %.1f mm".format(im.boneHeightMm, im.boneWidthMm),
-                    sub = "神经距 %.1f · 间距 %.1f mm%s".format(
-                        im.nerveDistMm, im.minSpacingMm,
+                    // D-10：未测量显示文字而不是 "-1.0"；负间距照实显示（= 表面重叠，判红依据）
+                    sub = "神经距 %s · 间距 %s\n%s%s".format(
+                        if (im.nerveMeasured) "%.1fmm".format(im.nerveDistMm) else "未测",
+                        if (im.spacingMeasured) "%.1fmm".format(im.minSpacingMm) else "无邻",
+                        // P-09：S-11/S-12 只有数值没有判级，未设参考时必须这样写出来
+                        im.crownText(),
                         if (im.warnText.isEmpty()) "" else " · ${im.warnText}"
                     ),
                     color = SafetyLevel.color(im.level),
@@ -1040,6 +1055,9 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
                 controller?.switchState(ToolState.NERVE_TRACE, row.id)
             }
             OverlayOwner.ANNOTATION -> editAnnotationText(row.id)
+            // P-09：点种植体行 = 打开参数编辑（型号库 / 冠方参考 / 尺寸）。
+            // 第 7 轮之前 updateImplant 在界面上没有调用方，放置后只能删除重放。
+            OverlayOwner.IMPLANT -> editImplant(row.id)
             else -> binding.tvMeasureSummary.text = "【选中】${row.title}\n${row.value}\n${row.sub}"
         }
     }
@@ -1097,6 +1115,181 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
         binding.tvMeasureSummary.text =
             "【标注 #${a.id}】${AnnotationType.label(a.type)}\n${a.text}\n" +
                     "点数 ${a.points.size} · ${MeasurePlane.label(a.plane)} 第 ${a.planePosition} 层"
+    }
+
+    // =========================================================================
+    // P-09：植体型号库 + 冠方参考（crown-down）编辑
+    // =========================================================================
+
+    /** 一个小数输入框（弹窗里三件套共用） */
+    private fun decimalField(ctx: Context, hint: String, value: Double): EditText =
+        EditText(ctx).apply {
+            this.hint = hint
+            setInputType(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+            setText("%.1f".format(value))
+        }
+
+    /**
+     * 编辑一颗种植体：型号库选型、冠方参考、直径/全长/深度。
+     *
+     * 为什么入口是"点结果列表里的种植体行"：`SurgeryPlanJni.updateImplant` 这条
+     * 通道一期就写好了但界面上没有调用方（放置后只能删除重放）。P-09 必须能改型号
+     * 与冠方参考，所以补上编辑弹窗。弹窗**只提交参数**，所有数值仍由 Native 重算 ——
+     * 本页不自己算，这是"界面数字 = PDF 数字 = SR 数字"的前提。
+     *
+     * S-11/S-12 不在这里填阈值：PRD 没给冠偏差的判级数值（用户决策点 4），
+     * 弹窗只负责给出参考与读数。
+     */
+    @SuppressLint("SetTextI18n")
+    private fun editImplant(implantId: Int) {
+        val h = sessionHandle
+        if (h == 0L) return
+        val cur = SurgeryPlanJni.implantsOf(MeasureJni.dumpPlan(h))
+            .firstOrNull { it.id == implantId }
+        if (cur == null) {
+            toast("找不到种植体 #$implantId")
+            return
+        }
+        val modelCount = ImplantModelAssets.ensureLoaded(requireContext())
+        val models = SurgeryPlanJni.models()
+
+        var sku = cur.sku
+        var crownKind = cur.crownRefKind
+        var crownId = cur.crownRefId
+
+        val ctx = requireContext()
+        val status = TextView(ctx)
+        val btnModel = Button(ctx)
+        val btnCrown = Button(ctx)
+        val etDia = decimalField(ctx, "体直径 mm（S-04/S-06 用它）", cur.diaMm)
+        val etLen = decimalField(ctx, "桩体全长 mm", cur.lengthMm)
+        val etDepth = decimalField(ctx, "植入深度 mm", cur.depthMm)
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(8, 4, 8, 4)
+        }
+        listOf<View>(status, btnModel, btnCrown, etDia, etLen, etDepth).forEach { box.addView(it) }
+        val scroll = ScrollView(ctx).apply { addView(box) }
+
+        fun refresh() {
+            status.text = buildString {
+                append("#$implantId ${cur.name.ifEmpty { "种植体" }}\n")
+                append(
+                    "骨高 %.1f / 骨宽 %.1f mm · 神经 %s · 间距 %s\n".format(
+                        cur.boneHeightMm, cur.boneWidthMm, cur.nerveDistText(), cur.spacingText()
+                    )
+                )
+                append(cur.crownText()).append("\n")
+                append("冠方参考：${CrownRefKind.label(crownKind, crownId)}\n")
+                append("型号库：${if (SurgeryPlanJni.libraryIsGeneric()) "通用名义尺寸" else "资产目录"}" +
+                        " · ${models.size} 个型号（装载结果 $modelCount）\n")
+                append("提示：S-11/S-12 只给数值，判级阈值待 PRD 定值")
+            }
+            btnModel.text = if (sku.isEmpty()) "选择型号（当前：自由参数）" else "选择型号（当前：$sku）"
+            btnCrown.text = "冠方参考：${CrownRefKind.label(crownKind, crownId)}"
+        }
+        refresh()
+
+        btnModel.setOnClickListener {
+            if (models.isEmpty()) {
+                toast("型号库为空：检查 assets/implant_models.json")
+                return@setOnClickListener
+            }
+            AlertDialog.Builder(ctx)
+                .setTitle("选择植体型号（${models.size} 个）")
+                .setItems(models.map { it.label() }.toTypedArray()) { d, which ->
+                    val m = models[which]
+                    sku = m.sku
+                    etDia.setText("%.1f".format(m.diaMm))
+                    etLen.setText("%.1f".format(m.lengthMm))
+                    Log.d(TAG, "editImplant: 选中型号 ${m.sku} Ø${m.diaMm}×${m.lengthMm}")
+                    d.dismiss()
+                    refresh()
+                }
+                .setNegativeButton("不选", null)
+                .show()
+        }
+
+        btnCrown.setOnClickListener { showCrownReferencePicker(h, crownKind, crownId) { k, id ->
+            crownKind = k
+            crownId = id
+            refresh()
+        } }
+
+        AlertDialog.Builder(ctx)
+            .setTitle("编辑种植体 #$implantId")
+            .setView(scroll)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("应用并重算") { _, _ ->
+                val dia = etDia.text.toString().toDoubleOrNull()
+                val len = etLen.text.toString().toDoubleOrNull()
+                val depth = etDepth.text.toString().toDoubleOrNull()
+                if (dia == null || len == null || depth == null || dia <= 0.0 || len <= 0.0 ||
+                    depth <= 0.0
+                ) {
+                    toast("直径/全长/深度必须是正数")
+                    return@setPositiveButton
+                }
+                val next = cur.copy(
+                    diaMm = dia, lengthMm = len, depthMm = depth, sku = sku,
+                    crownRefKind = crownKind, crownRefId = crownId,
+                    // 取消参考时清掉缓存坐标，避免报告里留着上一次的冠中心
+                    crownCenter = if (crownKind == CrownRefKind.NONE) WorldPoint.ZERO
+                    else cur.crownCenter,
+                )
+                if (!SurgeryPlanJni.updateImplant(h, next)) {
+                    toast("更新失败（Native 未找到 #$implantId）")
+                    return@setPositiveButton
+                }
+                // S-06 的相邻间距依赖其它桩体，任何参数改动都要整体重算
+                SurgeryPlanJni.recomputePlan(h)
+                controller?.notifyDataChanged()
+                val after = SurgeryPlanJni.implantsOf(MeasureJni.dumpPlan(h))
+                    .firstOrNull { it.id == implantId } ?: next
+                binding.tvMeasureSummary.text = buildString {
+                    append("【已更新种植体 #$implantId】")
+                    append(if (after.sku.isEmpty()) " 自由参数" else " 型号 ${after.sku}")
+                    append(" · Ø%.1f×%.1fmm".format(after.diaMm, after.lengthMm))
+                    append("\n${SafetyLevel.label(after.level)}：${after.warnText}")
+                }
+                toast("已更新 #${after.id}")
+            }
+            .show()
+    }
+
+    /** 冠方参考选择：只列模块里已有的临床对象（R-04 球面 ROI / A-* 标注），不新增取点工具 */
+    private fun showCrownReferencePicker(
+        h: Long,
+        kindNow: Int,
+        idNow: Int,
+        onPicked: (Int, Int) -> Unit,
+    ) {
+        val spheres = RoiJni.list(h).filter { it.type == RoiType.SPHERE && !it.sphereCenter.isZero() }
+        val annos = AnnotationJni.list(h).filter { it.points.isNotEmpty() }
+        if (spheres.isEmpty() && annos.isEmpty()) {
+            toast("先在预定牙冠位置建一个 R-04 球面 ROI 或 A-* 标注，再回来设置冠方参考")
+            return
+        }
+        val labels = mutableListOf("不设置（S-11/S-12 不出数值）")
+        val picks = mutableListOf(CrownRefKind.NONE to 0)
+        spheres.forEach {
+            labels.add("R-04 球面 ROI #${it.id} ${it.name.ifEmpty { "球" }} 半径 %.1fmm".format(it.sphereRadius))
+            picks.add(CrownRefKind.SPHERE_ROI to it.id)
+        }
+        annos.forEach {
+            labels.add("标注 #${it.id} ${AnnotationType.label(it.type)} " +
+                    "${it.text.ifEmpty { "无文字" }}（${it.points.size} 点）")
+            picks.add(CrownRefKind.ANNOTATION to it.id)
+        }
+        val checked = picks.indexOf(kindNow to idNow).coerceAtLeast(0)
+        AlertDialog.Builder(requireContext())
+            .setTitle("冠方参考 = 预定牙冠位置\n球心/标注首点为冠中心；两点标注的两端为冠长轴")
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which ->
+                onPicked(picks[which].first, picks[which].second)
+                d.dismiss()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun onRowVisibility(row: MeasureRow, visible: Boolean) {

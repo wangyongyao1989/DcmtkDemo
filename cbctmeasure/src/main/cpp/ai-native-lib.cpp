@@ -1,10 +1,15 @@
-// AI-01 / AI-03 的 JNI 桥接（PRD 5.6，对应 Kotlin 侧 AiJni）。
+// AI-01 / AI-02 / AI-03 的 JNI 桥接（PRD 5.6，对应 Kotlin 侧 AiJni）。
 //
 // 分层约束与 measure-native-lib.cpp 完全一致：本文件只做
 //   "取会话 -> 解析入参 -> 调 core/ai 的 C++ 接口 -> 结果转 JSON"，
 // 不做任何数值计算，也不出现 ORT 类型（OrtEngine 把 ORT 藏在自己的 .cpp 里）。
 // 因此"AI 崩了会不会带崩测量会话"这个问题在结构上就只有一个答案：
 // 除非 JNI 层写错，否则不会 —— AI 的失败路径全部是返回 JSON 里的 ok=false。
+//
+// 共 20 个原生方法 = 牙齿通道 11 个 + 下颌管通道 9 个（Canal 前缀）。两条通道
+// 各持一个 OrtEngine 会话（见 MeasureJniHelper.h 的 canalOrt 注释），所以下颌管
+// 没有"复用同一入口换个参数"的写法：一旦共用，牙齿掩膜与管腔掩膜就不能同时在场，
+// AI-03 与 S-05 会互相把对方的结果清掉。
 
 #include <jni.h>
 
@@ -19,6 +24,7 @@
 #include "include/AiPlanner.h"
 #include "include/Json.h"
 #include "include/MeasureJniHelper.h"
+#include "include/NerveAutoTracker.h"
 
 #define TAG "CbctMeasureAi"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
@@ -36,6 +42,20 @@ static Json okErr(bool ok, const std::string &err) {
     j.set("ok", Json::makeBool(ok));
     j.set("error", Json::makeString(err));
     return j;
+}
+
+/**
+ * 每条自动下颌管是否都拿到了实测截面半径。
+ *
+ * 只要有一条回退到 NervePath 默认 1.5mm，就不能对医生宣称"神经距离里的半径
+ * 是量出来的"（S-05 的减项口径直接受影响），所以判定取"全部"而不是"第一条"。
+ */
+static bool allRadiusMeasured(const std::vector<NerveTrack> &tr) {
+    if (tr.empty()) return false;
+    for (size_t i = 0; i < tr.size(); ++i) {
+        if (tr[i].radiusMm <= 0.0) return false;
+    }
+    return true;
 }
 
 /**
@@ -252,6 +272,248 @@ Java_com_wangyao_cbctmeasure_jni_AiJni_nativeAiDumpParity(JNIEnv *env, jclass cl
 }
 
 // =============================================================================
+// AI-02 下颌管（升级建议 P-01）：第二个模型通道
+//
+// 这一组原生函数与牙齿那组是同一段代码路径的两次使用：runSegment / dumpParity
+// 都不区分"牙"还是"管"（它们只认 AiBackend 与阈值），差别全在
+//   1) 用会话里另一个 OrtEngine（canalRes 与牙齿掩膜必须能同时在场：
+//      AI-03 读牙弓、S-05 读神经管，串成一个会话就得丢掉另一半）；
+//   2) 后处理不是"每牙一条记录"，而是 NerveAutoTracker 把连通域追成折线，
+//      再通过既有的 addNervePath 通道进会话 —— 于是叠加层、S-05 安全判级、
+//      PDF 报告、DICOM SR 一期就有的链路全部自动带上它，零下游分支。
+// 阈值不在这里发明：Kotlin 从 canal_cnn.json（主机在验证集上标定）读来传入。
+// =============================================================================
+
+/**
+ * nativeLoadCanalModel(handle, soPath, modelPath, modelName, threads, threshold)
+ *
+ * 与 nativeLoadModel 同样的通道数契约校验（6 入 2 出）。差别是权重不在 assets：
+ * 决策 2 要求 AI 资产"不进 APK、只在主机侧"，所以 modelPath 指向外部目录或
+ * 用户选择的文件，本函数只负责 dlopen + 建会话。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeLoadCanalModel(JNIEnv *env, jclass clazz,
+                                                            jlong handle, jstring so_path,
+                                                            jstring model_path,
+                                                            jstring model_name, jint threads,
+                                                            jdouble threshold) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return jsonStr(env, okErr(false, "会话句柄无效"));
+
+    JniStr so(env, so_path);
+    JniStr mp(env, model_path);
+    JniStr mn(env, model_name);
+    if (!so.c() || !mp.c()) return jsonStr(env, okErr(false, "soPath/modelPath 为空"));
+
+    std::string err;
+    const bool ok = s->canalOrt.load(so.c(), mp.c(), (int) threads, err);
+    s->canalReady = ok;
+    if (ok) {
+        s->canalModelName = mn.c() ? mn.c() : "canal_cnn";
+        s->canalThreshold = (double) threshold;
+        int dim[3];
+        if (s->canalOrt.inputDim3(dim)) {
+            Json j = okErr(true, "");
+            j.set("runtimeSo", Json::makeString(s->canalOrt.usedSo()));
+            j.set("runtimeInfo", Json::makeString(s->canalOrt.info()));
+            j.set("modelPath", Json::makeString(mp.c()));
+            j.set("inputName", Json::makeString(s->canalOrt.inputName()));
+            j.set("outputName", Json::makeString(s->canalOrt.outputName()));
+            Json d = Json::makeArray();
+            for (int a = 0; a < 3; ++a) d.push(Json::makeNumber(dim[a]));
+            j.set("modelDim", d);
+            j.set("inChannels", Json::makeNumber(s->canalOrt.inputChannels()));
+            j.set("outChannels", Json::makeNumber(s->canalOrt.outputChannels()));
+            j.set("expectChannels", Json::makeNumber(AiConst::IN_CHANNELS));
+            j.set("threshold", Json::makeNumber(s->canalThreshold));
+            LOGD("loadCanalModel ok: %s threshold=%.3f", s->canalOrt.info().c_str(),
+                 s->canalThreshold);
+            return jsonStr(env, j);
+        }
+        // 通道数不匹配时把会话卸掉：留着它只会产出无意义掩膜
+        s->canalOrt.unload();
+        s->canalReady = false;
+        err = "模型输入通道 " + std::to_string(s->canalOrt.inputChannels())
+              + " != core 特征通道 " + std::to_string(AiConst::IN_CHANNELS);
+    }
+    LOGE("loadCanalModel failed: %s", err.c_str());
+    return jsonStr(env, okErr(false, err));
+}
+
+/** nativeReleaseCanalModel(handle) */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeReleaseCanalModel(JNIEnv *env, jclass clazz,
+                                                               jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return;
+    s->canalOrt.unload();
+    s->canalReady = false;
+    s->canalParityFeat.clear();
+    s->canalParityProb.clear();
+    LOGD("releaseCanalModel: 下颌管 ORT 会话已释放");
+}
+
+/** nativeCanalReady(handle): UI 决定"下颌管"按钮是否可点 */
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalReady(JNIEnv *env, jclass clazz, jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    return (s && s->canalReady && s->mgr.hasVolume()) ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
+ * nativeRunCanal(handle, threshold, keepParity)
+ *
+ * 推理 -> 掩膜 -> NerveAutoTracker -> NervePath。返回 JSON 除了 AiResult 的
+ * 取证字段（耗时/掩膜统计），还带 tracks（逐条折线点，主机脚本 AC-08-2 用它
+ * 与 canal.py 的 centerlines 逐点比）与 adopted（进了会话的条数）。
+ *
+ * threshold<=0 时用 nativeLoadCanalModel 记下的标定值 —— 保留一个显式入参是
+ * 为了真机上做"阈值敏感性"取证（同一模型不同阈值各跑一次，看追出几条）。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeRunCanal(JNIEnv *env, jclass clazz, jlong handle,
+                                                      jdouble threshold, jboolean keep_parity) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return jsonStr(env, okErr(false, "会话句柄无效"));
+    if (!s->mgr.hasVolume()) return jsonStr(env, okErr(false, "尚未绑定体数据，请先加载序列"));
+    if (!s->canalReady) return jsonStr(env, okErr(false, "下颌管模型未加载"));
+
+    double thr = (double) threshold;
+    if (thr <= 0.0 || thr >= 1.0) thr = s->canalThreshold;
+
+    std::vector<float> tmpFeat, tmpProb;
+    std::vector<float> *fp = keep_parity ? &s->canalParityFeat : &tmpFeat;
+    std::vector<float> *pp = keep_parity ? &s->canalParityProb : &tmpProb;
+    AiEngine::runSegment(s->mgr.volume(), s->canalOrt, thr, s->canalRes, fp, pp);
+    s->canalRes.modelName = s->canalModelName;
+
+    Json j = aiResultToJson(s->canalRes);
+    j.set("thresholdUsed", Json::makeNumber(thr));
+    j.set("feedsGrading", Json::makeBool(s->mgr.autoNerveFeedsGrading()));
+    if (s->canalRes.ok) {
+        const int adopted = s->mgr.adoptCanalTracks(s->canalRes);
+        s->invalidate();      // 神经管折线进叠加层，缓存必须重算
+        const std::vector<NerveTrack> &tr = s->mgr.canalTracks();
+        j.set("tracks", NerveAutoTracker::tracksJson(tr));
+        j.set("adopted", Json::makeNumber(adopted));
+        j.set("autoNerveCount", Json::makeNumber(s->mgr.autoNerveCount()));
+        j.set("gradingNerveCount",
+              Json::makeNumber((long long) s->mgr.nervesForGrading().size()));
+        // 手工条数用带符号减法算：autoNerveCount 与 nervePaths() 是两处状态，
+        // 万一归档后不一致，size_t 相减会回绕成一个巨大的数写进 JSON。
+        const int total = (int) s->mgr.nervePaths().size();
+        const int manual = total > s->mgr.autoNerveCount()
+                           ? total - s->mgr.autoNerveCount() : 0;
+        j.set("manualNerveCount", Json::makeNumber(manual));
+        j.set("trackSummary", Json::makeString(
+                NerveAutoTracker::summaryText(tr, thr, allRadiusMeasured(tr))));
+    }
+    // 注意：AiResult 里这个字段叫 toothVoxels（一期只有牙时定下的名字），对下颌管
+    // 通道它装的就是 label==1 的"管腔体素数"。不改名是为了不牵动 aiResultToJson /
+    // parity 脚本 / 已归档 planJson 的字段口径，这里用局部名把语义说清。
+    const long long canalVoxels = s->canalRes.toothVoxels;
+    LOGD("runCanal -> ok=%d canalVoxels=%lld thr=%.3f tracks=%d total=%.0fms "
+         "(prep %.0f / infer %.0f / post %.0f)",
+         s->canalRes.ok ? 1 : 0, canalVoxels, thr,
+         s->mgr.autoNerveCount(), s->canalRes.totalMs, s->canalRes.prepMs,
+         s->canalRes.inferMs, s->canalRes.postMs);
+    return jsonStr(env, j);
+}
+
+/** nativeCanalStatus(handle): 不重算，只把当前下颌管结果与折线序列化出去 */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalStatus(JNIEnv *env, jclass clazz, jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return jsonStr(env, okErr(false, "会话句柄无效"));
+    Json j = aiResultToJson(s->canalRes);
+    j.set("runtimeReady", Json::makeBool(s->canalReady));
+    j.set("runtimeInfo", Json::makeString(
+            s->canalReady ? s->canalOrt.info() : std::string("未加载")));
+    j.set("thresholdCalibrated", Json::makeNumber(s->canalThreshold));
+    const std::vector<NerveTrack> &tr = s->mgr.canalTracks();
+    j.set("tracks", NerveAutoTracker::tracksJson(tr));
+    j.set("autoNerveCount", Json::makeNumber(s->mgr.autoNerveCount()));
+    j.set("feedsGrading", Json::makeBool(s->mgr.autoNerveFeedsGrading()));
+    j.set("gradingNerveCount", Json::makeNumber((long long) s->mgr.nervesForGrading().size()));
+    j.set("trackSummary", Json::makeString(NerveAutoTracker::summaryText(
+            tr, s->canalThreshold, allRadiusMeasured(tr))));
+    return jsonStr(env, j);
+}
+
+/**
+ * nativeCanalClear(handle): 移除自动下颌管折线（手描神经管一条都不动）。
+ * 身份判定用名字前缀（AiConst::CANAL_AUTO_NOTE），与 R-06 自动记录的
+ * AUTO_NOTE 同一套口径 —— 不新增 NervePath 字段，归档 planJson 因此不需要迁移。
+ */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalClear(JNIEnv *env, jclass clazz, jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return jsonStr(env, okErr(false, "会话句柄无效"));
+    const int removed = s->mgr.clearCanalTracks();
+    s->canalRes = AiResult();
+    s->canalParityFeat.clear();
+    s->canalParityProb.clear();
+    s->invalidate();
+    Json j = okErr(true, "");
+    j.set("removed", Json::makeNumber(removed));
+    j.set("remainingNerves", Json::makeNumber(s->mgr.nervePaths().size()));
+    LOGD("canalClear: 移除 %d 条自动下颌管，剩 %zu 条神经管",
+         removed, s->mgr.nervePaths().size());
+    return jsonStr(env, j);
+}
+
+/**
+ * nativeCanalFeedGrading(handle, feed): 自动下颌管是否进 S-05/AI-03 判级。
+ *
+ * 默认 false（关闭时自动管道照样绘制、归档、进报告，只是不改种植体颜色）。
+ * 这个开关的存在理由写在 MeasurementManager::setAutoNerveFeedsGrading 的注释里：
+ * 主机准入门禁 MISSED，16 轴探针实测"换成自动管道后神经距离会偏 7.8mm 平均 /
+ * 18.2mm 最大"，而红档判据只有 2.0mm。UI 上它是一个需要医生主动勾选的动作。
+ */
+extern "C" JNIEXPORT void JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalFeedGrading(JNIEnv *env, jclass clazz,
+                                                              jlong handle, jboolean feed) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return;
+    s->mgr.setAutoNerveFeedsGrading(feed == JNI_TRUE);
+    s->invalidate();
+    LOGD("canalFeedGrading = %d（判级实际使用的神经管 %zu 条）", feed ? 1 : 0,
+         s->mgr.nervesForGrading().size());
+}
+
+/** nativeCanalFeedsGrading(handle): 当前开关状态（UI 回显，避免文案与等级不一致） */
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalFeedsGrading(JNIEnv *env, jclass clazz,
+                                                               jlong handle) {
+    MeasureSession *s = sessionOf(handle);
+    return (s && s->mgr.autoNerveFeedsGrading()) ? JNI_TRUE : JNI_FALSE;
+}
+
+/** nativeCanalDumpParity(handle, path): AC-08 的下颌管版（feat/prob/label/inst） */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalDumpParity(JNIEnv *env, jclass clazz,
+                                                             jlong handle, jstring path) {
+    MeasureSession *s = sessionOf(handle);
+    if (!s) return jsonStr(env, okErr(false, "会话句柄无效"));
+    JniStr p(env, path);
+    if (!p.c()) return jsonStr(env, okErr(false, "path 为空"));
+    std::string err;
+    const long long bytes = AiEngine::dumpParity(s->canalRes, s->canalParityFeat,
+                                                 s->canalParityProb, p.c(), err);
+    Json j = okErr(bytes >= 0, err);
+    if (bytes >= 0) {
+        j.set("bytes", Json::makeNumber((double) bytes));
+        j.set("featCount", Json::makeNumber((double) s->canalParityFeat.size()));
+        j.set("probCount", Json::makeNumber((double) s->canalParityProb.size()));
+        j.set("path", Json::makeString(p.c()));
+        LOGD("canalDumpParity ok: %lld bytes -> %s", bytes, p.c());
+    } else {
+        LOGE("canalDumpParity failed: %s", err.c_str());
+    }
+    return jsonStr(env, j);
+}
+
+// =============================================================================
 // 原生方法注册表
 //
 // 与 measure-native-lib.cpp 的 kMeasureMethods 等五张表同一套约定：本模块
@@ -290,6 +552,26 @@ static const JNINativeMethod kAiMethods[] = {
                 (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeAiPickInstance},
         {"nativeAiDumpParity",    "(JLjava/lang/String;)Ljava/lang/String;",
                 (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeAiDumpParity},
+        // ---- AI-02 下颌管（P-01）：签名必须与 Kotlin object AiJni 逐字符一致 ----
+        {"nativeLoadCanalModel",  "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;ID)"
+                                  "Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeLoadCanalModel},
+        {"nativeReleaseCanalModel", "(J)V",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeReleaseCanalModel},
+        {"nativeCanalReady",      "(J)Z",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalReady},
+        {"nativeRunCanal",        "(JDZ)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeRunCanal},
+        {"nativeCanalStatus",     "(J)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalStatus},
+        {"nativeCanalClear",      "(J)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalClear},
+        {"nativeCanalFeedGrading", "(JZ)V",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalFeedGrading},
+        {"nativeCanalFeedsGrading", "(J)Z",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalFeedsGrading},
+        {"nativeCanalDumpParity", "(JLjava/lang/String;)Ljava/lang/String;",
+                (void *) Java_com_wangyao_cbctmeasure_jni_AiJni_nativeCanalDumpParity},
 };
 
 /**

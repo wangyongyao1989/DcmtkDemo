@@ -124,6 +124,132 @@
             android:text="换一例牙科 CBCT" />
     </LinearLayout>
 
+    <!--
+        AI-02 下颌管（升级建议 P-01）。按钮顺序 = 使用顺序：
+        取权重 -> 装载 -> 追踪 -> 取证/清除。权重不在 APK 里（决策 2），
+        所以第一行第一个动作就是"从外部拿到模型"：adb push 之后点装载即可，
+        「选模型文件」是给没有 adb 的场合用的兜底入口。
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_ai_canal_pick"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="选下颌管模型" />
+
+        <Button
+            android:id="@+id/btn_ai_canal_load"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="装载下颌管模型" />
+
+        <Button
+            android:id="@+id/btn_ai_canal_run"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="下颌管自动追踪" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_ai_canal_parity"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="导出下颌管取证" />
+
+        <Button
+            android:id="@+id/btn_ai_canal_clear"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="清除自动管道" />
+    </LinearLayout>
+
+    <CheckBox
+        android:id="@+id/cb_ai_canal_grading"
+        style="@style/CompactCheck"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="采纳自动下颌管参与安全判级（默认关：主机准入门禁未过，神经距离会偏到厘米级）" />
+
+    <!--
+        P-10 第三磨牙 ↔ 下牙槽神经风险度量（升级建议 P-10 的 MVP）。
+        依赖顺序与判级开关一致：先有 AI-01 牙根掩膜 + 一条神经管（手描或 AI-02），
+        再点评估。按钮顺序 = 使用顺序：评估 -> 导出取证 -> 清除条目。
+        刻意不做"红黄绿"：PRD 没有给阻生牙的风险阈值（决策点 4 不自定数字）。
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_ai_risk_assess"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="下颌管风险评估" />
+
+        <Button
+            android:id="@+id/btn_ai_risk_dump"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="导出风险取证" />
+
+        <Button
+            android:id="@+id/btn_ai_risk_clear"
+            style="@style/CompactButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="2dp"
+            android:layout_weight="1"
+            android:enabled="false"
+            android:text="清除风险条目" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_ai_risk_caveat"
+        style="@style/HintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="4dp"
+        android:text="⚠ P-10 只给几何事实（根面↔下颌管最近距离、是否接触、管壁区间有无骨），PRD 未给阻生牙风险阈值，因此不判级、不参与种植体安全色，也不能替代临床决策。" />
+
     <ProgressBar
         android:id="@+id/progress_ai"
         style="?android:attr/progressBarStyleHorizontal"

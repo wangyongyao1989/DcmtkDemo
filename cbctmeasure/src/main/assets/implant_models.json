@@ -1,0 +1,228 @@
+{
+  "kind": "cbctmeasure.implant-models",
+  "version": "2026-10-11-generic-1",
+  "generic": true,
+  "note": "通用名义直径/长度目录，不是任何厂商的商品数据。接入真实产品时：把 vendor/series/connection/platformMm/abutmentMm 按同名字段填进 models 数组并整体替换本文件即可，代码无需改动；载入成功后 plan.json 的 modelLibrary.generic 会变成 false，报告与归档可自证用的是哪一版目录。",
+  "models": [
+    {
+      "sku": "GEN-3.4-7",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.4,
+      "lengthMm": 7.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.4-8.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.4,
+      "lengthMm": 8.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.4-10",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.4,
+      "lengthMm": 10.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.4-11.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.4,
+      "lengthMm": 11.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.8-7",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.8,
+      "lengthMm": 7.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.8-8.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.8,
+      "lengthMm": 8.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.8-10",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.8,
+      "lengthMm": 10.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-3.8-11.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 3.8,
+      "lengthMm": 11.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.1-8.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.1,
+      "lengthMm": 8.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.1-10",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.1,
+      "lengthMm": 10.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.1-11.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.1,
+      "lengthMm": 11.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.1-13",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.1,
+      "lengthMm": 13.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.8-8.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.8,
+      "lengthMm": 8.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.8-10",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.8,
+      "lengthMm": 10.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.8-11.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.8,
+      "lengthMm": 11.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-4.8-13",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 4.8,
+      "lengthMm": 13.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-5.8-9.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 5.8,
+      "lengthMm": 9.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-5.8-11.5",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 5.8,
+      "lengthMm": 11.5,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-5.8-13",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 5.8,
+      "lengthMm": 13.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    },
+    {
+      "sku": "GEN-5.8-15",
+      "vendor": "",
+      "series": "通用阶梯",
+      "connection": "",
+      "diaMm": 5.8,
+      "lengthMm": 15.0,
+      "platformMm": 0.0,
+      "abutmentMm": 0.0,
+      "note": "内置通用名义尺寸；平台/基台参数需由厂商目录补全"
+    }
+  ]
+}

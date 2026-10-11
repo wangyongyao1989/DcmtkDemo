@@ -12,7 +12,8 @@
 # 退出码：0 = 全过；非 0 = 有 FAIL（或有 crash）。
 #
 # 说明：AI 层里主机侧只编译 core/AiCore.cpp + core/AiEngine.cpp + core/AiPlanner.cpp
-# （"预处理/argmax/连通域/轮廓/统计/推荐"这条确定性路径）；ai/OrtEngine.cpp 依赖
+# + core/NerveAutoTracker.cpp（"预处理/argmax/连通域/轮廓/统计/推荐/下颌管中心线"
+# 这条确定性路径）；ai/OrtEngine.cpp 依赖
 # libonnxruntime.so 与 NDK 的 dlfcn，主机侧刻意排除，测试用假 AiBackend 顶替。
 #
 # 说明：core/SrReport.cpp 是唯一引用 DCMTK 的翻译单元，主机侧刻意排除，
@@ -38,7 +39,10 @@ if [ "$ASAN" = "1" ]; then
 fi
 
 set -e
+# -DCBCT_MEASURE_REPO_ROOT：组14 用它读随包的 assets/implant_models.json，
+# 检查"随包资产"与"C++ 内置通用阶梯"是不是同一套口径（P-09 的来源可审计性）。
 c++ -std=$STD -Wall -Wno-unused-function $EXTRA \
+    -DCBCT_MEASURE_REPO_ROOT="\"$ROOT\"" \
     -I "$HOST_INC" -I "$CPP_INC" -I "$CPP_INC/include" \
     "$SELF/test_main.cpp" \
     "$CORE/Json.cpp" \
@@ -46,12 +50,15 @@ c++ -std=$STD -Wall -Wno-unused-function $EXTRA \
     "$CORE/VolumeRef.cpp" \
     "$CORE/RoiExtractor.cpp" \
     "$CORE/ImplantPlanner.cpp" \
+    "$CORE/ImplantLibrary.cpp" \
     "$CORE/AnnotationStore.cpp" \
     "$CORE/MeasurePicker.cpp" \
     "$CORE/MeasurementManager.cpp" \
     "$CORE/AiCore.cpp" \
     "$CORE/AiEngine.cpp" \
     "$CORE/AiPlanner.cpp" \
+    "$CORE/NerveAutoTracker.cpp" \
+    "$CORE/NerveRisk.cpp" \
     -o "$OUT"
 
 echo "built: $OUT"

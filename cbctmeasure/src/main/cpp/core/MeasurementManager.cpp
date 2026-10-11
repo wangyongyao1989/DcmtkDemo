@@ -11,6 +11,7 @@
 
 #include "include/AiCore.h"
 #include "include/AnnotationStore.h"
+#include "include/ImplantLibrary.h"
 #include "include/MeasureMath.h"
 
 #include <android/log.h>
@@ -613,7 +614,11 @@ void MeasurementManager::adoptAiResult(const AiResult &src) {
 
 void MeasurementManager::clearAi() {
     ai_.clear();
-    LOGD("clearAi: 推理结果已丢弃（R-06 ROI 保留，统计将为空并给出原因）");
+    // P-10 的风险条目按同一处置：它们的数字是"牙根掩膜 ↔ 神经管"算出来的，
+    // 掩膜一丢就不能复现。留着旧数字会在报告里出现"已无掩膜但有风险距离"，
+    // 读者无法判断它是哪次推理的结果 —— 宁可显式清空。
+    risks_.clear();
+    LOGD("clearAi: 推理结果已丢弃（R-06 ROI 保留，统计将为空并给出原因）；P-10 风险条目一并作废");
 }
 
 void MeasurementManager::setAiOverlayVisible(bool visible) {
@@ -729,7 +734,9 @@ int MeasurementManager::aiAutoMeasure(bool withBoneDensity) {
 
 std::vector<AiCandidate> MeasurementManager::aiRecommend(double minGapMm, int maxOut) const {
     std::vector<AiCandidate> out;
-    AiPlanner::recommend(ai_, vol_, nerves_, implants_, minGapMm, maxOut, out);
+    // 判级输入走 nervesForGrading()：自动下颌管默认只画不判（见其注释里的
+    // 16 轴探针实测偏差），所以候选位点的"离神经多远"仍以手描为准。
+    AiPlanner::recommend(ai_, vol_, nervesForGrading(), implants_, minGapMm, maxOut, out);
     return out;
 }
 
@@ -781,12 +788,76 @@ const Implant *MeasurementManager::findImplant(int id) const {
 void MeasurementManager::recomputePlan() {
     if (!vol_.valid()) {
         // 无体数据时仍要刷新几何（tip/axis），保证叠加层可绘制
-        for (size_t i = 0; i < implants_.size(); ++i) ImplantPlanner::refreshGeometry(implants_[i]);
+        for (size_t i = 0; i < implants_.size(); ++i) {
+            ImplantPlanner::refreshGeometry(implants_[i]);
+            // 冠方参考也在这里重取：evaluate 走不到，至少归档里的坐标缓存不过期
+            resolveCrownReference(implants_[i]);
+        }
         return;
     }
+    // 只在有自动管道时才付这次拷贝的代价（nerves_ 通常只有 0~2 条，
+    // 但"每次改一个点都拷一遍"仍然没必要 —— 手描为主的会话保持零额外分配）。
+    const std::vector<NervePath> grading =
+            autoNerveFeedsGrading_ || autoNerveCount() == 0 ? nerves_ : nervesForGrading();
     for (size_t i = 0; i < implants_.size(); ++i) {
-        planner_.evaluate(implants_[i], nerves_, implants_);
+        // P-09：先把冠方参考解析成坐标，再交给 evaluate（planner 不认 ROI/标注，
+        // 它只做纯几何 —— 这是"业务层不认识存储对象"这条边界不变）。
+        resolveCrownReference(implants_[i]);
+        planner_.evaluate(implants_[i], grading, implants_);
     }
+}
+
+bool MeasurementManager::resolveCrownReference(Implant &im) const {
+    if (im.crownRefKind == CROWN_NONE) {
+        im.crownCenter = Vec3();
+        im.crownAxis = Vec3();
+        return false;
+    }
+    if (im.crownRefKind == CROWN_MANUAL) return im.crownCenter.length() > 1e-9;
+
+    if (im.crownRefKind == CROWN_SPHERE_ROI) {
+        const RoiDef *roi = findRoi(im.crownRefId);
+        if (roi == nullptr || roi->type != ROI_SPHERE) {
+            // 引用失效（ROI 被删/被改成别的类型）：清掉缓存，让 S-11/S-12
+            // 显式变成"未测量"，而不是继续用上一次解析出的旧坐标
+            LOGW("resolveCrownReference: 植体 #%d 的冠方参考 ROI #%d 不存在或非球面类型 %d",
+                 im.id, im.crownRefId, roi == nullptr ? -1 : roi->type);
+            im.crownCenter = Vec3();
+            im.crownAxis = Vec3();
+            return false;
+        }
+        im.crownCenter = roi->sphereCenter;
+        im.crownAxis = Vec3();          // 球面只给中心点，没有冠长轴
+        return im.crownCenter.length() > 1e-9;
+    }
+
+    if (im.crownRefKind == CROWN_ANNOTATION) {
+        const Annotation *a = annos_ == nullptr ? nullptr : annos_->find(im.crownRefId);
+        if (a == nullptr || a->points.empty()) {
+            LOGW("resolveCrownReference: 植体 #%d 的冠方参考标注 #%d 不可用（%s）",
+                 im.id, im.crownRefId, annos_ == nullptr ? "未注入标注存储" : "无标注或无点");
+            im.crownCenter = Vec3();
+            im.crownAxis = Vec3();
+            return false;
+        }
+        // A-05 环形标记的 points 是环上的采样点而不是环心：这里用首点会把
+        // 参考放到环边缘（半径级偏差）。所以环形单独取圆心。
+        if (a->type == AN_RING) {
+            Vec3 sum(0, 0, 0);
+            for (size_t q = 0; q < a->points.size(); ++q) sum = sum + a->points[q];
+            im.crownCenter = sum * (1.0 / (double) a->points.size());
+            im.crownAxis = Vec3();
+        } else {
+            im.crownCenter = a->points.front();
+            im.crownAxis = a->points.size() >= 2
+                           ? (a->points.back() - a->points.front()) : Vec3();
+        }
+        return im.crownCenter.length() > 1e-9;
+    }
+
+    im.crownCenter = Vec3();
+    im.crownAxis = Vec3();
+    return false;
 }
 
 // =============================================================================
@@ -821,6 +892,16 @@ bool MeasurementManager::removeNervePath(int id) {
     for (size_t i = 0; i < nerves_.size(); ++i) {
         if (nerves_[i].id != id) continue;
         nerves_.erase(nerves_.begin() + (long) i);
+        // P-10：引用这条路径的风险行随之作废。留着会得到"神经管 #7 的风险"
+        // 而 #7 已不存在 —— 归档里的行无法复核，比少一行更糟。
+        // 描记过程中改点不删路径（appendNervePoint 不走这里），所以不会误伤。
+        const size_t before = risks_.size();
+        for (size_t q = risks_.size(); q-- > 0;) {
+            if (risks_[q].nervePathId == id) risks_.erase(risks_.begin() + (long) q);
+        }
+        if (risks_.size() != before)
+            LOGD("removeNervePath: #%d 已删除，连带作废 %zu 条 P-10 风险条目",
+                 id, before - risks_.size());
         recomputePlan();
         return true;
     }
@@ -835,6 +916,181 @@ bool MeasurementManager::appendNervePoint(int id, const Vec3 &p) {
         return true;
     }
     return false;
+}
+
+// =============================================================================
+// AI-02 下颌管自动勾画（升级建议 P-01）
+//
+// 为什么用"名称前缀"而不是给 NervePath 加一个 auto 布尔字段：
+//   NervePath 会进 planJson（归档/恢复）与 DICOM SR，加字段要同时改
+//   序列化、Kotlin 解析、SR 编码三处，而这三处的历史归档里没有这个键。
+//   前缀判定与 AiConst::AUTO_NOTE 标记自动测量行是同一个已经验证过的套路：
+//   单点定义在 AiTypes.h，恢复归档后依旧成立，旧归档不受影响。
+// =============================================================================
+bool MeasurementManager::isAutoNerveName(const std::string &name) {
+    static const std::string prefix(AiConst::CANAL_AUTO_NOTE);
+    return name.size() >= prefix.size() && name.compare(0, prefix.size(), prefix) == 0;
+}
+
+int MeasurementManager::autoNerveCount() const {
+    int n = 0;
+    for (size_t i = 0; i < nerves_.size(); ++i) {
+        if (isAutoNerveName(nerves_[i].name)) ++n;
+    }
+    return n;
+}
+
+void MeasurementManager::setAutoNerveFeedsGrading(bool feed) {
+    if (feed == autoNerveFeedsGrading_) return;
+    autoNerveFeedsGrading_ = feed;
+    // 开关一翻就得重算：否则界面上"已采纳自动管道参与判级"的文案与
+    // 种植体行的颜色会互相矛盾（文案说采纳了，等级还是按手描算的）。
+    LOGD("autoNerveFeedsGrading -> %d（自动管道 %d 条，会话内共 %zu 条神经管）",
+         feed ? 1 : 0, autoNerveCount(), nerves_.size());
+    recomputePlan();
+}
+
+std::vector<NervePath> MeasurementManager::nervesForGrading() const {
+    if (autoNerveFeedsGrading_) return nerves_;
+    std::vector<NervePath> out;
+    out.reserve(nerves_.size());
+    for (size_t i = 0; i < nerves_.size(); ++i) {
+        if (isAutoNerveName(nerves_[i].name)) continue;   // 预览：画得出、不进判级
+        out.push_back(nerves_[i]);
+    }
+    return out;
+}
+
+int MeasurementManager::clearCanalTracks() {
+    int removed = 0;
+    for (size_t i = 0; i < nerves_.size();) {
+        if (isAutoNerveName(nerves_[i].name)) {
+            nerves_.erase(nerves_.begin() + (long) i);
+            ++removed;
+        } else {
+            ++i;
+        }
+    }
+    if (removed > 0) recomputePlan();   // 路径几何变了，S-05 必须重算
+    return removed;
+}
+
+int MeasurementManager::adoptCanalTracks(const AiResult &canal, int minVoxels,
+                                         int maxCandidates) {
+    // 顺序很重要：先算新结果，再清旧的。反过来的话，一旦追踪阶段出问题，
+    // 界面上会既没有新管道也没有旧管道，而日志里看不出是哪一步失败的。
+    canalTracks_ = NerveAutoTracker::track(canal, minVoxels, maxCandidates);
+    const int removed = clearCanalTracks();
+    const std::vector<NervePath> paths = NerveAutoTracker::toPaths(canalTracks_);
+    for (size_t i = 0; i < paths.size(); ++i) addNervePath(paths[i]);
+    LOGD("adoptCanalTracks: 掩膜体素 %lld -> 中心线 %zu 条（新增 %zu，清除旧 %d，手描保留 %zu）",
+         canal.toothVoxels, canalTracks_.size(), paths.size(), removed,
+         nerves_.size() - paths.size());
+    return (int) paths.size();
+}
+
+// =============================================================================
+// P-10：第三磨牙 ↔ 下牙槽神经风险度量
+//
+// 这一节只做"取输入 + 入库"，数值全在 core/NerveRisk.cpp（纯几何 + HU 取样），
+// 因此主机单测可以与真机走完全同一条算式。刻意**不**在 recomputePlan() 里调用：
+// 风险数字依赖 AI-01 掩膜，而 recomputePlan 会被每一次描记触发，
+// 每笔都重扫一遍掩膜会把 PC-01 的预算花在没人看的东西上。
+// =============================================================================
+
+bool MeasurementManager::assessNerveRisk(int instanceId, int nervePathId,
+                                         ThirdMolarRisk &out) {
+    out = ThirdMolarRisk();
+    const NervePath *nerve = nullptr;
+    for (size_t i = 0; i < nerves_.size(); ++i) {
+        if (nerves_[i].id == nervePathId) { nerve = &nerves_[i]; break; }
+    }
+    if (nerve == nullptr) {
+        out.error = "神经管路径 #" + std::to_string(nervePathId) + " 不在会话里";
+        return false;
+    }
+    // 来源标注：自动管道与手描管道读起来完全不同（前者本轮门禁未过，只当预览）。
+    // 这个字符串会一路进归档与报告，不能等到 UI 再去猜。
+    const std::string source = isAutoNerveName(nerve->name)
+                               ? std::string("AI-02 自动下颌管（本轮准入门禁未过，默认只作预览）")
+                               : std::string("手工描记");
+    out = NerveRisk::assess(vol_, ai_, instanceId, *nerve, source);
+    if (!out.measured) {
+        LOGW("assessNerveRisk: #%d × 神经 #%d 未测量：%s",
+             instanceId, nervePathId, out.error.c_str());
+        return false;
+    }
+    // 同组合覆盖：重复点"评估"不应该在报告里堆出一份份相同形状的行
+    for (size_t i = 0; i < risks_.size(); ++i) {
+        if (risks_[i].instanceId == instanceId && risks_[i].nervePathId == nervePathId) {
+            out.id = risks_[i].id;
+            risks_[i] = out;
+            LOGD("assessNerveRisk: 覆盖旧条目 #%d（实例 %d × 神经 %d）%.2fmm",
+                 out.id, instanceId, nervePathId, out.minDistMm);
+            return true;
+        }
+    }
+    out.id = ++nextId_;
+    out.createdAt = epochMs();
+    // 落库时优先用实例已命名的临床身份（"下颌 7 号"这种），报告读起来才是牙位；
+    // 掩膜 ROI 存在时用它的名字，否则保留 NerveRisk::assess 给的"AI-01 实例 #n"。
+    for (size_t i = 0; i < ai_.instances.size(); ++i) {
+        if (ai_.instances[i].id != instanceId) continue;
+        const int roiId = ai_.instances[i].roiId;
+        if (roiId <= 0) break;
+        const RoiDef *roi = findRoi(roiId);
+        if (roi != nullptr && !roi->name.empty()) out.toothName = roi->name;
+        break;
+    }
+    risks_.push_back(out);
+    LOGD("assessNerveRisk: #%d 实例 %d × 神经 %d -> %.2fmm contact=%d withinRadius=%d cortex=%d",
+         out.id, instanceId, nervePathId, out.minDistMm, (int) out.contact,
+         (int) out.withinCanalRadius, (int) out.cortexPresent);
+    return true;
+}
+
+int MeasurementManager::assessAllNerveRisks() {
+    if (nerves_.empty()) {
+        LOGW("assessAllNerveRisks: 会话里没有神经管路径，先描记或跑 AI-02");
+        return 0;
+    }
+    std::vector<int> targets;
+    bool archKnown = false;
+    for (size_t i = 0; i < ai_.instances.size(); ++i) {
+        if (ai_.instances[i].arch >= 0) archKnown = true;
+        // 第三磨牙只在下颌弓；上颌牙的量一遍是噪音，还会挤掉真正相关的行
+        if (ai_.instances[i].arch == 1) targets.push_back(ai_.instances[i].id);
+    }
+    if (targets.empty() && !archKnown) {
+        // 退化路径：牙弓归属判不出来（掩膜太少/咬合平面不可靠）时按全部实例评估，
+        // 并在条目里留一句说明，别让读者以为"这就是下颌弓的结果"。
+        for (size_t i = 0; i < ai_.instances.size(); ++i)
+            targets.push_back(ai_.instances[i].id);
+    }
+    int ok = 0;
+    ThirdMolarRisk tmp;
+    for (size_t t = 0; t < targets.size(); ++t) {
+        for (size_t n = 0; n < nerves_.size(); ++n) {
+            if (assessNerveRisk(targets[t], nerves_[n].id, tmp)) ++ok;
+        }
+    }
+    LOGD("assessAllNerveRisks: 实例 %zu 个 × 路径 %zu 条 -> 成功 %d 条（archKnown=%d）",
+         targets.size(), nerves_.size(), ok, (int) archKnown);
+    return ok;
+}
+
+bool MeasurementManager::removeNerveRisk(int id) {
+    for (size_t i = 0; i < risks_.size(); ++i) {
+        if (risks_[i].id != id) continue;
+        risks_.erase(risks_.begin() + (long) i);
+        return true;
+    }
+    return false;
+}
+
+void MeasurementManager::clearNerveRisks() {
+    risks_.clear();
+    LOGD("clearNerveRisks: P-10 风险条目已清空");
 }
 
 // =============================================================================
@@ -1092,10 +1348,29 @@ Json MeasurementManager::implantToJson(const Implant &a) {
     j.set("depthMm", Json::makeNumber(a.depthMm));
     j.set("diaMm", Json::makeNumber(a.diaMm));
     j.set("lengthMm", Json::makeNumber(a.lengthMm));
+    j.set("sku", Json::makeString(a.sku));                 // P-09 型号库编号
+    // P-09 冠方参考：kind/id 是"引用"，center/axis 是"最近一次解析结果"。
+    // 两份都存：引用让下次重算能跟着 ROI/标注走，解析结果让"参考对象已被删除"
+    // 的归档仍能还原出报告当时写进 S-11/S-12 的那组数字。
+    j.set("crownRefKind", Json::makeNumber(a.crownRefKind));
+    j.set("crownRefId", Json::makeNumber(a.crownRefId));
+    j.set("crownCenter", vecJson(a.crownCenter));
+    j.set("crownAxis", vecJson(a.crownAxis));
     j.set("boneHeightMm", Json::makeNumber(a.boneHeightMm));
     j.set("boneWidthMm", Json::makeNumber(a.boneWidthMm));
     j.set("nerveDistMm", Json::makeNumber(a.nerveDistMm));
     j.set("minSpacingMm", Json::makeNumber(a.minSpacingMm));
+    // D-10：measured 与哨兵分离之后，归档必须把它一起存下来，否则"恢复归档"会退化成
+    // 用数值符号猜是否测量过（负间距会被猜成未测量，重叠就又被吞掉了）。
+    j.set("nerveMeasured", Json::makeBool(a.nerveMeasured));
+    j.set("spacingMeasured", Json::makeBool(a.spacingMeasured));
+    // P-09：S-11/S-12 的 measured 同样显式落盘（和 D-10 同一个道理：
+    // "没测"不能用"数值是 0"来表达，0 偏差恰恰是临床上最想要的那种结果）
+    j.set("crownOffsetMm", Json::makeNumber(a.crownOffsetMm));
+    j.set("crownAngleDeg", Json::makeNumber(a.crownAngleDeg));
+    j.set("crownAlongAxisMm", Json::makeNumber(a.crownAlongAxisMm));
+    j.set("crownMeasured", Json::makeBool(a.crownMeasured));
+    j.set("crownAxisFromReference", Json::makeBool(a.crownAxisFromReference));
     j.set("level", Json::makeNumber(a.level));
     j.set("warnText", Json::makeString(a.warnText));
     j.set("tip", vecJson(a.tip));
@@ -1114,10 +1389,27 @@ void MeasurementManager::implantFromJson(const Json &jj, Implant &a) {
     a.depthMm = jj.at("depthMm").asNumber(10.0);
     a.diaMm = jj.at("diaMm").asNumber(4.0);
     a.lengthMm = jj.at("lengthMm").asNumber(11.0);
+    a.sku = jj.at("sku").asString();                        // 旧归档无此键 -> 空 = 自由参数
+    a.crownRefKind = jj.at("crownRefKind").asInt(CROWN_NONE);
+    a.crownRefId = jj.at("crownRefId").asInt(0);
+    a.crownCenter = vecFrom(jj.at("crownCenter"));
+    a.crownAxis = vecFrom(jj.at("crownAxis"));
+    // 结果字段：读取时原样还原，随后 recomputePlan 会覆盖。
+    // crownMeasured 不从归档"推断"—— 第 7 轮及以前根本没有冠方参考，
+    // 缺失即 false，绝不能因为 crownOffsetMm 有值就以为测过。
+    a.crownOffsetMm = jj.at("crownOffsetMm").asNumber(0.0);
+    a.crownAngleDeg = jj.at("crownAngleDeg").asNumber(0.0);
+    a.crownAlongAxisMm = jj.at("crownAlongAxisMm").asNumber(0.0);
+    a.crownMeasured = jj.at("crownMeasured").asBool(false);
+    a.crownAxisFromReference = jj.at("crownAxisFromReference").asBool(false);
     a.boneHeightMm = jj.at("boneHeightMm").asNumber(0.0);
     a.boneWidthMm = jj.at("boneWidthMm").asNumber(0.0);
     a.nerveDistMm = jj.at("nerveDistMm").asNumber(0.0);
     a.minSpacingMm = jj.at("minSpacingMm").asNumber(0.0);
+    // 旧归档（第 7 轮及以前）没有这两个字段：按当时的口径推断，
+    // "数值 >= 0" 才算测量过。注意这只是兼容读取，新写入一律以字段为准。
+    a.nerveMeasured = jj.at("nerveMeasured").asBool(a.nerveDistMm >= 0.0);
+    a.spacingMeasured = jj.at("spacingMeasured").asBool(a.minSpacingMm >= 0.0);
     a.level = jj.at("level").asInt(SAFE_GREEN);
     a.warnText = jj.at("warnText").asString();
 }
@@ -1175,6 +1467,16 @@ Json MeasurementManager::planJson() const {
     Json arr = Json::makeArray();
     for (size_t i = 0; i < implants_.size(); ++i) arr.push(implantToJson(implants_[i]));
     root.set("implants", arr);
+    // P-09 + 决策 2：归档要能自证"这份方案当时用的是哪一版型号库"。
+    // 只记条数 + generic + builtin 三个量（完整目录由资产文件本身的 version 管理，
+    // 不塞进每个归档里，避免 plan.json 变大又拿不到额外信息）。
+    Json lib = Json::makeObject();
+    lib.set("count", Json::makeNumber((double) ImplantLibrary::shared().count()));
+    // 两个口径分开记：generic 是"能不能当商品型号用"（数据），
+    // builtin 是"这份数据来自内置表还是 json 资产"（来源）。
+    lib.set("generic", Json::makeBool(ImplantLibrary::shared().isGeneric()));
+    lib.set("builtin", Json::makeBool(ImplantLibrary::shared().isBuiltin()));
+    root.set("modelLibrary", lib);
 
     Json nerves = Json::makeArray();
     for (size_t i = 0; i < nerves_.size(); ++i) {
@@ -1189,6 +1491,9 @@ Json MeasurementManager::planJson() const {
         nerves.push(j);
     }
     root.set("nervePaths", nerves);
+    // P-10：风险条目是会话内的一等对象，必须随归档走（否则报告里的风险行
+    // 无法被复核）。第 7 轮及以前的归档没有这个键，读出即空表。
+    root.set("nerveRisks", NerveRisk::listJson(risks_));
     return root;
 }
 
@@ -1255,8 +1560,22 @@ bool MeasurementManager::planFromJson(const Json &j) {
         if (p.id > nextId_) nextId_ = p.id;
         nerves_.push_back(p);
     }
+    // P-10：风险条目按原值恢复，**不参与 recomputePlan()**。
+    // 原因见 include/MeasurementManager.h：minDistMm 依赖 AI-01 掩膜，
+    // 而 plan.json 里没有掩膜（掩膜属于 AI 结果，随 cutback/重跑而变）。
+    // 用当前数值覆盖 = 把"上一轮的几何事实"当成"本轮重算结果"，属于伪造。
+    // 因此这里只还原当时的读数，UI 侧在 AI 结果变化后由 clearAi() 清空。
+    risks_.clear();
+    const Json &rs = j.at("nerveRisks");
+    for (size_t i = 0; i < rs.size(); ++i) {
+        ThirdMolarRisk r;
+        NerveRisk::fromJson(rs[i], r);
+        if (r.id > nextId_) nextId_ = r.id;
+        risks_.push_back(r);
+    }
     recomputePlan();
-    LOGD("plan loaded: %zu implants, %zu nerve paths", implants_.size(), nerves_.size());
+    LOGD("plan loaded: %zu implants, %zu nerve paths, %zu nerve risks",
+         implants_.size(), nerves_.size(), risks_.size());
     return true;
 }
 

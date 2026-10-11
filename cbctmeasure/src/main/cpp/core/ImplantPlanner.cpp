@@ -141,11 +141,18 @@ double ImplantPlanner::nerveDistance(const Implant &im, const NervePath &nerve) 
     return surface < 0.0 ? 0.0 : surface;
 }
 
-double ImplantPlanner::minSpacing(const Implant &im, const std::vector<Implant> &all) const {
+double ImplantPlanner::minSpacing(const Implant &im, const std::vector<Implant> &all,
+                                  bool *foundOut) const {
     Vec3 axis = im.axis;
     if (axis.length() < 1e-12) axis = axisFromAngles(im.pitchDeg, im.yawDeg);
     const Vec3 tipI = im.entry + axis * im.lengthMm;
-    double best = -1.0;
+    // D-10 修复（第 8 轮）：原来用 best = -1.0 同时表示"还没有候选"和"表面间距为负"，
+    // 于是 `if (best < 0.0 || surf < best)` 在算出负值之后会把每一个后续候选都当成
+    // "第一个候选"无条件覆盖 —— 两植体相交（surf<0，临床上最该报红）会被后面的大间距
+    // 顶掉，最小间距变成"看遍历顺序"的结果。这里把两件事拆成 found + best。
+    // 返回值语义保持兼容：没有其它植体时仍返回 -1.0（调用方用 measured 判定，不再靠哨兵）。
+    bool found = false;
+    double best = 0.0;
     for (size_t i = 0; i < all.size(); ++i) {
         const Implant &o = all[i];
         if (o.id == im.id) continue;
@@ -155,13 +162,64 @@ double ImplantPlanner::minSpacing(const Implant &im, const std::vector<Implant> 
         const double axisDist = MeasureMath::segmentSegment(im.entry, tipI, o.entry, tipO);
         // 临床间距指种植体表面之间的距离，因此扣掉两个半径
         const double surf = axisDist - (im.diaMm + o.diaMm) * 0.5;
-        if (best < 0.0 || surf < best) best = surf;
+        if (!found || surf < best) {
+            best = surf;
+            found = true;
+        }
     }
-    return best;
+    if (foundOut) *foundOut = found;
+    return found ? best : -1.0;
+}
+
+bool ImplantPlanner::crownDeviation(const Implant &im, const Vec3 &crownCenter,
+                                    const Vec3 &crownAxis, double *offsetMm, double *angleDeg,
+                                    double *alongAxisMm, bool *axisFromReference) {
+    if (crownCenter.length() < 1e-9) return false;      // 见头文件：零向量 = 没有参考
+    Vec3 axis = im.axis;
+    if (axis.length() < 1e-12) axis = axisFromAngles(im.pitchDeg, im.yawDeg);
+    if (axis.length() < 1e-12) return false;
+
+    const Vec3 onAxis = im.entry + axis;                 // 轴线上的第二点（单位长即可）
+    const double offset = MeasureMath::pointToLine(crownCenter, im.entry, onAxis);
+    if (offset < 0.0) return false;
+
+    const Vec3 toCrown = crownCenter - im.entry;
+    const double along = toCrown.dot(axis);              // 冠方为负（axis 指向根方）
+
+    double angle;
+    bool fromRef;
+    if (crownAxis.length() > 1e-9) {
+        const Vec3 ca = crownAxis.normalized();
+        // 无向直线夹角：atan2(|cross|, dot) 再折到 [0,90]（dot<0 时取补角）
+        angle = MeasureMath::radToDeg(std::atan2(axis.cross(ca).length(), axis.dot(ca)));
+        if (angle > 90.0) angle = 180.0 - angle;
+        fromRef = true;
+    } else {
+        if (toCrown.length() < 1e-9) {
+            angle = 0.0;                                 // 冠中心恰好落在入口点上
+        } else {
+            angle = MeasureMath::radToDeg(
+                    std::atan2(axis.cross(toCrown).length(), axis.dot(toCrown)));
+            // 同样折到 [0,90]。axis 指向根方而 toCrown 指向冠方，天然反向：
+            // 不折的话"冠中心正好落在轴线上"这种最理想情况会读成 180°，
+            // 在 UI 上像是最大的成角偏差 —— 语义彻底反向。
+            if (angle > 90.0) angle = 180.0 - angle;
+        }
+        fromRef = false;
+    }
+
+    if (offsetMm) *offsetMm = offset;
+    if (angleDeg) *angleDeg = angle;
+    if (alongAxisMm) *alongAxisMm = along;
+    if (axisFromReference) *axisFromReference = fromRef;
+    LOGD("crown deviation #%d: offset=%.2fmm angle=%.2fdeg along=%.2fmm (axisFromRef=%d)",
+         im.id, offset, angle, along, (int) fromRef);
+    return true;
 }
 
 int ImplantPlanner::safetyLevel(double boneH, double boneW, double nerve, bool nerveOk,
                                 double spacing, bool spacingOk) {
+
     int level = SAFE_GREEN;
     auto judge = [&](double value, double threshold) {
         if (value < threshold) level = std::max(level, (int) DANGER_RED);
@@ -188,7 +246,11 @@ std::string ImplantPlanner::warningText(const ImplantSafety &s) {
         add("神经管距离危险 ", s.nerveDistMm, kMinNerveDistMm, "mm");
     else if (s.nerveMeasured && s.nerveDistMm < kMinNerveDistMm * kMarginalFactor)
         add("神经管距离临界 ", s.nerveDistMm, kMinNerveDistMm, "mm");
-    if (s.spacingMeasured && s.spacingMm < kMinSpacingMm)
+    // D-10 修复后才走得到这一支：负值 = 两植体表面重叠，比"间距不足"更严重，
+    // 文案必须说清是重叠而不是某个小间距（数值仍是同一个测量值，不改口径）
+    if (s.spacingMeasured && s.spacingMm < 0.0)
+        add("种植体表面重叠 ", s.spacingMm, kMinSpacingMm, "mm");
+    else if (s.spacingMeasured && s.spacingMm < kMinSpacingMm)
         add("种植体间距不足 ", s.spacingMm, kMinSpacingMm, "mm");
     if (out.empty()) {
         snprintf(buf, sizeof(buf), "各指标均在安全范围内（骨高 %.1fmm / 骨宽 %.1fmm）",
@@ -197,6 +259,26 @@ std::string ImplantPlanner::warningText(const ImplantSafety &s) {
     } else if (!s.nerveMeasured) {
         out += "未勾画神经管，S-05 未参与判定; ";
     }
+    // P-09：S-11/S-12 只有数值、没有判级，所以拼在安全结论**之后**，
+    // 不加进 safetyLevel()。顺序很关键 —— 放前面会让"加了一颗冠方参考"
+    // 把"各指标均在安全范围内"这句结论挤掉，读者以为安全结论变了。
+    // 措辞必须写清"阈值待 PRD 定值"（用户决策点 4），否则"偏差 1.8mm"会被
+    // 自动理解成"合格"。
+    if (s.crownMeasured) {
+        char crown[256];
+        snprintf(crown, sizeof(crown),
+                 "S-11 冠轴水平偏差 %.1fmm / S-12 成角偏差 %.1f°%s"
+                 "（判级阈值待 PRD 定值，不参与 S-02）",
+                 s.crownOffsetMm, s.crownAngleDeg,
+                 s.crownAxisFromReference ? "" : "（参考未给冠长轴，成角按入口→冠中心连线）");
+        const bool endsWithSep = out.size() >= 2 &&
+                                 out.compare(out.size() - 2, 2, "; ") == 0;
+        if (!endsWithSep) out += "; ";
+        out += crown;
+    }
+    // 分隔符只在"还有下一条"时才加：末条的 "; " 会一路印进 UI 行、PDF 与 SR 文本
+    if (out.size() >= 2 && out.compare(out.size() - 2, 2, "; ") == 0)
+        out.erase(out.size() - 2);
     return out;
 }
 
@@ -211,8 +293,17 @@ ImplantSafety ImplantPlanner::evaluate(Implant &im, const std::vector<NervePath>
         if (d < 0.0) continue;
         if (!s.nerveMeasured || d < s.nerveDistMm) { s.nerveDistMm = d; s.nerveMeasured = true; }
     }
-    const double sp = minSpacing(im, all);
-    if (sp >= 0.0) { s.spacingMm = sp; s.spacingMeasured = true; }
+    // D-10 修复：判级依据换成 found，负值间距（= 表面重叠）照样参与 S-06，
+    // 由 safetyLevel 的既有阈值 kMinSpacingMm 判红 —— 不新增任何临床阈值。
+    // 原来这里是 `if (sp >= 0.0)`，等于"重叠不判级"，是安全侧漏报。
+    bool spacingFound = false;
+    const double sp = minSpacing(im, all, &spacingFound);
+    if (spacingFound) { s.spacingMm = sp; s.spacingMeasured = true; }
+    // P-09：冠方参考由 MeasurementManager 解析后写进 im（crownCenter/crownAxis），
+    // 这里只做纯几何换算；没有参考时保持 crownMeasured=false。
+    s.crownMeasured = crownDeviation(im, im.crownCenter, im.crownAxis,
+                                     &s.crownOffsetMm, &s.crownAngleDeg,
+                                     &s.crownAlongAxisMm, &s.crownAxisFromReference);
 
     s.level = safetyLevel(s.boneHeightMm, s.boneWidthMm, s.nerveDistMm, s.nerveMeasured,
                           s.spacingMm, s.spacingMeasured);
@@ -222,11 +313,20 @@ ImplantSafety ImplantPlanner::evaluate(Implant &im, const std::vector<NervePath>
     im.boneWidthMm = s.boneWidthMm;
     im.nerveDistMm = s.nerveMeasured ? s.nerveDistMm : -1.0;
     im.minSpacingMm = s.spacingMeasured ? s.spacingMm : -1.0;
+    im.nerveMeasured = s.nerveMeasured;
+    im.spacingMeasured = s.spacingMeasured;
+    im.crownOffsetMm = s.crownMeasured ? s.crownOffsetMm : 0.0;
+    im.crownAngleDeg = s.crownMeasured ? s.crownAngleDeg : 0.0;
+    im.crownAlongAxisMm = s.crownMeasured ? s.crownAlongAxisMm : 0.0;
+    im.crownMeasured = s.crownMeasured;
+    im.crownAxisFromReference = s.crownMeasured ? s.crownAxisFromReference : false;
     im.level = s.level;
     im.warnText = s.warnText;
-    LOGD("implant #%d eval: height=%.2f width=%.2f nerve=%.2f(measured=%d) spacing=%.2f level=%d",
+    LOGD("implant #%d eval: height=%.2f width=%.2f nerve=%.2f(measured=%d) "
+         "spacing=%.2f(measured=%d) crown=%.2fmm/%.2fdeg(measured=%d) level=%d",
          im.id, s.boneHeightMm, s.boneWidthMm, s.nerveDistMm, (int) s.nerveMeasured,
-         s.spacingMm, s.level);
+         s.spacingMm, (int) s.spacingMeasured, s.crownOffsetMm, s.crownAngleDeg,
+         (int) s.crownMeasured, s.level);
     return s;
 }
 

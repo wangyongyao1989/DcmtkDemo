@@ -173,7 +173,15 @@ struct RoiDef {
     int planePosition = 0;                      // 平面层位（体素索引）
 };
 
-/** 种植体（S-01 参数 + S-03~S-06 计算结果） */
+/** 冠方参考的来源类型（P-09 crown-down 偏差的输入；0 = 未设置参考） */
+enum CrownRefKind {
+    CROWN_NONE = 0,        // 没有冠方参考：S-11/S-12 不参与任何输出
+    CROWN_SPHERE_ROI = 1,  // R-04 球面 ROI（球心 = 预定牙冠中心）
+    CROWN_ANNOTATION = 2,  // A-01/A-02/A-03/A-04 标注（首点 = 冠中心；>=2 点时首->末 = 冠长轴）
+    CROWN_MANUAL = 3,      // 直接给定坐标（主机单测与脚本注入用；UI 暂不产出这一支）
+};
+
+/** 种植体（S-01 参数 + S-03~S-06 计算结果 + P-09 的 S-11/S-12） */
 struct Implant {
     int id = 0;
     std::string name;
@@ -186,12 +194,46 @@ struct Implant {
     double depthMm = 10.0;  // 植入深度（轴向长度）
     double diaMm = 4.0;     // 直径
     double lengthMm = 11.0; // 桩体全长（可视化长度，>= depth）
+    /** 型号库编号（P-09）。空 = 自由参数，不是目录里的可采购型号 */
+    std::string sku;
+
+    // ---- 冠方参考（P-09 的输入；kind=0 时下面三项无意义）----
+    int crownRefKind = CROWN_NONE;
+    int crownRefId = 0;
+    /**
+     * 解析后的冠中心（世界 mm）。kind=1/2 时每次重算都从 ROI / 标注现取，
+     * 所以"移动了球面 ROI 忘了同步"这种不一致不可能出现；
+     * kind=3 时它就是用户写进来的坐标。缓存进归档只是为了"资产丢失/标注被删"
+     * 时报告仍有最后一次解析结果可读。
+     */
+    Vec3 crownCenter;
+    /** 冠长轴（单位向量；零向量 = 参考只给了一个点，没有轴） */
+    Vec3 crownAxis;
 
     // ---- 计算结果（computeSafety 后填充）----
     double boneHeightMm = 0.0;   // S-03 沿轴可用骨高度
     double boneWidthMm = 0.0;    // S-04 颊舌向骨宽度
     double nerveDistMm = 0.0;    // S-05 桩体到神经管折线最短距离
     double minSpacingMm = 0.0;   // S-06 与相邻种植体最短距离
+    // P-09：S-11 冠中心到植体轴线的水平偏差（mm）、S-12 成角偏差（度）。
+    // 这两个指标**不参与 S-02 判级**：PRD 没有给偏移/成角的阈值，
+    // 而自己拍一个阈值等于伪造临床口径（用户决策点 4）。
+    double crownOffsetMm = 0.0;
+    double crownAngleDeg = 0.0;
+    bool crownMeasured = false;
+    /** true = S-12 用参考自带的冠长轴；false = 退化用"入口->冠中心"连线 */
+    bool crownAxisFromReference = false;
+    /** 冠中心在轴线方向上的投影（mm，冠方为负）：与 S-11 一起定位偏差方向 */
+    double crownAlongAxisMm = 0.0;
+
+    // D-10（第 8 轮）新增：S-05/S-06 的"未测量"不能再靠数值符号表达。
+    //   - nerveDistMm 只有"神经管点数不足"一种未测量情形，历史上用 -1.0 表达；
+    //   - minSpacingMm 在修复后会合法地为负（负值 = 两植体表面重叠，最该报红），
+    //     于是 "-1.0 = 没有邻居" 与 "-1.0 = 重叠 1mm" 无法区分。
+    // 因此把 measured 显式存成字段，判级、报告、SR、UI 都读它；-1.0 只作为
+    // "未测量时的显示值"保留（兼容旧归档：归档里没有这两个字段时按 >=0 推断）。
+    bool nerveMeasured = false;
+    bool spacingMeasured = false;
     int level = SAFE_GREEN;      // S-02 安全等级
     std::string warnText;        // 中文告警摘要（UI/报告直接显示）
     Vec3 tip;                    // 桩体尖端（entry + axis * length）

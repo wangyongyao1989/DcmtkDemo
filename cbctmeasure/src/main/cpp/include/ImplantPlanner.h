@@ -19,6 +19,17 @@ struct ImplantSafety {
     std::string warnText;          // 中文告警摘要
     bool nerveMeasured = false;
     bool spacingMeasured = false;
+    /**
+     * P-09 的修复导向（crown-down）偏差：S-11 水平偏移、S-12 成角。
+     * crownMeasured=false 表示没有冠方参考，此时两个数值都是 0，
+     * 调用方（报告/SR/UI）必须按"未测量"处理而不是当成 0 偏差。
+     * 它们**不进 safetyLevel()**：PRD 未给阈值（见 warningText 的说明行）。
+     */
+    double crownOffsetMm = 0.0;
+    double crownAngleDeg = 0.0;
+    double crownAlongAxisMm = 0.0;
+    bool crownMeasured = false;
+    bool crownAxisFromReference = false;
 };
 
 /**
@@ -67,8 +78,40 @@ public:
      */
     double nerveDistance(const Implant &implant, const NervePath &nerve) const;
 
-    /** S-06 与相邻种植体的最短表面间距（mm）= 轴线间距 - 两半径；无邻居返回 -1 */
-    double minSpacing(const Implant &implant, const std::vector<Implant> &all) const;
+    /**
+     * S-06 与相邻种植体的最短表面间距（mm）= 轴线间距 - 两半径；无邻居返回 -1。
+     *
+     * found 非空时写入"到底有没有邻居"（D-10 修复）：负值间距 = 两植体表面重叠，
+     * 是一个**真实测量结果**，必须参与判级；而"-1 = 没有邻居"是未测量哨兵。
+     * 两者都用 -1.0 表达会让调用方无法区分，因此判级请读 found，不要读返回值符号。
+     */
+    double minSpacing(const Implant &implant, const std::vector<Implant> &all,
+                      bool *found = nullptr) const;
+
+    /**
+     * S-11 / S-12 修复导向（crown-down）偏差（升级建议 P-09）。
+     *
+     * 定义（都相对植体**无限长轴线**，不用线段，因为冠中心天然在入口的冠方、
+     * 落在线段夹范围之外，用点到线段距离会退化成"到入口点的距离"）：
+     *   S-11 水平偏差 = 冠中心到轴线的垂直距离（MeasureMath::pointToLine）
+     *   S-12 成角偏差 = 植体轴与"冠长轴"的夹角（度）
+     *     - crownAxis 非零（A-02/A-03 这类两点标注）：两轴夹角折到 [0, 90]，
+     *       因为标注线没有方向语义（首末点谁指向冠方不可知）；
+     *     - crownAxis 为零（球面 ROI / 单点标注）：没有冠长轴可用，
+     *       退化为"植体轴 ↔ 入口到冠中心连线"的夹角，此时结果带
+     *       crownAxisFromReference=false，报告与 UI 必须写出这一点。
+     *   两支都把夹角折到 [0,90]：axis 指向根方、冠方参考指向冠方，本来就近似
+     *   反向，不折叠的话完全对齐的情况会读成 180°（组14 用例 g2 守着这条）。
+     * 另外给出 crownAlongAxisMm = (冠中心-入口) 在轴向上的投影（冠方为负），
+     * 它和 S-11 一起能定位偏差朝哪个方向，不新增阈值、不参与判级。
+     *
+     * 返回 false 表示没有冠方参考（crownCenter 为零向量时同样视为无参考，
+     * 因为世界原点恰好是首体素中心，把"没设参考"和"参考在原点"混在一起会
+     * 让 S-11 凭空多出一个十几毫米的假偏差）。
+     */
+    static bool crownDeviation(const Implant &implant, const Vec3 &crownCenter,
+                               const Vec3 &crownAxis, double *offsetMm, double *angleDeg,
+                               double *alongAxisMm = nullptr, bool *axisFromReference = nullptr);
 
     /**
      * 汇总评估并回填 implant 的计算字段（boneHeightMm / level / warnText 等）。
