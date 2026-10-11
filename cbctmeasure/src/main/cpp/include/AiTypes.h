@@ -76,6 +76,22 @@ namespace AiConst {
      *  重跑推理时按它清理旧行，手工挂在同一掩膜 ROI 上的测量不会被误删。 */
     static const char *const AUTO_NOTE = "AI-01 自动分割";
 
+    // ==== AI-02 下颌管（下牙槽神经管）自动勾画 —— 与主机 canal.py 同名同值 ====
+    // 第二个模型复用同一套特征/网格/后处理常量（IN_CHANNELS、BOX_RADII、抽稀倍率、
+    // argmax 语义都不变），只有下面三个"任务相关"的量不同：
+    //   MIN_CANAL_VOXELS —— 管腔在 1.2mm 网格上每侧只有 185~279 体素，散点阈值取 12
+    //     而不是牙齿的 8：牙齿单体可达上千体素，而管的细分支 + 部分容积更容易在
+    //     阈值低时留下桥接伪影，8 会放进不该进的小块（主机 canal.py 同一数字）。
+    //   CANAL_MAX_CANDIDATES —— 解剖上只有左右两条，取前 6 个大连通域是留容错
+    //     （断裂时同一侧可能出两块），超出部分一律不进会话。
+    //   CANAL_AUTO_NOTE —— 与 AUTO_NOTE 同一用途：按名称前缀识别"自动生成的神经管
+    //     路径"，重跑时只清这批，医生手工描记的 ST_NERVE_TRACE 路径不受影响。
+    static const int MIN_CANAL_VOXELS = 12;
+    static const int CANAL_MAX_CANDIDATES = 6;
+    static const char *const CANAL_AUTO_NOTE = "AI-02 自动下颌管";
+    /** 自动下颌管的显示色（与手工神经描记的 0xFFFF1744 区分开，便于肉眼确认来源） */
+    static const unsigned int CANAL_COLOR = 0xFFB388FFU;
+
     /** 叠加层调色板（0xAARRGGBB）：按连通域序号循环取色，相邻牙不同色。
      *  描边用这里的实色；半透明填充由 MeasureOverlayView.drawFilled() 统一
      *  压到 alpha 0.18（与 M-05 截面多边形一致），所以这里不要再带低透明度。 */
@@ -198,7 +214,13 @@ struct AiResult {
     std::string runtimeInfo;            // ORT API 版本 / 线程数 / provider
     /** 实际生效的判定阈值（报告与奇偶校验必须引用它，否则 label 不可复现） */
     double thresholdUsed = AiConst::TOOTH_THRESHOLD;
-    long long toothVoxels = 0;          // label==1 的体素数
+    /**
+     * label==1 的体素数。字段名是历史包袱：一期只有牙齿时它当然等于"牙体素"，
+     * AI-02 复用了同一个 AiResult 结构，于是下颌管通道里它装的是**管腔体素数**。
+     * 不改名（那会牵动 aiResultToJson 的字段名、parity 脚本与已归档的回执），
+     * 但每个引用它的地方都按当前通道解释：见 ai-native-lib.cpp 的 canalVoxels。
+     */
+    long long toothVoxels = 0;
     bool overlayVisible = true;         // 叠加层开关（上层可关，不影响数据）
 
     void clear() {

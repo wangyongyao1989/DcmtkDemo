@@ -89,6 +89,72 @@ object AiJni {
     @JvmStatic
     external fun nativeAiDumpParity(handle: Long, path: String): String
 
+    // =========================================================================
+    // AI-02 下颌管（升级建议 P-01）：第二个模型通道
+    //
+    // 命名一律带 Canal 而不是复用牙齿那组，是因为两条掩膜要同时在场
+    // （AI-03 读牙弓、S-05 读神经管）；注册表在 cpp/ai-native-lib.cpp 的
+    // kAiMethods[] 里按逐字符相同登记，改方法名或签名必须同步那张表。
+    // =========================================================================
+
+    /**
+     * 装载下颌管模型。
+     *
+     * @param threshold 主机 canal_cnn.json 的标定阈值（<=0 时 native 用 0.5 平票线兜底）
+     * @return JSON：{ok,error,runtimeSo,runtimeInfo,modelPath,modelDim,inChannels,outChannels,threshold}
+     */
+    @JvmStatic
+    external fun nativeLoadCanalModel(
+        handle: Long,
+        soPath: String,
+        modelPath: String,
+        modelName: String,
+        threads: Int,
+        threshold: Double,
+    ): String
+
+    /** 释放下颌管 ORT 会话 */
+    @JvmStatic
+    external fun nativeReleaseCanalModel(handle: Long)
+
+    /** 下颌管模型是否就绪（UI 决定"下颌管追踪"按钮可否点） */
+    @JvmStatic
+    external fun nativeCanalReady(handle: Long): Boolean
+
+    /**
+     * 下颌管推理 + 中心线追踪。
+     *
+     * 返回 JSON 除 AiResult 取证字段外还带 tracks（逐条折线点，主机侧 AC-08-2
+     * 与 canal.py 的 centerlines 逐点比对）、adopted、autoNerveCount、
+     * manualNerveCount、trackSummary。
+     */
+    @JvmStatic
+    external fun nativeRunCanal(handle: Long, threshold: Double, keepParity: Boolean): String
+
+    /** 当前下颌管结果回执 JSON（不重算） */
+    @JvmStatic
+    external fun nativeCanalStatus(handle: Long): String
+
+    /** 只清自动下颌管折线（手描神经管保留），返回 {ok,removed,remainingNerves} */
+    @JvmStatic
+    external fun nativeCanalClear(handle: Long): String
+
+    /** 下颌管通道的 feat/prob/label/inst 落盘（与牙齿通道分文件） */
+    @JvmStatic
+    external fun nativeCanalDumpParity(handle: Long, path: String): String
+
+    /**
+     * 自动下颌管是否进 S-05/AI-03 判级（默认关；关闭时仍绘制/归档/进报告）。
+     * 存在理由见 C++ MeasurementManager::setAutoNerveFeedsGrading 的注释
+     * —— 一句话：本轮准入门禁 MISSED，神经距离会偏到厘米级，而红档只有 2mm。
+     */
+    @JvmStatic
+    external fun nativeCanalFeedGrading(handle: Long, feed: Boolean)
+
+    /** 当前开关状态（UI 回显用，别让文案和种植体颜色互相矛盾） */
+    @JvmStatic
+    external fun nativeCanalFeedsGrading(handle: Long): Boolean
+
     // ---- 便捷包装（JSON -> 数据类） ----
 
     fun runSegment(handle: Long, threshold: Double, keepParity: Boolean = false): AiResultInfo =

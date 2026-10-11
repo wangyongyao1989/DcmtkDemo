@@ -192,6 +192,8 @@ data class AiCandidateInfo(
     val boneWidthMm: Double = 0.0,
     val nerveDistMm: Double = -1.0,
     val level: Int = SafetyLevel.GREEN,
+    /** P-09：型号库编号（空 = 该骨量包络里没有可用型号，AI-03 退回连续取值） */
+    val sku: String = "",
     /** 已经落库成种植体时回填（0 = 只是候选） */
     val implantId: Int = 0,
     val reason: String = "",
@@ -219,6 +221,7 @@ data class AiCandidateInfo(
             boneHeightMm = o.optDouble("boneHeight", 0.0),
             boneWidthMm = o.optDouble("boneWidth", 0.0),
             nerveDistMm = o.optDouble("nerveDist", -1.0),
+            sku = o.optString("sku"),
             level = o.optInt("level", SafetyLevel.GREEN),
             implantId = o.optInt("implantId"),
             reason = o.optString("reason"),
