@@ -1,0 +1,31 @@
+{
+ "model": "canal_cnn.onnx",
+ "task": "AI-02 下颌管（下牙槽神经管）自动分割",
+ "threshold": 0.66,
+ "threshold_chosen_by": "max Dice on val case dentvoxel_0074 full grid",
+ "inChannels": 6,
+ "outChannels": 2,
+ "positiveClass": 1,
+ "minInstanceVoxels": 12,
+ "maxCandidates": 6,
+ "grid": "device axis order (96,96,64) @1.2mm == app 192x192x128 @0.6mm decimated x2",
+ "labels": {
+  "35": "r_mandibular_canal",
+  "36": "l_mandibular_canal"
+ },
+ "split": {
+  "train": [
+   "dentvoxel_0021",
+   "dentvoxel_0047"
+  ],
+  "val": "dentvoxel_0074",
+  "test": "dentvoxel_0101"
+ },
+ "shipped_in_apk": false,
+ "delivery": "adb push 到 <外置 filesDir>/ai_models/canal_cnn.onnx，或在 AI 页选择模型文件",
+ "metrics_test": {
+  "dice_red": 0.1460794844253491,
+  "dice_app": 0.14343817787418656,
+  "hd95_mm": 42.51646735841832
+ }
+}
