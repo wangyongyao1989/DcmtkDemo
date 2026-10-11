@@ -160,9 +160,42 @@ class MeasureToolController(
         pushDraft()
     }
 
-    /** 撤销最后一笔：丢掉最后一个待提交点 */
+    /**
+     * 撤销最后一笔：先丢未提交的草稿点；草稿已空时，NERVE_TRACE 还要撤销
+     * **已经进 Native 的最后一个描记点**。
+     *
+     * 为什么要单独写这一段（D-08 的修复，第 8 轮）：
+     *   commitNervePoint() 是"每点一层就直接 appendNervePoint 进会话"的，它从不写
+     *   pending；而原实现只 `pending.removeAt(last)`，于是神经管描记的撤销按钮是
+     *   结构性空操作 —— 点了没反应、也没有日志，只能整条路径作废重来。
+     *   Native 侧 removeNervePoint(handle,id,index) 与注册一直都在，缺的只是调用点。
+     *
+     * 点数不自己记：从 dumpPlan() 的 nervePaths 里读该路径的实际点数，
+     * 因此"描记→切走→切回来继续→撤销"和"恢复归档后撤销"都按真实状态回退，
+     * 不会因为 Kotlin 侧计数器与实际不同步而删错点。
+     */
     fun undoPendingPoint() {
-        if (pending.isNotEmpty()) pending.removeAt(pending.size - 1)
+        if (pending.isNotEmpty()) {
+            pending.removeAt(pending.size - 1)
+        } else if (state == ToolState.NERVE_TRACE && nervePathId > 0) {
+            val handle = host.sessionHandle()
+            val pts = SurgeryPlanJni.nervesOf(MeasureJni.dumpPlan(handle))
+                .firstOrNull { it.id == nervePathId }?.points ?: emptyList()
+            if (pts.isEmpty()) {
+                Log.d(TAG, "undoPendingPoint: NERVE_TRACE 路径 $nervePathId 无点可撤")
+                setHint("该路径还没有描记点")
+                return
+            }
+            val ok = SurgeryPlanJni.removeNervePoint(handle, nervePathId, pts.size - 1)
+            Log.d(TAG, "undoPendingPoint: NERVE_TRACE 撤销第 ${pts.size} 个点 " +
+                    "path=$nervePathId -> ok=$ok")
+            if (!ok) {
+                setHint("撤销失败：路径不存在")
+                return
+            }
+            notifyDataChanged()
+            return          // notifyDataChanged 已刷新叠加层，别再 pushDraft 覆盖
+        }
         liveScreen.clear()
         stickyMissHint = null   // 同 discardDraft()：按钮不是 view 上的 DOWN，残留的"没点中"提示要主动清
         updateHint()

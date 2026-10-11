@@ -8,6 +8,7 @@
 
 #include "include/Json.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -153,6 +154,13 @@ void Json::dumpScalar(std::string &out) const {
             if (num_ != num_ || num_ > 1e308 || num_ < -1e308) {
                 // NaN/Inf 不是合法 JSON，落盘为 null 以保证文件可再解析
                 out += "null";
+            } else if (std::floor(num_) == num_ && std::fabs(num_) < 1e15) {
+                // 整数走 %.0f 而不是 %.12g：createdAt 这类 13 位毫秒时间戳会被
+                // %.12g 截成 1700000000120，归档恢复后末位毫秒静默丢失
+                // （组15 g2 逐值核对）。1e15 以内 double 能精确表示整数，
+                // 超出该范围就不再是"精确整数"，退回 %.12g 的科学计数法。
+                snprintf(buf, sizeof(buf), "%.0f", num_);
+                out += buf;
             } else {
                 snprintf(buf, sizeof(buf), "%.12g", num_);
                 out += buf;
