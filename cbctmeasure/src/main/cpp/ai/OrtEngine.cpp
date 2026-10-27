@@ -83,27 +83,28 @@ bool OrtEngine::inputDim3(int dim[3]) const {
 void OrtEngine::unload() {
     Impl *s = impl_;
     if (!s) return;
-    // 先无条件关掉已打开的 so：dlopen 成功但 OrtGetApiBase 缺失时，
-    // 下面的 api==nullptr 早退分支不能再把句柄漏在场上。
+    // O-02：必须先释放 ORT 对象，再 dlclose。s->api 里全是这个 so 里的函数指针，
+    // "先关库再调用"等于跳进已卸载的内存；模型重载/清除时必崩。
+    // 另外 s->api 不能像过去那样只清局部变量——第二次 unload() 会拿悬垂指针再调一次。
+    const OrtApi *api = s->api;
+    if (api) {
+        if (s->session) { api->ReleaseSession(s->session); s->session = nullptr; }
+        if (s->runOptions) { api->ReleaseRunOptions(s->runOptions); s->runOptions = nullptr; }
+        if (s->options) { api->ReleaseSessionOptions(s->options); s->options = nullptr; }
+        if (s->memInfo) { api->ReleaseMemoryInfo(s->memInfo); s->memInfo = nullptr; }
+        if (s->env) { api->ReleaseEnv(s->env); s->env = nullptr; }
+        // alloc 是"默认分配器"，ORT 文档说明由库自己持有，不能 Release
+        s->alloc = nullptr;
+        s->api = nullptr;
+    }
+    // dlopen 成功但 OrtGetApiBase 缺失的分支也要把句柄收掉。
     if (s->handle) {
         dlclose(s->handle);
         s->handle = nullptr;
     }
-    usedSo_.clear();
-    if (!s->api) {
-        session_ = nullptr;
-        soLoaded_ = false;
-        return;
-    }
-    const OrtApi *api = s->api;
-    if (s->session) { api->ReleaseSession(s->session); s->session = nullptr; }
-    if (s->runOptions) { api->ReleaseRunOptions(s->runOptions); s->runOptions = nullptr; }
-    if (s->options) { api->ReleaseSessionOptions(s->options); s->options = nullptr; }
-    if (s->memInfo) { api->ReleaseMemoryInfo(s->memInfo); s->memInfo = nullptr; }
-    if (s->env) { api->ReleaseEnv(s->env); s->env = nullptr; }
-    // alloc 是"默认分配器"，ORT 文档说明由库自己持有，不能 Release
-    s->alloc = nullptr;
-    api = nullptr;
+    s->base = nullptr;
+    session_ = nullptr;
+    soLoaded_ = false;
     inName_.clear();
     outName_.clear();
     usedSo_.clear();
