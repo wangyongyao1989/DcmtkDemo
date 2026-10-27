@@ -261,7 +261,9 @@ class ReportGenerator(private val context: Context) {
         }
         if (nerves.isNotEmpty()) {
             pager.addLine(4f)
-            for (np in nerves) {
+            // D-17：撤空/未成形的路径（<2 点）没有长度可言，SR 侧早已跳过；
+            // PDF 过去照样列一行「0 点」，看起来像一份有效描记。统一口径。
+            for (np in nerves.filter { it.points.size >= 2 }) {
                 pager.drawText(
                     bodyPaint,
                     "神经管 ${np.name.ifEmpty { "#${np.id}" }}：${np.points.size} 点，" +
