@@ -963,13 +963,30 @@ std::vector<NervePath> MeasurementManager::nervesForGrading() const {
 
 int MeasurementManager::clearCanalTracks() {
     int removed = 0;
+    std::vector<int> removedIds;
     for (size_t i = 0; i < nerves_.size();) {
         if (isAutoNerveName(nerves_[i].name)) {
+            removedIds.push_back(nerves_[i].id);
             nerves_.erase(nerves_.begin() + (long) i);
             ++removed;
         } else {
             ++i;
         }
+    }
+    if (!removedIds.empty()) {
+        // P-10 的风险行按 nervePathId 引用神经管。管道被清掉后若还把行留在
+        // risks_ 里，归档/报告就会出现"找不到神经管"的悬空条目（第 10 轮实测
+        // 46% 是这类行）。这里与删除动作同批次清理，避免清管道后还要用户手动删。
+        const size_t before = risks_.size();
+        risks_.erase(
+            std::remove_if(risks_.begin(), risks_.end(),
+                           [&removedIds](const ThirdMolarRisk &r) {
+                               return std::find(removedIds.begin(), removedIds.end(),
+                                                r.nervePathId) != removedIds.end();
+                           }),
+            risks_.end());
+        LOGD("clearCanalTracks: 清除 %zu 条自动管道，连带清理 %zu 条风险行",
+             removedIds.size(), before - risks_.size());
     }
     if (removed > 0) recomputePlan();   // 路径几何变了，S-05 必须重算
     return removed;
@@ -1024,6 +1041,9 @@ bool MeasurementManager::assessNerveRisk(int instanceId, int nervePathId,
     for (size_t i = 0; i < risks_.size(); ++i) {
         if (risks_[i].instanceId == instanceId && risks_[i].nervePathId == nervePathId) {
             out.id = risks_[i].id;
+            // 覆盖是"重算同一组合"，不是新建：createdAt 必须保留，否则每点一次
+            // 评估/每次恢复归档后重算，报告里的"首次评估时间"都会漂移到当前时刻。
+            out.createdAt = risks_[i].createdAt;
             risks_[i] = out;
             LOGD("assessNerveRisk: 覆盖旧条目 #%d（实例 %d × 神经 %d）%.2fmm",
                  out.id, instanceId, nervePathId, out.minDistMm);
