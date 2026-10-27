@@ -130,8 +130,9 @@ class CbctVtkView @JvmOverloads constructor(
         isFocusableInTouchMode = true
         
         // 设置触摸监听并强力禁止拦截
-        setOnTouchListener { v, event ->
-            android.util.Log.e("VTK_TOUCH", "Listener: action=${event.actionMasked}, pointers=${event.pointerCount}")
+        setOnTouchListener { v, _ ->
+            // 这里曾经每个触摸事件都 Log.e 一行（VTK_TOUCH），单指拖动时 logcat
+            // 每秒几十条，回归取证时会把真正的业务日志冲掉。拦截行为保持不变。
             v.parent?.requestDisallowInterceptTouchEvent(true)
             false // 继续分发到 onTouchEvent
         }
@@ -292,14 +293,12 @@ class CbctVtkView @JvmOverloads constructor(
     // =========================================================================
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("VTK_TOUCH", "dispatchTouchEvent: action=${event.actionMasked}")
         parent?.requestDisallowInterceptTouchEvent(true)
         return super.dispatchTouchEvent(event)
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("VTK_TOUCH", "onTouchEvent: action=${event.actionMasked}, pointers=${event.pointerCount}")
         if (rendererPtr == 0L) return super.onTouchEvent(event)
 
         scaleDetector.onTouchEvent(event)
