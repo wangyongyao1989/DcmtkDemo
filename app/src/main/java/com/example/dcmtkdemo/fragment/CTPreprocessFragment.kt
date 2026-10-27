@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -430,6 +431,32 @@ class CTPreprocessFragment : Fragment() {
             val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, fileList)
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             binding.spinnerAsset.adapter = adapter
+            // 默认资产是 .raw（小端），而布局默认勾的是 Big；不纠正的话第一下
+            // 「执行最优调节」按大端解码，真机实测 C=29113 / W=527366，整幅图不可用。
+            binding.spinnerAsset.onItemSelectedListener =
+                object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(
+                        parent: AdapterView<*>?, view: android.view.View?,
+                        position: Int, id: Long,
+                    ) {
+                        applyEndiannessHint(fileList[position])
+                    }
+
+                    override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+                }
+            applyEndiannessHint(fileList[0])
+        }
+    }
+
+    /**
+     * 资产扩展名就是字节序线索：.raw 小端、.bin 大端（assets/README 的既定口径）。
+     * 只调整“切换资产时的默认值”，用户仍可手动改单选；不改 rawpixeldeal 的算法。
+     */
+    private fun applyEndiannessHint(assetName: String) {
+        val name = assetName.lowercase(Locale.ROOT)
+        when {
+            name.endsWith(".raw") -> binding.rbLittleEndian.isChecked = true
+            name.endsWith(".bin") -> binding.rbBigEndian.isChecked = true
         }
     }
 
