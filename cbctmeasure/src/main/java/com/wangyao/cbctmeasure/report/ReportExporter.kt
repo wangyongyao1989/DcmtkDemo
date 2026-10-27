@@ -39,8 +39,8 @@ class ReportExporter(private val context: Context) {
         fun lines(): List<String> = buildList {
             add("归档：${archive.joinToString("；") { it.message }}")
             add("截图：$screenshot")
-            add("PDF：${pdf.message}（${pdf.file.absolutePath}）")
-            add("SR：${if (sr.ok) "已导出 ${sr.sopUid}" else sr.error}（$srPath）")
+            add("PDF：${pdf.message}" + if (pdf.file.path.isEmpty()) "" else "（${pdf.file.absolutePath}）")
+            add("SR：${if (sr.ok) "已导出 ${sr.sopUid}" else sr.error}" + if (srPath.isEmpty()) "" else "（$srPath）")
             add("SR 自校验：${if (srVerified.ok) "通过 ${srVerified.docType} ${srVerified.summary}" else srVerified.error}")
         }
     }
@@ -59,6 +59,21 @@ class ReportExporter(private val context: Context) {
     ): Summary {
         val key = info.archiveKey()
         val archive = MeasurementStore.saveAll(context, handle, key)
+
+        // D-18：归档层发现"AI 掩膜读数将被清零"时会拒绝写入（blocked）。
+        // 此时若继续出 PDF/SR，报告里就会出现「待重算」占位，因此整条导出链中止。
+        val blocked = archive.firstOrNull { it.blocked }
+        if (blocked != null) {
+            val emptyPdf = ReportGenerator.Output(
+                false, File(""), 0, "未生成：归档未通过数据完整性检查",
+            )
+            val emptySr = SrResult(false, "", "", "", "SR 未生成：归档未通过数据完整性检查")
+            Log.w(TAG, "exportAll blocked: ${blocked.message}")
+            return Summary(
+                key, archive, "未截图（归档未通过）",
+                emptyPdf, emptySr, "", emptySr,
+            )
+        }
 
         var screenshotText = "无渲染帧"
         if (evidence != null) {
