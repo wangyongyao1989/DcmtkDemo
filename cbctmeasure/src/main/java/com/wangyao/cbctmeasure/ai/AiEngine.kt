@@ -144,7 +144,9 @@ object AiEngine {
     private fun copyIfChanged(ctx: Context, assetPath: String, target: File) {
         val want = assetSize(ctx, assetPath)
         if (target.isFile && (want <= 0 || target.length() == want)) {
-            Log.d(TAG, "复用已释放的 ${target.name} ($want B)")
+            // want 为 0 表示 asset 被压缩、拿不到 declaredLength；此时打印 want 会
+            // 让日志看起来像"复用了 0 字节模型"，实际复用长度以 target 为准。
+            Log.d(TAG, "复用已释放的 ${target.name} (${target.length()} B)")
             return
         }
         ctx.assets.open(assetPath).use { input ->

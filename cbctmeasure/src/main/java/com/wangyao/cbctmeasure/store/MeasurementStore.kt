@@ -90,12 +90,17 @@ object MeasurementStore {
     private const val TMP_SUFFIX = ".tmp"
     private const val BAK_SUFFIX = ".bak"
 
-    /** 一次保存/读取的结果；message 直接给 UI 展示 */
+    /**
+     * 一次保存/读取的结果；message 直接给 UI 展示。
+     * [blocked] 表示"为保护已有数据而主动拒绝写入"（不是磁盘/校验失败），
+     * 调用方据此中止后续报告导出，避免把空缺数值写进 PDF/SR。
+     */
     data class Result(
         val ok: Boolean,
         val file: File,
         val usedBackup: Boolean,
         val message: String,
+        val blocked: Boolean = false,
     ) {
         fun pathText(): String = file.absolutePath
     }
@@ -104,10 +109,37 @@ object MeasurementStore {
     fun saveAll(context: Context, handle: Long, key: String): List<Result> {
         if (handle == 0L) return listOf(Result(false, context.filesDir, false, "会话未创建"))
         val out = ArrayList<Result>(3)
-        out.add(save(context, StorePaths.KIND_MEASURE, key, MeasureJni.dumpRecords(handle)))
-        out.add(save(context, StorePaths.KIND_PLAN, key, MeasureJni.dumpPlan(handle)))
+
+        val measurePayload = MeasureJni.dumpRecords(handle)
+        // D-18：恢复归档后若没有重新推理，AI 掩膜 ROI 的统计会全部变 0 并带 error。
+        // 直接落盘会把上一版真实读数永久覆盖成 0（.bak 只保一代），所以这里先比对
+        // 旧归档：一旦发现"旧值非 0、新值 0 且原因是缺少推理结果"，拒绝写入测量档。
+        val degraded = aiMaskDegradedIds(context, key, measurePayload)
+        out.add(
+            if (degraded.isNotEmpty()) {
+                val preview = degraded.take(6).joinToString("、") { "#$it" } +
+                        if (degraded.size > 6) " 等" else ""
+                // D-20：真机实测「装载模型 → 牙齿自动分割」之后行值仍是 0（分割只恢复掩膜，
+                // 不会重算记录里的体积/HU），必须再跑一次「逐牙自动测量」才会刷新，
+                // 所以提示里必须带上这一步，否则用户照做后仍会被同一条提示拦住。
+                val msg = "未写入：${degraded.size} 条 AI 掩膜测量会因缺少推理结果被清零（$preview）。" +
+                        "请依次执行「装载模型 → 牙齿自动分割 → 逐牙自动测量」重算这些行" +
+                        "（仅分割不会刷新读数），或先在结果列表中删除这些行再保存。"
+                Log.w(TAG, "saveAll 拒绝覆盖测量档：$msg")
+                Result(false, StorePaths.archiveFile(context, StorePaths.KIND_MEASURE, key), false, msg, blocked = true)
+            } else {
+                // O-12：elapsedMs 是上一次统计的墙钟耗时，属于运行时诊断值；
+                // 留在 payload 里会让"什么都没改"的两次保存产生不同 checksum。
+                save(context, StorePaths.KIND_MEASURE, key, withoutVolatileStats(measurePayload))
+            }
+        )
+
+        // modelLibrary 是进程级型号目录的"当前来源"标记（builtin 会随重启/换库翻转），
+        // 不属于这份方案；留在归档里会让同一次手术规划在重启后 checksum 变化。
+        out.add(save(context, StorePaths.KIND_PLAN, key, withoutProcessState(MeasureJni.dumpPlan(handle))))
         out.add(save(context, StorePaths.KIND_ANNO, key, AnnotationJni.dumpAnnotations(handle)))
-        Log.i(TAG, "saveAll key=$key ok=${out.count { it.ok }}/${out.size}")
+        Log.i(TAG, "saveAll key=$key ok=${out.count { it.ok }}/${out.size}" +
+                " blocked=${out.count { it.blocked }}")
         return out
     }
 
@@ -270,6 +302,100 @@ object MeasurementStore {
         val bak = File(target.parentFile, target.name + BAK_SUFFIX)
         runCatching { target.copyTo(bak, overwrite = true) }
             .onFailure { Log.w(TAG, "backup ${target.name} failed: ${it.message}") }
+    }
+
+    /**
+     * D-18 护栏：找出"本次即将被清零、而上一版有真实读数"的 AI 掩膜测量。
+     *
+     * 判据只认三件事同时成立：
+     *   1) 新记录 value == 0；
+     *   2) detail.error 以「AI 掩膜」开头（Native 在缺少推理结果时写入的原因）；
+     *   3) 旧归档里同 id 记录 value != 0。
+     * 不猜临床口径，也不改写 Native 的数值，只在覆盖前拦住这一次写入。
+     */
+    private fun aiMaskDegradedIds(context: Context, key: String, newPayload: String): List<Int> {
+        val old = read(context, StorePaths.KIND_MEASURE, key)
+        if (!old.ok) return emptyList()
+        return try {
+            val oldById = HashMap<Int, Double>()
+            val oldRecords = org.json.JSONObject(old.payload).optJSONArray("records")
+                ?: return emptyList()
+            for (i in 0 until oldRecords.length()) {
+                val r = oldRecords.getJSONObject(i)
+                oldById[r.optInt("id")] = r.optDouble("value", 0.0)
+            }
+            val newRecords = org.json.JSONObject(newPayload).optJSONArray("records")
+                ?: return emptyList()
+            val out = ArrayList<Int>()
+            for (i in 0 until newRecords.length()) {
+                val r = newRecords.getJSONObject(i)
+                if (r.optDouble("value", 0.0) != 0.0) continue
+                val error = detailOf(r)?.optString("error").orEmpty()
+                if (!error.startsWith("AI 掩膜")) continue
+                val oldValue = oldById[r.optInt("id")] ?: continue
+                if (oldValue != 0.0) out.add(r.optInt("id"))
+            }
+            out
+        } catch (e: Exception) {
+            Log.w(TAG, "aiMaskDegradedIds 解析失败，按无退化处理：${e.message}")
+            emptyList()
+        }
+    }
+
+    /** detail 既可能是内联对象，也可能是被二次编码的字符串（历史归档兼容） */
+    private fun detailOf(record: org.json.JSONObject): org.json.JSONObject? {
+        return when (val d = record.opt("detail")) {
+            is org.json.JSONObject -> d
+            is String -> runCatching { org.json.JSONObject(d) }.getOrNull()
+            else -> null
+        }
+    }
+
+    /**
+     * O-12：从测量明细里去掉运行时诊断字段，保证"同一份数据"落盘得到同一 checksum。
+     * 目前只去 elapsedMs（统计耗时）；scannedVoxels/meanHu 等是数据事实，保留。
+     */
+    private fun withoutVolatileStats(payload: String): String {
+        return try {
+            val root = org.json.JSONObject(payload)
+            val records = root.optJSONArray("records") ?: return payload
+            var changed = false
+            for (i in 0 until records.length()) {
+                val r = records.getJSONObject(i)
+                val raw = r.opt("detail") ?: continue
+                val detail = when (raw) {
+                    is org.json.JSONObject -> raw
+                    is String -> runCatching { org.json.JSONObject(raw) }.getOrNull()
+                    else -> null
+                } ?: continue
+                if (!detail.has("elapsedMs")) continue
+                detail.remove("elapsedMs")
+                // 保持原有形状：字符串 detail 仍写回字符串，避免改变归档格式
+                r.put("detail", if (raw is String) detail.toString() else detail)
+                changed = true
+            }
+            if (changed) root.toString() else payload
+        } catch (e: Exception) {
+            Log.w(TAG, "withoutVolatileStats 失败，保留原始 payload：${e.message}")
+            payload
+        }
+    }
+
+    /**
+     * 摘掉进程级、与本次会话无关的字段（目前只有方案里的 modelLibrary）。
+     * 型号目录的 builtin 标记随进程装载来源变化，但它不参与 restorePlan，
+     * 也不影响种植体已记录的 SKU；留在归档里只会制造"没改也变"的假差异。
+     */
+    private fun withoutProcessState(payload: String): String {
+        return try {
+            val root = org.json.JSONObject(payload)
+            if (!root.has("modelLibrary")) return payload
+            root.remove("modelLibrary")
+            root.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "withoutProcessState 失败，保留原始 payload：${e.message}")
+            payload
+        }
     }
 
     private fun restoreRecordsSafe(handle: Long, payload: String): Boolean = try {

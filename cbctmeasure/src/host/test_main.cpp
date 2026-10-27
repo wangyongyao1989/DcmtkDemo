@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -3138,6 +3139,8 @@ static void group15NerveRisk() {
         checkTrue("h3 重复评估仍成功", mgr.assessNerveRisk(1, nerveId, r2));
         checkEqInt("h3 同组合覆盖而不是加行", (long long) mgr.nerveRisks().size(), 1);
         checkEqInt("h3 沿用原 id（报告不会长出两份同形状的行）", r2.id, r.id);
+        checkEqInt("D-16 覆盖保留 createdAt（首次评估时间不漂移）",
+                   r2.createdAt, r.createdAt);
 
         const int otherNerve = mgr.addNervePath(riskNerve(Vec3(24.5, 29.5, 10.5),
                                                           Vec3(24.5, 31.5, 10.5), 1.5, "手描 II"));
@@ -3221,6 +3224,11 @@ static void group15NerveRisk() {
         checkHas("h12 来源写明是 AI-02 自动结果", r.nerveSource, "AI-02");
         checkHas("h12 来源同时写明本轮只作预览", r.nerveSource, "预览");
         checkHas("h13 结论行里有神经管名字", r.summaryText(), "AI-02");
+
+        // D-15：清掉自动管道后，按 nervePathId 引用它的风险行不能留在会话里
+        checkEqInt("D-15 先有 1 条自动管道风险行", (long long) mgr.nerveRisks().size(), 1);
+        checkEqInt("D-15 clearCanalTracks 移除自动管道", mgr.clearCanalTracks(), 1);
+        checkEqInt("D-15 风险行随管道一起清理", (long long) mgr.nerveRisks().size(), 0);
     }
 
     // ---- i) plan.json：随归档走 + 旧归档兼容 ----
@@ -3283,6 +3291,35 @@ static void group15NerveRisk() {
 
 
 // ============================================================================
+// 组 16：O-01 —— Json::asInt 对"无符号 32 位颜色"的窄化语义
+//
+// 历史 Kotlin 侧把颜色写成 0..4294967295（如 4294967295 = 0xFFFFFFFF）。
+// double -> int 越界是 UB：arm64 饱和成 INT_MAX（真机实测 0x7fffffff），
+// x86 得 INT_MIN。正确语义应与 Java/Kotlin 的 (int) 一致：按 32 位截断。
+// 同时必须保证正常范围内的值（id、类型、负数）一字不变。
+// ============================================================================
+static void group16JsonIntNarrowing() {
+    auto asInt = [](double d) {
+        Json j = Json::makeObject();
+        j.set("v", Json::makeNumber(d));
+        return j.at("v").asInt(-12345);
+    };
+
+    checkEqInt("O-01 0xFFFFFFFF 读回 -1", (long long) asInt(4294967295.0), -1);
+    const unsigned int cyan = 0xFF00E5FFu;
+    checkEqInt("O-01 0xFF00E5FF 读回原 Int 位模式",
+               (long long) asInt((double) cyan), (long long) (int) cyan);
+    checkEqInt("O-01 2^31 截断为 INT_MIN", (long long) asInt(2147483648.0), INT_MIN);
+    checkEqInt("O-01 -1 不变", (long long) asInt(-1.0), -1);
+    checkEqInt("O-01 普通 id 不变", (long long) asInt(73.0), 73);
+    checkEqInt("O-01 取整仍按四舍五入", (long long) asInt(2.6), 3);
+    checkEqInt("O-01 超出 int64 时回退 fallback", (long long) asInt(1e19), -12345);
+    checkEqInt("O-01 非数字回退 fallback",
+               (long long) Json::makeObject().at("missing").asInt(-7), -7);
+}
+
+
+// ============================================================================
 // 入口
 // ============================================================================
 
@@ -3306,6 +3343,7 @@ int main() {
     group13SpacingRegression();
     group14ImplantLibraryAndCrown();
     group15NerveRisk();
+    group16JsonIntNarrowing();
 
     printf("\n================ PRD §6 精度实测汇总 ================\n");
     printf("  AC-01 距离  最坏绝对误差 = %.3e mm（要求 <= 0.1 mm）%s\n",

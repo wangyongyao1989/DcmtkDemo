@@ -102,6 +102,9 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
     /** 隔离显示（只保留阈值区间体素）是否开启 */
     private var isolating = false
 
+    /** 归档写入中：防止连点把两次 IO 排在一起 */
+    private var archiveSaving = false
+
     /** 结果面板是否展开；初始 true，行多时按 [AUTO_COLLAPSE_ROWS] 自动收起一次 */
     private var resultsExpanded = true
 
@@ -848,10 +851,14 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
         if (isolating) {
             vtk.resetSegmentHuRange()
             isolating = false
+            Log.d(TAG, "toggleIsolate: off")
             toast("已恢复整体显示")
             return
         }
-        if (vtk.renderSnapshot()?.get(0)?.toInt() == CbctVtkJni.MODE_MPR) {
+        val mode = vtk.renderSnapshot()?.get(0)?.toInt() ?: -1
+        if (mode == CbctVtkJni.MODE_MPR) {
+            // 静默返回会让用户以为按钮坏了：日志里必须留下"为什么没生效"
+            Log.d(TAG, "toggleIsolate: ignored in MPR mode")
             toast("隔离显示基于体渲染的不透明度曲线，请先切回 VR 模式")
             return
         }
@@ -861,6 +868,12 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
         val hi = range.getOrElse(1) { 3000.0 }
         vtk.setSegmentHuRange(lo, hi, SEGMENT_FEATHER_HU)
         isolating = true
+        Log.d(
+            TAG,
+            "toggleIsolate: on range=%.1f..%.1f feather=%.1f mode=%d".format(
+                lo, hi, SEGMENT_FEATHER_HU, mode,
+            ),
+        )
         toast("隔离显示 ${lo.toInt()} ~ ${hi.toInt()} HU")
     }
 
@@ -1307,7 +1320,22 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
         controller?.notifyDataChanged()
     }
 
+    /**
+     * 删除前必须二次确认（O-10）。
+     * 结果行右侧的小图标与行点击区域挨得很近，真机上误触概率不低；
+     * 删除又直接落到 Native 会话、无法撤销，所以这里与「清空全部」保持同一口径。
+     */
     private fun onRowDelete(row: MeasureRow) {
+        if (isAdded.not()) return
+        AlertDialog.Builder(requireContext())
+            .setTitle("删除结果")
+            .setMessage("确定删除「${row.title}」？\n删除后不可撤销；归档里的上一版仍可用「恢复归档」找回。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("删除") { _, _ -> deleteRow(row) }
+            .show()
+    }
+
+    private fun deleteRow(row: MeasureRow) {
         val h = sessionHandle
         if (h == 0L) return
         val ok = when (row.ownerKind) {
@@ -1338,11 +1366,28 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
             toast("请先解析序列")
             return
         }
-        val key = volumeInfo.archiveKey()
-        val results = MeasurementStore.saveAll(ctx, sessionHandle, key)
-        binding.tvMeasureSummary.text =
-            "【归档保存】$key\n" + results.joinToString("\n") { "- ${it.message} ${it.pathText()}" }
-        toast("已保存到 measurements/annotations/plans")
+        if (archiveSaving) return
+        archiveSaving = true
+        binding.btnSaveArchive.isEnabled = false
+        // 归档 JSON 有几百 KB，主线程写入会卡住拖动/渲染；与导出链路一样放 IO
+        binding.tvMeasureSummary.text = "【归档保存】正在写入..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            val key = volumeInfo.archiveKey()
+            val h = sessionHandle
+            val results = withContext(Dispatchers.IO) { MeasurementStore.saveAll(ctx, h, key) }
+            if (_binding == null) return@launch
+            archiveSaving = false
+            binding.btnSaveArchive.isEnabled = true
+            binding.tvMeasureSummary.text =
+                "【归档保存】$key\n" + results.joinToString("\n") { "- ${it.message} ${it.pathText()}" }
+            // 以每条结果的真实 ok 为准：D-18 护栏会主动拒绝写入测量档，
+            // 过去这里一律提示"已保存"，医生会以为覆盖成功。
+            if (results.all { it.ok }) {
+                toast("已保存到 measurements/annotations/plans")
+            } else {
+                toast(results.first { !it.ok }.message)
+            }
+        }
     }
 
     @SuppressLint("SetTextI18n")
@@ -1389,16 +1434,19 @@ class CbctMeasureFragment : Fragment(), MeasureToolController.Host, CbctAiHost {
             binding.tvInfo.text = "正在导出报告..."
             viewLifecycleOwner.lifecycleScope.launch {
                 val t0 = SystemClock.elapsedRealtime()
-                val lines = withContext(Dispatchers.IO) {
-                    ex.exportAll(h, volumeInfo, evidence, name).lines()
+                val summary = withContext(Dispatchers.IO) {
+                    ex.exportAll(h, volumeInfo, evidence, name)
                 }
                 if (_binding == null) return@launch
                 // PC-03/PC-01 口径：归档 + PDF + SR + 回读校验整条链路的耗时
                 Log.i(TAG, "exportAll cost=%dms".format(SystemClock.elapsedRealtime() - t0))
                 binding.btnExportReport.isEnabled = true
-                binding.tvInfo.text = "导出完成"
-                binding.tvMeasureSummary.text = "【报告导出】\n" + lines.joinToString("\n")
-                toast("PDF 与 SR 已导出")
+                val ok = summary.allOk()
+                binding.tvInfo.text = if (ok) "导出完成" else "导出未全部成功"
+                binding.tvMeasureSummary.text =
+                    "【报告导出】\n" + summary.lines().joinToString("\n")
+                // 过去这里无条件提示"PDF 与 SR 已导出"，SR 失败或归档被护栏拦下时误导性很强
+                toast(if (ok) "PDF 与 SR 已导出" else "导出未全部成功，详见结果区")
             }
         }
     }

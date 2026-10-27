@@ -237,6 +237,19 @@ class MeasureToolController(
      * @return false 表示当前点数不足 3，草稿保持原样
      */
     fun closeAreaDraft(): Boolean {
+        // 「闭合路径」只对面积测量有意义：神经管/距离/标注等状态下的草稿点
+        // 不能拿来生成面积。过去这里只校验点数，神经管描记里点满 3 点再按
+        // 闭合会凭空多出一条面积测量，提示语也说的是"还需几个点"，与当前工具无关。
+        if (state != ToolState.MEASURE_AREA) {
+            setHint(
+                when (state) {
+                    ToolState.NERVE_TRACE ->
+                        "神经管描记不需要闭合路径：切换层位继续点击，或用「撤销取点」回退"
+                    else -> "闭合路径仅用于面积测量：先切到「面积」并在 MPR 切面上取点"
+                }
+            )
+            return false
+        }
         if (pending.size < 3) {
             setHint(if (pending.isEmpty()) "闭合无效：先在切面上点出至少 3 个点"
             else "闭合无效：还需 ${3 - pending.size} 个点（当前 ${pending.size} 点）")

@@ -62,7 +62,16 @@ double Json::asNumber(double fallback) const {
 
 int Json::asInt(int fallback) const {
     if (type_ != JT_NUM) return fallback;
-    return (int) (num_ >= 0 ? num_ + 0.5 : num_ - 0.5);
+    const double r = num_ >= 0 ? num_ + 0.5 : num_ - 0.5;
+    // O-01：JSON 里可能出现 0..4294967295 的无符号颜色（历史 Kotlin 侧写成
+    // `color.toLong() and 0xFFFFFFFFL`）。double -> int 越界在 C++ 里是 UB，
+    // arm64 的 fcvtzs 会饱和成 INT_MAX（真机归档实测 0x7fffffff），x86 则得到 INT_MIN。
+    // 与 Java/Kotlin 的窄化语义对齐：先落到 int64，再按 32 位截断，颜色位模式保持不变。
+    const double limit = 9.2233720368547758e18;  // 2^63
+    if (r >= limit || r <= -limit) return fallback;
+    const long long v = static_cast<long long>(r);
+    return static_cast<int>(static_cast<unsigned int>(
+        static_cast<unsigned long long>(v) & 0xFFFFFFFFULL));
 }
 
 std::string Json::asString(const std::string &fallback) const {

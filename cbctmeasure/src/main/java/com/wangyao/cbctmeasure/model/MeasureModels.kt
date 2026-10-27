@@ -131,7 +131,11 @@ data class RoiItem(
         put("id", id)
         put("type", type)
         put("name", name)
-        put("color", color.toLong() and 0xFFFFFFFFL)
+        // O-01：不要写 `color.toLong() and 0xFFFFFFFFL`。颜色本身是有符号 Int（0xFFFFFFFF = -1），
+        // 展开成 4294967295 后越出 C++ Json::asInt 的 int 范围；arm64 的 double->int 会饱和成
+        // INT_MAX，结果所有 Kotlin 侧对象都变成半透明白（真机归档里 12/36 ROI、3/3 种植体已复现）。
+        // 直接写有符号值，C++ 读回即为原始位模式；老归档里的 0x7fffffff 无法还原，只保证今后不再产生。
+        put("color", color)
         put("visible", visible)
         put("opacity", opacity)
         put("huMin", huMin)
@@ -311,7 +315,8 @@ data class ImplantItem(
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("name", name)
-        put("color", color.toLong() and 0xFFFFFFFFL)
+        // O-01：同 ROI.toJson()，颜色必须按有符号 32 位写，否则会饱和成 0x7fffffff。
+        put("color", color)
         put("visible", visible)
         put("entry", entry.toJsonArray())
         put("pitchDeg", pitchDeg)
@@ -583,7 +588,8 @@ data class AnnotationItem(
         put("id", id)
         put("type", type)
         put("text", text)
-        put("color", color.toLong() and 0xFFFFFFFFL)
+        // O-01：同 ROI.toJson()，颜色必须按有符号 32 位写。
+        put("color", color)
         put("visible", visible)
         put("measureId", measureId)
         put("points", WorldPoint.jsonArray(points))

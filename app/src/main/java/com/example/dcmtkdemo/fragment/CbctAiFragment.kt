@@ -311,6 +311,9 @@ class CbctAiFragment : Fragment() {
             val (list, summary) = AiEngine.recommend(h, AI_MIN_GAP_MM, AI_MAX_CANDIDATES)
             if (_binding == null) return@launch
             setBusy(false, null)
+            // D-19：setBusy(false, null) 只收进度条、不重写状态行；
+            // 这里不刷新就会一直停在「正在评估候选位点...」。
+            refreshStatus()
             if (list.isEmpty()) {
                 toast(summary.ifEmpty { "没有可用的缺牙间隙（牙数不足或间隙过小）" })
                 return@launch
